@@ -1,0 +1,1 @@
+"""The spine. Imports nothing from the app; imported by everything."""
