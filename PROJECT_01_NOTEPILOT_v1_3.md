@@ -1,0 +1,2633 @@
+# PROJECT 01 — NotePilot
+
+**A clinical-encounter → grounded, safety-checked SOAP summarizer.**
+Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
+**Spec version: v1.3** (design-room walkthrough, September 2026). Supersedes v1.2.
+
+> This document is the canonical build spec. It is the thing I build *against* and
+> the thing a reviewer could read to understand the entire system end to end.
+> Every field traces back to an origin; every check declares what it trusts; every
+> layer's async and schema story agrees with its neighbors'.
+>
+> *However long — I arrive. However broken — I forge. So I return, and begin.* 🧱
+
+---
+
+## v1.3 changelog (design-room walkthrough deltas)
+
+Severity uses the project's own triage enum. `L#` is the walkthrough ledger id; each delta
+names the section it lands in. Theme of this pass: **v1.1 fixed the scoring; v1.2 fixed
+what the checks can see; v1.3 fixes what the checks *assume* — where a danger comes from,
+what the model is allowed to omit, and which question a test is actually asking.**
+
+**DECISIONS (vetoable, like every D)**
+- **D7 — the model is a scribe, not a consultant (§5.3).** Assessment records only what the
+  clinician stated, certainty verbatim; a patient's self-diagnosis is Subjective; an empty A
+  is a valid note. Reasons: authorship, product category (documentation, not decision
+  support), and a prompt that no longer contradicts itself.
+- **D8 — the judge stays, reframed as entailment (§8.2).** `text_entailment_judge`: is each
+  claim's text entailed by its source span? One batched call, WARNING, behind an injected
+  `Judge` protocol. v1.2's showcase ("BP 190/110 → hypertensive urgency") is now a
+  detection trap, not sound inference.
+- **D9 — cross-reactivity is keyed on the R1 side chain (§7).** The evidence the table cites
+  is side-chain-level; now the table is too.
+- **D10 — a dropped NKDA is a WARNING (§8.4).** Undocumented status prompts a re-ask; it is
+  not a missed allergy. NKA ≠ NKDA in the lexicon.
+- **D11 — corpus repeats (§8.7).** `corpus_repeats` (default 3), per-case pass fraction,
+  flaky cases named, n and k beside every number.
+- **D12 — `diagnosis_in_quote` ships (§8.4).** After D7 an invented assessment is a
+  fabrication, and the judge can't gate a CRITICAL (inv. 7) — so a deterministic backstop.
+  Certainty upgrade = CRITICAL, downgrade = WARNING.
+- **D13 — `med_status_consistency` ships (§8.4).** Presence belongs to `drug_in_quote`;
+  active-vs-stopped belongs to this check. One error, one finding.
+- **D14 — the unspecified penicillin allergy, and reaction type (§7, §8.8).** "PCN allergy":
+  penicillins CRITICAL, every cephalosporin WARNING ("specify to refine"). Reaction type is
+  not extracted in v1 — a stated limitation.
+- **D15 — `quote_informativeness` ships (§8.4).** A deterministic floor under the judge for
+  degenerate quotes; lexicon entities count as informative ("NKDA").
+- **D16 — one planted danger per trap (§8.5).** An authoring rule instead of an `about`
+  field; the residual gap is stated in §8.8; `about` → backlog.
+- **D17 — the omission law (§8.4; CLAUDE.md inv. 17).** Every CRITICAL check states, per
+  input, what happens when the model omits it; an omission that silences the check is
+  covered by another live check or declared a CI-only gap.
+
+**CRITICAL**
+- **§8.5, §4.2, §11 — injected-draft cases (L42).** v1.2 asked raw text to make a good model
+  fabricate on cue; at `temperature=0` it mostly won't, so every fabrication trap would fail
+  nearly every run. `EvalCase.draft` injects the planted mistake, skips the model, and runs
+  free on every commit. The paid corpus now measures only model behavior.
+- **§8.7, §4.2 — an error never satisfies an expectation (L43).** A crashed expected check
+  was `passed=False`, therefore *fired*: the showpiece trap passed on a crash.
+  `EvalResult.errored` replaces the magic `detail="check_error"`.
+- **§6.4, §8.4 — consistency checks compare against the source span, not the model's quote
+  (L35).** A Tier 3 quote could smuggle a swapped drug or a flipped "denies" under a yellow
+  badge. `claim.text` vs `raw_text[source_span]`.
+- **§7, §8.4 — the same-drug allergy was invisible (L30).** Allergens were matched as named
+  against a class-keyed table: "allergic to amoxicillin" + amoxicillin passed. Allergens now
+  normalize like drugs, and the check resolves drug → class → R1.
+- **§8.4 — the contraindication survives the model dropping the drug (L51).** Drugs are read
+  from the note ∪ `new_prescriptions(raw)`; a raw-only finding goes to the banner.
+
+**WARNING**
+- **§2, §4.2, §8.7, §17 — four metrics, never one (L3).** Detection recall, control
+  specificity, model fidelity, fidelity caught. `pass_rate` is kept and never quoted alone.
+- **§5.3 — never omit safety-critical facts (L50); D7's Assessment definition (L20).**
+- **§5.4, §9.4 — the orchestrator boundary (L12, L13, L14).** The `try` wraps
+  `model_validate` only; usage is summed across attempts, with `validation_attempts`;
+  truncation on an input the route already accepted is `OutputTruncatedError` → 502, not 422.
+- **§4.1 — D6 is enforced, not promised (L6).** Frozen `ClinicalClaim` / `SOAPNote`; flags
+  and claims are tuples.
+- **§4.2, §8.2, §9.5 — judge tokens have a write path (L7):** `EvalReport.judge_usage`.
+- **§0, §13, CLAUDE.md inv. 1 — domain vs edge (L17).** The orchestrator and the judge
+  client are edge adapters; evals call a `Judge` protocol, never the vendor format.
+- **§6.2 — the index map survives Unicode (L26);** µ/μ folded. **§6.3 — Tier 3 runs in
+  normalized space (L27).**
+- **§7 — negation has a scope rule (L31),** and finding cues are split from
+  medication-status cues. **`new_prescriptions` (L41)** powers live
+  `new_prescription_preserved` (WARNING) and L51.
+- **§8.4 — polarity in the reference checks (L36);** contraindication findings carry the
+  allergy claim's id (L37).
+- **§8.7 — tri-state `case_verdict` with not-applicable cases (L44); `checks_version` +
+  `git_dirty` (L45); per-case catch parity and recorded all-failed runs (L46).**
+- **§8.5 — Assessment fixtures (L23):** invented-A trap, hedged-A and empty-A controls.
+- **§9.4, §9.8 — PHI-safe logs and error bodies (L53); LLM timeouts → 504 (L54); the spend
+  cap reserves before spending (L56).**
+- **§8.4, §10 — an empty note from clinical input is not green (L55).**
+- **§9.5 — production lineage parity (L57).**
+- **§5.2, §10 — `max_validation_retries` (L5).** Validation retries are ours; transport
+  retries are the SDK's. Two loops, two names.
+- **§14 — phase 2 split into 2a / 2b / 2c (L59); CI from phase 1 (L60); every phase has exit
+  criteria (L61).**
+
+**INFO**
+- L1 §1 v1 is a review surface · L2 §1 unsourced market figure cut · L4 §3 principle 6
+  named · L8 §4.1 `grounding_score` kept on near-misses · L9/L10 §4.2 explicit `species`,
+  typed `must_not_add` · L11 §4.2 every `RunMetadata` field has a producer · L15 §5.4
+  `PROMPT_VERSION` hashes the full call config · L16 §5.2 derived `max_output_tokens`
+  validated at boot · L19 §5.5 the client is a `Protocol` · L24 §9.10 empty A renders ·
+  L25 §4.1 quote stripped at the boundary · L29 §0 diagram fixed · L33 §7 parsed doses,
+  multi-valued extractors · L38 §8.7 downgrade-only severity enforced · L40 §8.2 judge
+  batched · L49 §8.6/§8.7 orphan tier entry removed, judge is a parameter · L58
+  §9.8/§9.10 proxy headers, new UI states, edge-shape sanction · L62 §11 property tests
+  restated · L63 §16 "Arc" vs "Phase" · L64 §17 DoD contradiction fixed.
+
+**Found while drafting v1.3**
+- **L65 (INFO) §7, §13:** `extract.py` necessarily imports `lexicons.py`; v1.2 said it
+  "imports nothing." Now: `extract.py` imports only `lexicons.py`, and `lexicons.py`
+  imports nothing — severities are stored as strings, so `clinical/` never imports the spine.
+- **L66 (INFO) §8.5:** `detect_vital_drift` expected no eval check — it tests grounding's
+  numeric guard. Moved to `tests/test_grounding.py`.
+- **L67 (INFO) §7:** `ALLERGY_CLASSES` (class → members) and `DRUG_CLASSES` (member → class)
+  were two encodings of one relation, free to disagree. One map: `DRUG_CLASS`.
+
+---
+
+## v1.2 changelog (second adversarial review deltas)
+
+Severity uses the project's own triage enum. Each delta names the section it lands in.
+Theme of this pass: **v1.1 fixed the scoring; v1.2 fixes what the checks can see.**
+
+**CRITICAL**
+- **§8.4, §8.5 — the reference-based checks now exist.** `must_preserve` /
+  `must_not_add` had no consumer; the registry's `requires_reference` bit had zero
+  members; omission — "the most dangerous error" — had no check. `check_must_preserve`
+  and `check_must_not_add` specified. `must_preserve` entries are now typed
+  (`PreserveItem`, DECISION D4) so a dropped allergy is CRITICAL and a dropped dose is
+  WARNING.
+- **§6, §7, §8.4 — the text-vs-quote gap closed.** Grounding proved the *quote* exists,
+  not that the claim's *text* follows from it: `text="start amoxicillin"` /
+  `quote="start antibiotics"` grounded clean at Tier 1. Same hole hosted negation flip
+  and dose mismatch (listed in §8.6, never specified). New family of **claim-local
+  consistency checks** — drugs, doses, and negated terms in `claim.text` must appear
+  with the same value/polarity in `claim.source_quote`. The §7 primitives now operate
+  on plain strings so one function serves text, quote, and raw source alike.
+- **§6.3 — the empty quote no longer grounds clean.** `"abc".find("") == 0`: an empty
+  `source_quote` earned span `(0, 0)` and no flag. The §6.5 guard now sits *before*
+  Tier 1 in the code, and `ClaimDraft.source_quote` carries `min_length=1` so the
+  tool schema itself rejects it.
+- **§6.3 — fuzzy tier stops trusting numbers.** `"BP 130/110"` vs `"BP 190/110"`
+  scored ≥ 85 → a PARAPHRASED span on the wrong vital, yellow instead of red. Tier 3
+  now requires every digit token in the quote to appear verbatim in the aligned span,
+  else demotes to Tier 4.
+- **§7 — allergy-context exclusion.** "Allergic to penicillin" contains a drug name;
+  naive `extract_drugs` fed it to the contraindication check, which then fired on every
+  penicillin-allergic patient. Lexicon gains allergy-context cues as an exclusion class
+  beside negation cues. The clean control that catches this regression is in the corpus.
+- **§8.2, §8.7, §9.1 — the judge no longer breaks the engine.** `run_checks` was sync,
+  §9.2 called evals "CPU-bound, inline," and D2 put a model call inside evals.
+  `run_checks` is async; `Check` carries `severity` and `needs_client`; judge tokens
+  land in `RunMetadata`.
+- **§8.7 — fail closed on crashes.** One `OrchestratorError` aborted a whole corpus run
+  with no record; an empty corpus divided by zero; a check that raised 500'd a
+  production request. Per-case and per-check `try` boundaries; a crashed check is a
+  `passed=False` result (invariant 12, applied to exceptions).
+
+**WARNING**
+- **§4.1, §4.2, §7, §9.7 — findings can anchor to claims.** Grounding stamps
+  `ClinicalClaim.id`; `EvalResult.claim_ids`; extractors return mentions with their
+  claim id. The two UI render channels are now derivable from the contract.
+  DECISION D6: evals write to the *report*, never to `ClinicalClaim.flags`.
+- **§8.7 — one name per check.** `EvalResult.check` and `fn.__name__` disagreed.
+  `@register_check(name=, severity=)` stamps results; registry is a dict that rejects
+  duplicates; the corpus loader validates every `expected_flags` entry against it.
+- **§4.2, §5.4, §5.5, §8.7 — lineage can't lie.** `prompt_version` is a hash of the
+  system prompt + tool schema; `corpus_version` a hash of the cases dir; model id is a
+  dated snapshot; `CorpusRunRecord` gains `git_sha`, `judge_enabled`, token totals.
+  DECISION D5: the jsonl is committed from local runs; CI dispatch uploads an artifact.
+- **§8.7 — WARNING false positives are visible.** `CaseResult.unexpected_fired` (all
+  severities) added as a diagnostic; the verdict stays CRITICAL-scoped and now says so.
+- **§5.4 — retry policy made consistent.** Missing `tool_use` block now fails fast
+  (identical retry at `temperature=0` is the same wasted spend as `max_tokens`).
+  `max_tokens` coupled to `max_input_chars` in config (output copies input quotes).
+- **§5.4, §9.4 — honest HTTP codes.** `OrchestratorError` split: `InputTooLongError`
+  → 422, `ModelOutputError` → 502; upstream 429 → 503.
+- **§9.1, §9.6 — persistence plumbing.** `persist` opens its own session (FastAPI
+  ≥ 0.106 closes `yield` dependencies before background tasks run). Note `id` is
+  generated in the route and returned in the response.
+- **§9.8 — deployed-demo realities.** Rate limit + daily spend cap on `/summarize`;
+  PHI banner + `persist_enabled` flag; the live demo is not a PHI sink.
+- **§8.4 — allergy omission runs live.** `check_allergy_preserved` is reference-free:
+  `allergies(raw) − allergies(note)` is a high-trust derivation by §8.1's own rule.
+  `PENICILLIN_CLASS` → `ALLERGY_CLASSES` + `CROSS_REACTIVITY` with per-pair severity.
+- **§9.10 (new), §15 — frontend contract + product drift.** Span rendering rule,
+  UI states, `openapi-typescript`. Edit + sign-off persistence named in the backlog.
+
+**INFO**
+- **§6.3, §5.2 — magic numbers in spec code are `settings.*`.** Stated once, applied.
+- **§8.4 — contraindication check reports all violations,** not the first.
+- **§7 — lexicon classes are generic-only** post brand→generic normalization.
+- **§8.5, §17 — corpus format (YAML per case), N set, per-species floor, coverage test.**
+- **§8.7 — `score_corpus` runs cases concurrently** (`gather` + semaphore).
+- **§11 — property-based round-trip on the index map; tool-schema snapshot test.**
+- **§5.3 — prompt gaps closed** (contiguous span, shortest span, one fact per claim,
+  negation/NKDA verbatim). **§4.1 — `grounding_score`** on PARAPHRASED claims.
+- **§15 — prompt caching** added to the backlog. `timezone` import fixed.
+
+---
+
+## v1.1 changelog (adversarial review deltas)
+
+Severity uses the project's own triage enum. Each delta names the section it lands in.
+
+**CRITICAL**
+- **§8.7 — corpus scoring semantics fixed.** `score_corpus` scored detection-style traps
+  backwards: a fired CRITICAL flag (the pipeline *catching* the trap) counted as a case
+  failure. New per-case verdict `case_passed()` consumes `expected_flags` — the answer
+  key is now load-bearing, and clean controls get first-class false-positive accounting.
+- **§5.4 — retry loop API contract fixed.** The correction message after a failed
+  validation is now a `tool_result` block (`is_error=True`, referencing the
+  `tool_use_id`). The prior plain-text user message violated the API's tool_use →
+  tool_result pairing and would 400 on the first retry.
+- **§4.2 — `all_critical_passed` vacuous-truth guard.** `all()` over zero CRITICAL
+  results returned `True`; an unexamined note read as a safe note. Now requires at least
+  one CRITICAL result to report green.
+- **§8.4 — `EvalResult` instantiation fixed.** Pydantic models take keyword args only;
+  the positional example crashed as written.
+- **§5.4 — truncation + missing-tool-block handled.** `stop_reason == "max_tokens"` now
+  raises immediately (at `temperature=0`, retrying identical input reproduces identical
+  truncation — retries are wasted spend); an absent tool_use block retries instead of
+  raising `StopIteration`.
+
+**WARNING**
+- **§4.1 — spine flattened.** `section` was double-encoded (a field on every claim AND
+  four section-named lists — two encodings of one fact can disagree). Single encoding
+  now: flat `claims` list; the `section` field is the sole source of truth; display
+  groups via `by_section()`.
+- **§8.7 — corpus runs are now persisted** (`evals/runs/corpus_runs.jsonl`, one
+  `CorpusRunRecord` per run). The regression thesis has a queryable history for CI runs,
+  not just production notes.
+- **§3, §5.2 — determinism claim made honest.** `temperature=0` *minimizes variance*;
+  it does not guarantee bit-identical outputs from a served API. The eval design already
+  tolerates residual nondeterminism (pass-rates over a corpus, not golden-output diffs) —
+  the spec now claims exactly that, no more.
+- **§4.2, §5.4 — token usage captured.** `RunMetadata` carries
+  `input_tokens`/`output_tokens` from `resp.usage`; the model-choice story gains a
+  measured cost axis.
+- **§7, §8.6 — dose extraction scoped in** (DECISION D1, vetoable). The dose-mismatch
+  WARNING check had no extraction primitive; `extract_doses()` added as a
+  regex/deterministic primitive.
+- **§8.2, §14 — LLM-as-judge scoped** (DECISION D2, vetoable). One judge check
+  (`check_assessment_support_judge`, WARNING tier, config-gated) ships in build phase 2.
+- **§8.7 — check registry defined.** `evals/registry.py`: frozen `Check` dataclass +
+  `@register_check` decorator. Adding a safety check is a documented one-step operation.
+
+**INFO**
+- **§9.1, §9.6 — persist is a literal sink** via FastAPI `BackgroundTasks`.
+- **§9.5 — column renamed** `critical_passed` → `production_critical_passed` (per-note
+  production verdict ≠ CI corpus rate; the name now says which one it is).
+- **§9.8 — added:** CORS middleware, input max-length guard, logging/observability
+  paragraph, migrations decision (DECISION D3: `create_all` phases 1–2 → Alembic in
+  phase 3).
+- **§6.2 — normalizer now delivers the §6.5 promise** (smart quotes / en-dashes mapped
+  before comparison).
+- **§11, §13, §14, §17 — CI made real:** GitHub Actions workflow, badge in the DoD,
+  `pyproject.toml`/`uv.lock` shown in the tree (uv owns the env).
+- **§4.1 — `Field(default_factory=list)`** convention for mutable defaults.
+
+---
+
+## 0. How to read this
+
+The system is five layers plus a shared clinical module. Data flows in one direction:
+
+```
+raw paste ─► orchestrator ─► grounding ─► evals ─► API/persistence ─► UI
+             (LLM · edge)    (pure)       (pure + judge)  (FastAPI/PG · edge)  (React)
+                                            ▲       ▲
+         clinical/extract.py ───────────────┘       └─── Judge protocol ◄── judge_client.py (edge)
+         (shared by the eval checks — across claim text, source span, and raw text)
+```
+
+**Domain vs edge (v1.3, L17).** *Domain* modules — `schemas.py`, `grounding.py`,
+`clinical/`, `evals/` — know nothing about FastAPI, Postgres, or Anthropic. *Edge* modules
+— `orchestrator.py`, `judge_client.py`, `api.py`, `db.py` — are adapters: the only places a
+vendor's wire format may appear. Where the domain needs a network call (the judge), it
+declares a `Protocol` and an edge module implements it. v1.2's "the domain knows nothing
+about Anthropic" was false as written for the orchestrator and the judge; this is the true
+version.
+
+Read top to bottom: **principles → architecture → the data contract → each layer →
+cross-cutting concerns → tests → build order.** The data contract (§4) is the
+keystone; if you only internalize one section, internalize that one.
+
+---
+
+## 1. The product
+
+A clinician pastes a messy encounter — rough notes or a raw transcript — and gets back:
+
+1. a **clean, structured SOAP summary** (Subjective / Objective / Assessment / Plan),
+2. **every claim linked to the exact source text** it came from (hover → highlight), and
+3. an **automated safety pass** that flags anything dangerous — a dropped allergy, a
+   hallucinated medication, a claim the source doesn't support, a contraindication.
+
+They review, edit, sign off. That's the product. (v1.3, L1: v1 ships the *review*
+surface; edit and sign-off persistence are v2 — §9.10, §15.)
+
+It sits dead-center in the **ambient clinical documentation** category — one of the
+highest-velocity spaces in health AI. (v1.3, L2: v1.2's market figure was unsourced and is
+cut; any sizing number cites a primary source before it reaches the README.) The workflow
+is one only someone with clinical training frames correctly.
+
+It is a **documentation** product, not decision support: the model is a scribe, not a
+consultant (D7, §5.3). It records what the clinician said; it never adds a judgment of
+its own.
+
+---
+
+## 2. Why this project exists (the hiring thesis)
+
+This single project is designed to prove **three things at once**, which is why it
+replaces what would otherwise be two separate portfolio pieces:
+
+| It must prove… | …and it does so via |
+|---|---|
+| I can **engineer real systems** (bridges the no-CS-degree gap) | full-stack app, real DB, clean module boundaries, tests, a thin composition-root API |
+| I am **AI-engineer-coded** (the GenAI-SWE pattern) | structured LLM output, grounding, RAG cross-check, an eval harness, self-correction |
+| I have a **moat a generalist can't replicate** | clinical judgment rendered as executable safety logic |
+
+The moat is **not** the résumé line "ex-med-school." The moat is the eval layer (§8):
+a test suite only a clinician can author. The moat gets the interview; the plumbing
+(§9) gets me trusted.
+
+**The sentence this whole project earns me, said out loud in the room:**
+
+> "Every safety check is proven against injected traps on every commit, for free. Then
+> N synthetic encounters, each run k times against the real model, measure what the model
+> actually does: it preserves safety-critical facts in F% of fidelity traps, the pipeline
+> surfaces C% of planted source dangers, clean notes stay clean S% of the time — and when
+> the model does drop something, the live safety layer catches it X% of the time. When I
+> change a prompt or drop to a cheaper model, I re-run it against the persisted run history
+> and watch whether any of those four numbers regressed."
+
+(v1.3, L3: v1.2's sentence said "catches X% of CRITICAL safety violations," and no field
+computed it — `pass_rate` blended three species. The four numbers are `CorpusMetrics`,
+§4.2 / §8.7.)
+
+That last clause — **evals as regression tests for a stochastic system, with lineage** —
+is the frontier of production AI engineering.
+
+---
+
+## 3. North-star principles (the laws that recur in every layer)
+
+These are not style preferences. Each one prevents a specific class of bug, and their
+*consistency across all five layers* is itself the senior signal a reviewer reads.
+
+1. **Judgment to the model, mechanics to code.** The LLM decides *what* to extract and
+   *how* to bucket it. Deterministic code decides *where* it sits, *whether* it's valid,
+   and *whether* it's safe. Every time you ask the LLM to do something code does better
+   (count characters, find offsets, compare drug names), you add a failure mode for free.
+2. **Dependencies point inward, at the schema.** `schemas.py` imports nothing and is
+   imported by everything. The domain knows nothing about HTTP, Postgres, or Anthropic.
+   Side-effects live at the edges; the core stays pure.
+3. **Design for evaluability.** Shape the data so "is this output safe?" is a *function
+   you can run*, not a vibe you assert. `temperature=0` minimizes output variance — it
+   does not promise bit-identical replies from a served API — and the eval design
+   tolerates the residual nondeterminism *by construction*: pass-rates over a corpus,
+   never golden-output diffs. That tolerance is a design property, not an apology.
+4. **Failure-to-ground is a signal, not an error.** A fabricated claim is the thing this
+   product exists to catch. Flag it and continue; don't raise. (Contrast: an invalid
+   *schema* IS an error and DOES raise — knowing which is which is the whole skill.)
+5. **Scope discipline (watch the Volkswagen).** A V12 in a Volkswagen ships nothing.
+   Every "real-system" refinement that isn't load-bearing for the MVP goes in the v2
+   backlog (§15) — where it doubles as evidence I know the production-grade version and
+   *chose* scope deliberately.
+6. **Eliminate cheaply before judging expensively (v1.3, L4).** Every decision runs its
+   cheapest sufficient test first and escalates only what that test can't settle: exact
+   match before fuzzy (§6.1), deterministic checks before the judge (§8.2), injected drafts
+   before paid corpus runs (§8.5). v1.2 embodied this everywhere and named it nowhere — and
+   an unnamed principle is one a future edit breaks quietly.
+
+---
+
+## 4. The data contract — the spine ⭐ KEYSTONE
+
+A clinical claim is **not a sentence**. It is an object that carries its own provenance.
+The moment the summary is a block of text, citations die (nothing to point at), evals
+die (can't check a blob), and the safety pass dies (nothing to attach a flag to).
+**The structure *is* the product.**
+
+### 4.1 The draft → enriched lifecycle
+
+The atom changes shape as it moves through the system. The LLM emits a *draft*; grounding
+and evals *enrich* it. One model cannot be both the LLM contract and the enriched result —
+so the spine is a **family**, not a single class:
+
+```python
+from enum import Enum
+from typing import Annotated, Literal
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+Section = Literal["S", "O", "A", "P"]
+Quote = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+# --- what the LLM emits: the tool contract -----------------------------------
+class ClaimDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")   # v1.3: promoted from CLAUDE.md. An invented
+                                                #   field is a ValidationError → the §5.4
+                                                #   retry; additionalProperties:false tells
+                                                #   the model up front.
+    text: str = Field(min_length=1, description="One clinical fact.")
+    section: Section                  # the SINGLE encoding of section membership
+    source_quote: Quote = Field(description="Verbatim; one contiguous span of the input.")
+                                      # the LLM emits THIS, NOT an offset (models can't
+                                      # count chars). v1.3 (L25): stripped at the boundary,
+                                      # so "" AND "   " fail validation → retry.
+
+class SOAPNoteDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    claims: list[ClaimDraft]          # flat. section lives on the claim, nowhere else.
+
+# --- what grounding produces: the internal + response source of truth ---------
+class SafetyFlag(str, Enum):
+    UNSUPPORTED  = "unsupported"      # quote grounds nowhere → likely fabrication
+    PARAPHRASED  = "paraphrased"      # matched only fuzzily → drifted, low confidence
+
+class ClinicalClaim(ClaimDraft):                           # inherits the draft fields
+    model_config = ConfigDict(extra="forbid", frozen=True) # v1.3 (L6): D6, enforced
+    id: int                                                # position in note.claims, stamped
+                                                           #   by grounding — the anchor
+                                                           #   every finding hangs on
+    source_span: tuple[int, int] | None = None             # None = grounds nowhere
+    grounding_score: float | None = None                   # the Tier 3 score whenever fuzzy
+                                                           #   matching was evaluated — incl.
+                                                           #   Tier 4 near-misses and numeric
+                                                           #   demotions (v1.3, L8). None for
+                                                           #   the exact tiers.
+    flags: tuple[SafetyFlag, ...] = ()                     # grounding's ONLY (D6). A tuple,
+                                                           #   so nothing downstream can
+                                                           #   append to it.
+
+class SOAPNote(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    claims: tuple[ClinicalClaim, ...]
+
+    def by_section(self, section: Section) -> list[ClinicalClaim]:
+        """Display-time grouping. Section is a rendering concern, not a storage one."""
+        return [c for c in self.claims if c.section == section]
+```
+
+**Field descriptions are structural, never clinical (v1.3, promoted from CLAUDE.md).** The
+tool schema is prompt the model reads, so descriptions say *shape* — verbatim, contiguous,
+one fact. Clinical rules (negation, certainty, allergies, D7) live in the system prompt
+(§5.3). Both are covered by `PROMPT_VERSION` (§5.4), so edits are versioned automatically.
+
+**DECISION D6 (v1.2, enforced v1.3) — flag ownership is a write boundary.**
+`ClinicalClaim.flags` is grounding's, full stop. Evals never mutate a claim; they emit
+`EvalResult`s that *reference* claims by `id` (`claim_ids`, §4.2). Two reasons: (1) the
+enriched note is persisted and returned as-is — if evals also wrote to it, "what did
+grounding say?" would be unrecoverable after the fact; (2) an eval finding can involve
+several claims at once (an allergy claim *and* a prescription claim), which a per-claim flag
+list can't express. The UI joins the two by `id` (§9.7, §9.10).
+
+v1.2 called this "a write boundary, not just a naming convention" — and enforced nothing:
+Pydantic models are mutable by default, so `claim.flags.append(...)` inside a check passed
+every test. v1.3 (L6): `frozen=True` blocks attribute assignment, and `tuple` blocks
+in-place mutation (`frozen` alone does not — a frozen model's list is still a list). "`id`
+is stable because the note is immutable" is now true by construction.
+
+**Why a family and not one model with optional fields (made explicit, v1.3).** A single
+`Claim` carrying `source_span = None` and `flags = []` would (1) put `source_span` and
+`flags` into the tool schema — inviting the model to emit offsets it can't count and to
+vouch for itself with `flags: []` (and `extra="forbid"` can't help: those fields are
+*declared*); and (2) make `source_span=None, flags=[]` mean "grounding never ran," with
+nothing to distinguish it from a clean claim — a refactor that skipped `ground()` would
+render every claim clean, which is invariant 12's failure at the type level. With the
+family, `SOAPNote` requires `ClinicalClaim`, which requires `id`: a pipeline that skips
+grounding cannot construct its return type. Illegal states, unrepresentable.
+
+**Why flat (v1.1):** the prior shape carried `section` on every claim AND sorted claims
+into four section-named lists — two encodings of one fact, and two encodings can
+disagree (a claim with `section="P"` sitting in the `subjective` list was
+representable, with no defined winner). One encoding, zero validators defending a
+redundancy. Bonuses: the tool schema the model must satisfy gets simpler, the
+degenerate empty note is one empty list, and §8.3's "iterate every claim" is just
+`note.claims` — the whole-note safety law is now the *path of least resistance*
+instead of a discipline.
+
+**The honest one-spine claim:** *one schema family with a draft-to-enriched lifecycle —
+the draft is the model contract, the enriched is the source of truth for citations,
+persistence, and the API.* (Knowing an object's shape changes as it moves through a
+system is a more senior thing to say than "one model, six jobs.")
+
+### 4.2 The eval + run types
+
+```python
+from datetime import datetime
+from pydantic import model_validator
+
+class Severity(str, Enum):
+    CRITICAL = "critical"    # patient-harm potential
+    WARNING  = "warning"
+    INFO     = "info"
+
+class TokenUsage(BaseModel):                # v1.3: one shape for every cost number
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+        return TokenUsage(input_tokens=self.input_tokens + other.input_tokens,
+                          output_tokens=self.output_tokens + other.output_tokens)
+
+class EvalResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    check: str                              # stamped by @register_check (§8.7) — the
+    severity: Severity                      #   check function never spells these itself
+    passed: bool
+    errored: bool = False                   # v1.3 (L43): the check crashed or timed out.
+                                            #   Replaces v1.2's magic detail="check_error".
+                                            #   Never passed; never satisfies an expected
+                                            #   flag (§8.7).
+    detail: str = ""
+    claim_ids: tuple[int, ...] = ()         # which claims this finding is about.
+                                            # () = note-level → the banner channel (§9.7).
+
+    @model_validator(mode="after")
+    def _errored_never_passes(self) -> "EvalResult":
+        if self.errored and self.passed:
+            raise ValueError("an errored check cannot pass")
+        return self
+
+class EvalReport(BaseModel):
+    results: list[EvalResult]
+    checks_run: frozenset[str]              # v1.3 (L44): what was SELECTED — lets the
+                                            #   verdict tell "didn't fire" from "didn't run"
+    checks_version: str                     # v1.3 (L45, L57): hash of the check code (§8.7)
+    judge_usage: TokenUsage = Field(default_factory=TokenUsage)
+                                            # v1.3 (L7): the judge's cost finally has a home.
+                                            #   v1.2 declared RunMetadata.judge_* fields that
+                                            #   nothing could ever write to.
+
+    @property
+    def critical_results(self) -> list[EvalResult]:
+        return [r for r in self.results if r.severity is Severity.CRITICAL]
+
+    @property
+    def all_critical_passed(self) -> bool:
+        crits = self.critical_results
+        return bool(crits) and all(r.passed for r in crits)
+        # bool(crits) is the vacuous-truth guard: all() over an empty list is True, and
+        # "no CRITICAL check ran" must NEVER render as "safe". An errored CRITICAL has
+        # passed=False, so a crash turns the note red (invariant 12).
+
+PreserveKind = Literal["allergy", "medication", "dose", "finding", "diagnosis"]
+
+class PreserveItem(BaseModel):              # DECISION D4: a typed expectation.
+    text: str                               # the thing that must survive, e.g. "penicillin"
+    kind: PreserveKind                      # severity follows kind (§8.6): dose → WARNING,
+                                            #   everything else → CRITICAL
+    present: bool = True                    # v1.3 (L36): findings carry polarity. "denies
+                                            #   chest pain" is preserved as present=False; a
+                                            #   note that flips it has NOT preserved it.
+
+NotAddKind = Literal["medication", "finding", "diagnosis"]
+
+class NotAddItem(BaseModel):                # v1.3 (L10): typed, like its mirror
+    text: str
+    kind: NotAddKind                        # routes to ONE extractor; findings match POSITIVE
+                                            #   polarity only (L36) — a faithful "denies chest
+                                            #   pain" is not an invented chest pain
+
+Species = Literal["fidelity", "detection", "control"]
+
+class EvalCase(BaseModel):                  # a synthetic fixture (zero real PHI)
+    id: str
+    species: Species                        # v1.3 (L9): the author's intent, explicit
+    raw_text: str
+    draft: SOAPNoteDraft | None = None      # v1.3 (L42): an INJECTED case. The runner skips
+                                            #   the model and grounds + checks this draft —
+                                            #   deterministic, free, every commit (§8.5).
+    trap: str | None                        # what's deliberately dangerous (None = control)
+    must_preserve: list[PreserveItem] = Field(default_factory=list)
+    must_not_add: list[NotAddItem] = Field(default_factory=list)
+    expected_flags: list[str] = Field(default_factory=list)
+                                            # checks that SHOULD fire — consumed by
+                                            # case_verdict() (§8.7); validated against the
+                                            # registry at load (§8.5)
+
+    @model_validator(mode="after")
+    def _species_matches_answer_key(self) -> "EvalCase":
+        if (self.species == "detection") != bool(self.expected_flags):
+            raise ValueError("detection traps, and only they, carry expected_flags")
+        if (self.species == "control") != (self.trap is None):
+            raise ValueError("controls, and only they, have trap=None")
+        if self.species == "fidelity" and self.draft is not None:
+            raise ValueError("a fidelity trap tests the MODEL; it cannot inject a draft")
+        return self
+
+class RunMetadata(BaseModel):               # threaded out of the orchestrator
+    model: str                              # a DATED snapshot id, never an alias (§5.5)
+    prompt_version: str                     # hash of the full call config (§5.4)
+    usage: TokenUsage                       # v1.3 (L13): summed across ALL validation
+    validation_attempts: int                #   attempts — a model that needs three tries
+                                            #   must not look as cheap as one that needs one
+    # v1.3 (L11): corpus_version and judge_* are gone from here. A per-run fact (the corpus)
+    # lives on CorpusRunRecord; the judge's usage lives on EvalReport. Every field on this
+    # model has a producer in phase 1.
+
+class SummarizationResult(BaseModel):
+    draft: SOAPNoteDraft
+    metadata: RunMetadata
+
+# --- corpus run lineage — the CI half of the regression thesis ----------------
+CaseStatus = Literal["passed", "failed", "not_applicable"]
+
+class CaseResult(BaseModel):                # ONE (case, repeat) pair
+    case_id: str
+    repeat: int                             # D11: 0 … corpus_repeats-1
+    species: Species
+    status: CaseStatus                      # v1.3 (L44): not_applicable = an expected check
+                                            #   wasn't selected this run (e.g. judge off)
+    fired_checks: list[str]                 # fired (passed=False) and NOT errored
+    missing_expected: list[str]             # expected_flags that did NOT fire
+    unexpected_fired: list[str]             # fired but not expected, ALL severities — a
+                                            #   diagnostic, not a gate
+    errored_checks: list[str] = Field(default_factory=list)   # v1.3 (L43)
+    error: str | None = None                # pipeline failure CODE — never a message (L53)
+
+class CorpusMetrics(BaseModel):             # v1.3 (L3): four numbers, never one
+    detection_recall: float | None          # detection repeats passed / applicable
+    control_specificity: float | None       # control repeats passed / applicable
+    model_fidelity: float | None            # fidelity repeats passed / applicable
+    fidelity_caught: float | None           # of fidelity repeats that FAILED without a
+                                            #   pipeline error, the fraction where a LIVE
+                                            #   (reference-free) check fired
+    pass_rate: float                        # kept for continuity; never quoted alone
+    flaky_cases: list[str]                  # D11: pass fraction strictly between 0 and 1
+    # None, not 1.0, over an empty denominator — a vacuous metric is not a perfect one.
+
+class CorpusRunRecord(BaseModel):
+    ran_at: datetime
+    git_sha: str
+    git_dirty: bool                         # v1.3 (L45): D5 runs on uncommitted code by
+                                            #   design — the record says so
+    model: str
+    prompt_version: str
+    corpus_version: str
+    checks_version: str                     # v1.3 (L45): a lexicon edit changes verdicts;
+                                            #   now it changes the lineage too
+    judge_enabled: bool
+    repeats: int                            # D11
+    n_cases: int                            # distinct MODEL cases (injected ones are pytest's)
+    metrics: CorpusMetrics
+    usage: TokenUsage                       # summarize, incl. failed attempts (L13, L49)
+    judge_usage: TokenUsage                 # kept separate — the split IS the cost story
+    cases: list[CaseResult]                 # n_cases × repeats rows: debug regressions,
+                                            #   don't just watch a number move
+```
+
+---
+
+## 5. Layer 1 — Orchestrator
+
+**Job:** `summarize(raw_text) -> SummarizationResult`. Raw mess in, validated draft (+ run
+metadata) out. Everything downstream assumes this hands over a clean, schema-valid object.
+
+### 5.1 Getting structure out of the model: tool use (not "respond in JSON")
+
+The spectrum, worst → best: prompt-for-JSON + `json.loads` (fragile to fences, preambles,
+trailing commas) → assistant prefill → **tool use (function calling)**. With tool use, the
+tool's input schema *is* our draft schema, and we force the call:
+
+```python
+SUMMARY_TOOL = {
+    "name": "emit_soap_note",
+    "description": "Return the structured SOAP summary of the encounter.",
+    "input_schema": SOAPNoteDraft.model_json_schema(),   # the spine becomes the contract
+}
+```
+
+### 5.2 The call (async, low-variance, forced)
+
+```python
+CALL_CONFIG = {                                          # v1.3 (L15): everything that shapes
+    "temperature": 0,                                    #   the output, in one place — hashed
+    "tool_choice": {"type": "tool", "name": "emit_soap_note"},   # into PROMPT_VERSION (§5.4)
+    "max_tokens": settings.max_output_tokens,
+}
+
+resp = await client.messages.create(
+    model=settings.model,                                # dated snapshot id (§5.5)
+    system=SYSTEM_PROMPT,
+    tools=[SUMMARY_TOOL],
+    messages=messages,
+    **CALL_CONFIG,
+)
+```
+
+- **`temperature=0`** minimizes variance so the eval suite sees stable-enough outputs; the
+  corpus design (§8.7) — now with repeats (D11) — absorbs what variance remains.
+- **forced `tool_choice`** means the model must populate the structure; it can't wander
+  into prose.
+- **async** (`AsyncAnthropic`): the LLM call is the one genuinely I/O-bound, seconds-long
+  step in the system. (The route in §9 awaits this.)
+- **`max_output_tokens` is derived from `max_input_chars`.** The output is mostly *copies of
+  the input* (every `source_quote` is a verbatim span), so output size scales with input
+  size; `config.py` derives one from the other (`≈ max_input_chars / 2`, tunable). Two knobs
+  that must move together are one knob. **v1.3 (L16):** the derived value is validated
+  against the model's output ceiling *at boot* — raising `max_input_chars` past what the
+  model can emit fails at startup, not per request.
+- **Timeouts and transport retries are explicit (v1.3, L54, L5).** The client is built once
+  as `AsyncAnthropic(timeout=settings.llm_timeout_s,
+  max_retries=settings.sdk_transport_retries)`. The SDK's default timeout is measured in
+  minutes — a hung upstream call would hold a worker that long; a timeout now maps to 504
+  (§9.4). The SDK's `max_retries` retries *transport* failures (429, 5xx) with backoff, and
+  an identical request is correct there: the failure is about load, not content. That is a
+  different loop from §5.4's *validation* retries, and v1.3 gives the two different names
+  so nobody "enforces" invariant 16 by zeroing the wrong one.
+
+### 5.3 The system prompt — where the moat first appears in code
+
+A generalist writes "summarize this into SOAP." The clinical version (v1.3):
+
+```
+You are a clinical documentation assistant. You are a scribe, not a consultant:
+you record what the encounter says, and you never add clinical judgment of your
+own. Convert the encounter into a SOAP note by calling emit_soap_note.
+
+RULES
+• Every claim MUST include a verbatim source_quote copied exactly from the input.
+  If you cannot quote it, do not include the claim.
+• Each source_quote is ONE contiguous span of the input. Never stitch two
+  passages together. Prefer the shortest span that fully supports the claim.
+• One clinical fact per claim. "Started amoxicillin 500 mg TID for 10 days" is
+  one claim; "started amoxicillin, follow up in 2 weeks, denies fever" is three.
+• Never infer, assume, or add facts not present in the source.
+• Preserve negation and absence exactly as written: "denies", "no", "NKDA",
+  "discontinued". A negated finding is a finding; do not drop it and do not
+  flip it.
+• Preserve certainty exactly as written: "likely", "possible", "r/o", "vs",
+  "consistent with". Never turn a hedged statement into a definite one.
+• When uncertain, OMIT — except safety-critical facts, which are ALWAYS carried
+  forward: allergies and NKDA, and every medication started, stopped, or
+  changed at this visit. Omitting a dangerous fact does not make a note safer;
+  it hides the danger from the person signing it.
+
+SECTIONS (set each claim's `section` field)
+• S — Subjective: what the patient reports (symptoms, history, complaints),
+  including the patient's own guesses about what is wrong.
+• O — Objective:  measurable findings (vitals, exam, labs)
+• A — Assessment: diagnoses or clinical impressions THE CLINICIAN stated,
+  including differentials, with their stated certainty. Never generate an
+  assessment the clinician did not state. If none was stated, emit no A claims.
+• P — Plan:       orders, medications, follow-up
+```
+
+"Omit when uncertain" is a **clinical safety stance**: a missing line is recoverable; an
+invented medication is a patient-safety event. **v1.3 (L50) draws its boundary:** it is safe
+for *uncertain* content and never for *safety-critical* content. A dropped contraindicated
+prescription is not caution — the clinician signs a note that looks clean while the order
+goes through. Allergies had this exception in v1.2; medications started, stopped, or
+changed now do too, and §8.4 backs the rule with live checks. The S/O/A/P definitions
+encode what actually belongs where — a non-clinician gets the Assessment-vs-Plan boundary
+subtly wrong and never knows.
+
+**DECISION D7 (v1.3, vetoable) — the model is a scribe, not a consultant.** v1.2's prompt
+said "never infer" *and* defined A as "clinical interpretation" — and §8.2's judge existed
+to adjudicate inferred assessments. The contradiction resolves toward clinician-stated
+only, for three reasons. **Authorship:** the clinician signs the note; an assessment they
+never made becomes their diagnosis on record, then the problem list, then billing, then the
+next clinician's anchor — and automation bias means it gets approved at sign-off.
+**Product category:** summarizing what the clinician said is documentation; generating
+diagnoses is clinical decision support — a different product under different scrutiny.
+**Consistency:** "never infer" and "omit when uncertain" become true without exceptions.
+Three sharpenings ride along: *stated*, not *written* (transcripts speak their
+assessments); a patient's self-diagnosis is S, not A; and **certainty is clinical
+information exactly as negation is** — "r/o PE" → "PE" is a flip on a different axis. An
+empty A is a valid, faithful note (§9.10 renders it as such).
+
+**v1.2 additions, each aimed at a downstream layer:** *contiguous, shortest span* is for
+grounding (a stitched quote can only ever reach Tier 3 or 4, so it manufactures PARAPHRASED
+noise); *one fact per claim* is for extraction and anchoring (a paragraph-sized claim makes
+`claim_ids` useless and lets a bad drug hide behind three good ones); *negation verbatim*
+and *allergies always* are for the checks — the prompt tries to pass the fidelity traps on
+purpose, and the checks exist for when it doesn't. Prompt-level behavior and check-level
+detection are two layers, not one.
+
+### 5.4 The boundary: validate, and self-correct
+
+Tool use *steers* but does not *guarantee*. Validate at the boundary; on failure, hand the
+model its own error and let it fix itself (graceful degradation around a stochastic
+component — a pattern almost no pivoter portfolio shows).
+
+**The API contract this loop must honor (v1.1):** once an assistant turn contains a
+`tool_use` block, the next user message **must** answer it with a `tool_result` block
+referencing the same `tool_use_id` — a plain-text correction 400s. So the validation error
+travels back **through the tool-result channel**, marked `is_error=True`:
+
+```
+user:      raw_text
+assistant: [tool_use     id=tu_1           {…invalid…}]
+user:      [tool_result  tool_use_id=tu_1  is_error=True  "Validation failed: …"]
+assistant: [tool_use     id=tu_2           {…}]
+```
+
+```python
+import hashlib, json
+
+class OrchestratorError(Exception):
+    """Base: the orchestrator could not hand over a valid draft."""
+    code = "orchestrator_error"
+
+    def __init__(self, msg: str, *, usage: TokenUsage):
+        super().__init__(msg)
+        self.usage = usage                  # v1.3 (L49): failed calls cost money too
+
+class ModelOutputError(OrchestratorError):
+    """The model is the problem (no block / invalid after retries) → 502."""
+    code = "model_output_invalid"
+
+class OutputTruncatedError(ModelOutputError):
+    """stop_reason == "max_tokens" on an input the route ALREADY accepted (§9.1). v1.3 (L14):
+    v1.2 called this InputTooLongError → 422, blaming the client for an input that passed
+    our own guard. The fault is the output/input ratio in config, or model verbosity → 502."""
+    code = "output_truncated"
+
+CORRECTION_TEMPLATE = (
+    "Validation failed: {errors}. "
+    "Call emit_soap_note again with input that satisfies the schema."
+)
+
+# The version is DERIVED, not declared (invariant 15). v1.3 (L15): v1.2 hashed the prompt
+# and the tool schema but not the retry text or the call parameters — both shape the
+# output. Everything the model is conditioned on is in the hash; the model id is its own
+# lineage field.
+PROMPT_VERSION = hashlib.sha256(json.dumps({
+    "system": SYSTEM_PROMPT, "tool": SUMMARY_TOOL,
+    "correction": CORRECTION_TEMPLATE, "call": CALL_CONFIG,
+}, sort_keys=True).encode()).hexdigest()[:12]
+
+async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
+    messages: list[dict] = [{"role": "user", "content": raw_text}]
+    usage = TokenUsage()
+    last_error: ValidationError | None = None
+
+    for attempt in range(1, settings.max_validation_retries + 2):
+        resp = await client.messages.create(
+            model=settings.model, system=SYSTEM_PROMPT, tools=[SUMMARY_TOOL],
+            messages=messages, **CALL_CONFIG,
+        )
+        usage += TokenUsage(input_tokens=resp.usage.input_tokens,      # v1.3 (L13): every
+                            output_tokens=resp.usage.output_tokens)    #   attempt is paid for
+
+        if resp.stop_reason == "max_tokens":
+            # Identical request at temperature=0 → near-identical truncation. Fail fast.
+            raise OutputTruncatedError("output truncated at max_tokens", usage=usage)
+
+        tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
+        if tool_block is None:
+            # Nothing in `messages` changed → an identical non-answer. Fail fast.
+            raise ModelOutputError("no tool_use block under forced tool_choice", usage=usage)
+
+        try:
+            draft = SOAPNoteDraft.model_validate(tool_block.input)   # v1.3 (L12): the try
+        except ValidationError as e:                                 #   wraps THIS line only
+            # NOT an identical retry: the model now sees its own error. Worth spending.
+            last_error = e
+            messages += [
+                {"role": "assistant", "content": resp.content},
+                {"role": "user", "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": tool_block.id,
+                    "is_error": True,
+                    "content": CORRECTION_TEMPLATE.format(errors=e.errors(include_url=False)),
+                }]},
+            ]
+            continue
+
+        return SummarizationResult(                                  # outside the try: a bug
+            draft=draft,                                             #   building metadata is
+            metadata=RunMetadata(                                    #   OUR error — never fed
+                model=settings.model,                                #   back to the model as
+                prompt_version=PROMPT_VERSION,                       #   ITS mistake
+                usage=usage,
+                validation_attempts=attempt,
+            ),
+        )
+
+    raise ModelOutputError(
+        f"invalid after {settings.max_validation_retries + 1} attempts", usage=usage
+    ) from last_error
+```
+
+**Why the `try` is one line wide (v1.3, L12).** v1.2 wrapped `model_validate` *and* the
+construction of `SummarizationResult`/`RunMetadata`. If building the metadata ever raised a
+`ValidationError` (an SDK `usage` shape change, a new required field), the loop would tell
+the model it had made a mistake it didn't make, and pay to retry. Fault attribution is the
+whole point of this function; the `try` covers exactly the model's output.
+
+**The correction goes to the model, never to a log (v1.3, L53).** The model sees its own
+output echoed back in the validation errors — that's the point, and it's traffic to the
+same API that produced it. What must never carry that text is a log line or an HTTP body:
+handlers log `OrchestratorError` by `code` + request id without `exc_info`, and the `from`
+chain exists for tests and local debugging (§9.4, §9.8).
+
+The error-handling arc: EAFP at the boundary, an exception *hierarchy* that names the
+failure domain **and whose fault it is**, `raise … from` preserving the cause, and every
+failure carrying what it cost. The retry rule is one sentence: **retry only when the next
+request differs from the last one** (invariant 16). Truncation and a missing block don't
+change the request → fail fast. A validation error feeds the model its mistake → the
+request changed → retry. (Transport retries are the SDK's — §5.2, a different loop.)
+
+### 5.5 Seam & model choice
+
+- **`client` is injected, and typed (v1.3, L19).** `LLMClient` is a `typing.Protocol`
+  exposing `messages.create(**kwargs)`; the real `AsyncAnthropic` and the test fake both
+  satisfy it, so mypy checks the seam every test depends on. Tests pass a fake returning a
+  canned tool-use block: no network, no key, fast, deterministic.
+- **The orchestrator is an edge adapter (v1.3, L17).** It is one of two modules allowed to
+  speak Anthropic's message format (the other is `judge_client.py`, §8.2). Everything it
+  hands inward is a spine type.
+- **Model choice is eval-driven, not vibes — and costed.** Start on the cheap/fast (Haiku)
+  tier; run the corpus; if a smaller model holds the four metrics (§4.2), you've *earned*
+  the right to use it and can prove it. With `usage` summed across validation attempts
+  (L13) and the judge's usage kept separately (L7), the claim is *"Haiku holds the safety
+  metrics at a measured fraction of Sonnet's cost per note — including the retries it
+  needed."*
+- **`settings.model` is a dated snapshot id, never an alias.** An alias can resolve to
+  different weights next month with no diff in the repo — every `CorpusRunRecord.model`
+  would say the same thing while meaning different things. Upgrading the model is a
+  deliberate config change that shows up in `git log`, next to the corpus run that
+  justified it.
+
+---
+
+## 6. Layer 2 — Grounding
+
+**Job:** `ground(draft, raw_text) -> SOAPNote`. The orchestrator *claimed* every claim has
+a source; grounding **proves it** — with **zero LLM calls**, pure deterministic string
+work. It constructs the enriched `ClinicalClaim` for each `ClaimDraft`.
+
+### 6.1 The matching ladder ⭐ (the layer's keystone)
+
+`raw_text.find(quote)` alone is **wrong**: models normalize compulsively (expand `pt`→
+`patient`, fix typos, swap curly→straight quotes, collapse spaces), so an honest paraphrase
+returns −1 and gets screamed at as a hallucination. The central tension of the layer:
+**did the model paraphrase a real quote, or invent a fake one?** The ladder separates them:
+
+```
+Tier 0  empty quote                      ─► no span + UNSUPPORTED  (defense in depth)
+Tier 1  exact substring                  ─► span, no flag          (clean)
+Tier 2  normalized exact                 ─► span, no flag          (whitespace/case/quotes)
+Tier 3  fuzzy ≥ cutoff AND digits match  ─► span + PARAPHRASED     (low confidence)
+Tier 4  nothing survives                 ─► no span + UNSUPPORTED  (hallucination signal)
+```
+
+Tier 4 is the **first hallucination detector**, and it cost zero API calls. The ordering is
+principle 6: each tier runs only on what the cheaper tier above it couldn't settle.
+
+### 6.2 Offset mapping (mechanics → code)
+
+Normalizing to compare shifts every index, so a match in *normalized* space points to the
+wrong place in the *original*. Keep a map back to original coordinates:
+
+```
+original:    P  t  ␣  ␣  d  e  n  i  e  s  \t C  P
+orig idx:    0  1  2  3  4  5  6  7  8  9  10 11 12
+normalized:  p  t  ␣     d  e  n  i  e  s  ␣  c  p
+index_map:  [0, 1, 2,    4, 5, 6, 7, 8, 9, 10,11,12]     (orig idx 3 collapsed away)
+```
+
+```python
+PUNCT_MAP = {
+    "\u201c": '"', "\u201d": '"',    # curly double quotes
+    "\u2018": "'", "\u2019": "'",    # curly single quotes
+    "\u2013": "-", "\u2014": "-",    # en / em dash
+    "\u00b5": "\u03bc",              # v1.3 (L26): micro sign → Greek mu. Identical glyphs,
+}                                    #   different code points — and in "µg" a dose unit.
+
+@dataclass(frozen=True)
+class NormalizedText:
+    text: str
+    index_map: list[int]             # normalized index → original index
+
+    @classmethod
+    def of(cls, text: str) -> "NormalizedText":
+        """Lowercase + collapse whitespace + fold punctuation variants, keeping the map."""
+        out: list[str] = []
+        index_map: list[int] = []
+        prev_space = False
+        for i, ch in enumerate(text):
+            if ch.isspace():
+                if not prev_space:
+                    out.append(" "); index_map.append(i)
+                prev_space = True
+                continue
+            for c in PUNCT_MAP.get(ch, ch).lower():   # v1.3 (L26): lower() may return MORE
+                out.append(c); index_map.append(i)    #   than one char ("İ" → "i̇"); every
+            prev_space = False                        #   char it yields maps to the original
+        return cls("".join(out), index_map)
+
+    def to_original(self, n_start: int, n_end: int) -> tuple[int, int]:
+        """Half-open normalized [n_start, n_end) → half-open original span."""
+        return self.index_map[n_start], self.index_map[n_end - 1] + 1
+```
+
+**The off-by-one that lives in `to_original`:** the end is the *last matched character's*
+original index plus one — never `index_map[n_end]`, which may not exist and, when it does,
+points past collapsed whitespace:
+
+```
+find "denies cp" in normalized → [n_start=3, n_end=12)
+✓ (index_map[3], index_map[11] + 1) = (4, 13)    raw[4:13] == "denies\tCP"
+✗ (index_map[3], index_map[12])       → IndexError
+```
+
+**The v1.2 Unicode bug (v1.3, L26).** v1.2 appended `ch.lower()` as one character with one
+map entry. `"İ".lower()` is two code points, so `out` grew by two while `index_map` grew by
+one — every index after it silently wrong. The per-character loop fixes it; if a match ends
+inside a multi-character expansion, `to_original` still returns an end past the whole
+original character, which is the correct half-open span. §11's property test generates
+non-ASCII text so this can't regress.
+
+### 6.3 The ladder, assembled
+
+```python
+import re
+from rapidfuzz import fuzz
+
+_DIGITS = re.compile(r"\d+(?:[./]\d+)?")     # 120, 0.5, 190/110, 2.5
+
+def _numbers_match(quote: str, span_text: str) -> bool:
+    """Fuzzy is allowed to forgive letters, never digits.
+    Every numeric token in the quote must appear verbatim in the aligned span."""
+    span_nums = set(_DIGITS.findall(span_text))
+    return all(n in span_nums for n in _DIGITS.findall(quote))
+
+def ground_claim(draft: ClaimDraft, raw_text: str, norm: NormalizedText,
+                 *, claim_id: int) -> ClinicalClaim:
+    quote = draft.source_quote                   # stripped + non-empty at the boundary (L25)
+    base = draft.model_dump() | {"id": claim_id}
+
+    if not quote.strip():                                            # Tier 0 — for drafts
+        return ClinicalClaim(**base, flags=(SafetyFlag.UNSUPPORTED,))   #   built without
+                                                                        #   validation
+    idx = raw_text.find(quote)                                       # Tier 1
+    if idx != -1:
+        return ClinicalClaim(**base, source_span=(idx, idx + len(quote)))
+
+    nq = NormalizedText.of(quote).text
+    n_idx = norm.text.find(nq)                                       # Tier 2
+    if n_idx != -1:
+        return ClinicalClaim(**base, source_span=norm.to_original(n_idx, n_idx + len(nq)))
+
+    align = fuzz.partial_ratio_alignment(norm.text, nq)              # Tier 3 — in NORMALIZED
+    if align is not None and align.src_end > align.src_start:        #   space (v1.3, L27)
+        span = norm.to_original(align.src_start, align.src_end)
+        if (align.score >= settings.fuzzy_score_cutoff
+                and _numbers_match(quote, raw_text[span[0]:span[1]])):
+            return ClinicalClaim(**base, source_span=span, grounding_score=align.score,
+                                 flags=(SafetyFlag.PARAPHRASED,))
+        return ClinicalClaim(**base, grounding_score=align.score,    # Tier 4, score KEPT:
+                             flags=(SafetyFlag.UNSUPPORTED,))        #   near-misses and
+                                                                     #   numeric demotions are
+                                                                     #   the tuning data (L8)
+    return ClinicalClaim(**base, flags=(SafetyFlag.UNSUPPORTED,))    # Tier 4
+
+def ground(draft: SOAPNoteDraft, raw_text: str) -> SOAPNote:
+    norm = NormalizedText.of(raw_text)                               # once per note
+    return SOAPNote(claims=tuple(
+        ground_claim(c, raw_text, norm, claim_id=i) for i, c in enumerate(draft.claims)
+    ))
+```
+
+Spans are **half-open `[start, end)`** — same convention as Python slicing, so
+`raw_text[start:end]` returns the quote and a whole class of off-by-one bugs disappears
+(invariant 9).
+
+**Why Tier 3 moved into normalized space (v1.3, L27).** v1.2 ran fuzzy matching on the raw
+strings because rapidfuzz then returns original coordinates for free. The price: fuzzy
+scoring is case- and whitespace-sensitive, so a paraphrase that *also* changed
+capitalization lost points Tier 2 had already forgiven. Now both strings are normalized,
+aligned, and mapped back through the same `to_original` as Tier 2 — one mapping path, not
+two. A unit test pins which string's coordinates `src_start`/`src_end` refer to for this
+argument order; nobody's memory of the rapidfuzz API is trusted over a test.
+
+**Why the numeric guard is a clinical decision, not a string-matching one (v1.2):**
+`partial_ratio("BP 130/110", "BP 190/110")` scores in the high 80s. Letters are where models
+paraphrase (`pt` → `patient`); digits are where they *hallucinate* — a wrong vital, a wrong
+dose, a wrong date. For numbers, any difference *is* invention. The guard errs toward red:
+`5.0 mg` quoted as `5 mg` demotes to `UNSUPPORTED` even though the value is equal — the safe
+direction, and trailing zeros are on the do-not-use list anyway. The guard lives in
+grounding, not evals, because it decides the *tier* — whether the quote is real — and only
+grounding may write that (D6). Whether a claim's text agrees with a real span is evals'
+question (§6.4, §8.4).
+
+### 6.4 Errors-as-values, structural flags, and the eval handoff
+
+- Grounding **almost never raises.** An ungroundable claim is a *result*, not an error
+  (Principle 4, invariant 4). A smoke detector should not burst into flame.
+- Grounding owns only **structural / provenance** flags (`UNSUPPORTED`, `PARAPHRASED`) —
+  "did this come from the source at all?" The eval layer owns **clinical-semantic**
+  findings — "is this set of claims medically safe?"
+- **Explicit handoff (not coincidence):** the eval layer's `hallucinated_medication` check
+  **consumes** grounding's `UNSUPPORTED` flag rather than re-deriving it (invariant 6). Two
+  layers re-deriving the same fact can disagree; this can't.
+- **What grounding does NOT prove — the honest boundary:** grounding proves the *quote*
+  exists in the source. It says nothing about whether the claim's *text* follows from it.
+  `text="start amoxicillin"` / `quote="start antibiotics"` is a perfect Tier 1 match and a
+  fabricated drug. That question — is the text entailed? — belongs to evals (§8.4), because
+  answering it needs the clinical extractors, and grounding imports none of them
+  (invariant 14).
+- **The span is the ground truth handed to evals (v1.3, L35).** Once grounding has found a
+  span, *that* is what the source says; the `source_quote` is only what the model *claims*
+  it says. At Tiers 1–2 they are the same text. At Tier 3 they differ by definition — and a
+  long quote with one swapped drug name or one flipped "denies" can clear the fuzzy cutoff
+  with its digits intact. So every eval that asks "does the text agree with the source?"
+  compares `claim.text` against `raw_text[claim.source_span]`, never against the quote.
+  Responsibility partitions cleanly:
+
+  ```
+  source_span is None  → grounding's red badge + hallucinated_medication own it
+  source_span exists   → the consistency family compares text against the SPAN
+  ```
+
+- **The rule for which layer owns a check:** if it decides whether the quote is real, it's
+  grounding's; if it decides whether the claim is true to a real span, it's evals'. The
+  numeric guard is the first kind; `dose_consistency` is the second — which is why they
+  can't swap.
+
+### 6.5 Edge cases (bake into tests day one)
+
+- **Smart quotes / en-dashes / µ vs μ** — folded by `PUNCT_MAP` (§6.2); the tests assert it.
+- **Multi-character lowercase** (`"İ"`) — the per-character map loop (§6.2); the property
+  test generates non-ASCII text.
+- **Quote longer than any clean span** (model merged two sentences) — fuzzy catches partial,
+  flags low-confidence. The prompt asks for contiguous, shortest spans, so this should be
+  rare; the test stays because "should" is not a guarantee.
+- **Same quote appears twice** ("denies chest pain") — first-occurrence default; *know* you
+  chose it.
+- **Empty / whitespace-only quote** — the schema strips and requires length ≥ 1 (§4.1), so
+  `""` *and* `"   "` fail validation and trigger the §5.4 retry. (v1.2 described
+  `min_length=1` and the Tier 0 guard as two defenses against one input; they covered
+  different inputs — `"   "` passed `min_length=1`. v1.3, L25.) Tier 0 stays as defense in
+  depth for drafts constructed without validation.
+- **Fuzzy match with mismatched digits** — `"BP 190/110"` against a source that says
+  `"BP 130/110"` → `UNSUPPORTED`, not `PARAPHRASED`, with its `grounding_score` kept.
+- **Degenerate quote (v1.3, D15)** — `quote="the"` or `quote="pain"` is a clean Tier 1
+  match almost anywhere; "the quote exists" proves nothing when the quote says nothing.
+  Grounding is right to accept it (it *is* in the source); the finding belongs to evals:
+  `quote_informativeness` (§8.4), backed by the entailment judge.
+
+**Deliberate non-feature (v2):** locality-based duplicate resolution (pick the occurrence
+nearest where sibling claims matched). Real and satisfying; decorative before the pipeline
+runs end-to-end.
+
+### 6.6 Why this is secretly the interview flex
+
+Grounding has **no external dependencies** — most testable layer in the system. And it's
+genuinely **algorithmic** (substring search, normalization-with-index-mapping, fuzzy
+alignment, threshold tuning) — the algorithm-round content the hiring loop demands, sitting
+naturally inside the most AI-flavored project. A reviewer reads clean string-algorithm code
+*with tests* and concludes "can actually engineer," not just "can call an API."
+
+---
+
+## 7. Layer 3 — Clinical extraction (shared module)
+
+**`clinical/extract.py`** — the hardest hidden subproblem, depended on by the eval checks.
+Pulling a drug or allergy out of a free-text claim is its own little NLP task:
+
+- **brand → generic** normalization (Tylenol → acetaminophen) so a set-compare doesn't flag
+  a false hallucination — applied to **allergens too** (v1.3, L30): "Augmentin allergy" is
+  an amoxicillin-clavulanate allergy.
+- **scoped negation** ("denies chest pain" is NOT a positive symptom) — with a real scope
+  rule (v1.3, L31, below).
+- **medication status** ("discontinue lisinopril" is NOT an active prescription) — its own
+  lexicon class, separate from finding negation (L31), with its own extractor (D13).
+- **`NKDA`** is itself clinical information that must survive — and **NKA** (no known
+  allergies, including food and environmental) is a different fact (D10).
+- **allergy-context awareness (v1.2):** "allergic to penicillin" *mentions* a drug and
+  *prescribes* nothing. Without this exclusion `extract_drugs` hands "penicillin" to the
+  contraindication check, which then fires on every penicillin-allergic patient.
+- **certainty** ("likely", "r/o") on diagnoses (D12) — negation's sibling on another axis.
+
+**Who shares it (v1.3, L29).** v1.2's §0 diagram said extraction was "shared by grounding
++ evals." It isn't — grounding imports none of it, and the numeric guard is local regex.
+Extraction is shared along two *other* axes: across **three strings** (the same extractor
+runs over `claim.text`, the claim's source span, and `raw_text`, and the check compares),
+and across **two modes** (the live checks and the CI reference checks use the same
+primitives, so a fixture can't pass on a matching rule the product doesn't have, §8.4).
+
+**The primitives operate on plain strings (v1.2) and return multi-valued results
+(v1.3, L33).** v1.2's `dict[str, str]` doses and `dict[str, bool]` findings collapsed a
+titration ("250 mg, then 500 mg") and a mixed finding ("denies chest pain at rest, reports
+chest pain on exertion") to whichever came last. Every comparison in §8.4 is now one rule —
+**text ⊆ span** — over sets.
+
+```python
+# clinical/extract.py — imports ONLY clinical/lexicons.py (v1.3, L65). Pure text → sets.
+from typing import Literal, NamedTuple
+
+class Dose(NamedTuple):
+    value: float                     # parsed, so "500mg TID" == "500 mg tid" (L33)
+    unit: str                        # "mg", "μg" (folded), "ml" …
+    freq: str | None                 # normalized: "tid", "bid", "daily" …
+
+MedStatus = Literal["active", "stopped"]
+Certainty = Literal["definite", "probable", "possible", "rule_out"]   # strongest first
+
+def extract_drugs(text: str) -> set[str]:
+    """Generic names mentioned as ACTIVE. Brand→generic. Excludes negated, stopped
+    (MED_STOP_CUES), and allergy-context mentions."""
+
+def extract_med_status(text: str) -> dict[str, set[MedStatus]]:
+    """v1.3 (D13): drug → the statuses asserted for it. "continue apixaban" → {"active"};
+    "discontinue apixaban" → {"stopped"}. Consumed by med_status_consistency."""
+
+def new_prescriptions(text: str) -> set[str]:
+    """v1.3 (L41): drugs STARTED at this visit — a MED_START_CUES cue within the window
+    ("start", "prescribe", "Rx", "begin"). Deliberately narrow: the only drug derivation
+    from raw text trusted enough to run live (§8.1). "mom takes metformin", "tried
+    ibuprofen last year", "discussed a statin, pt declined" → excluded."""
+
+def extract_allergies(text: str) -> set[str]:
+    """v1.3 (L30): allergens NORMALIZED — brand→generic, aliases resolved ("PCN" →
+    "penicillin"). A key is a generic drug ("amoxicillin"), a class ("penicillin",
+    "sulfa", "nsaid"), "nkda", or "nka". Absence is information."""
+
+def extract_doses(text: str) -> dict[str, set[Dose]]:
+    """drug → parsed doses. A set, so a titration keeps both. (D1, L33.)"""
+
+def extract_findings(text: str) -> dict[str, set[bool]]:
+    """finding → polarities asserted. "denies chest pain" → {"chest pain": {False}}.
+    Scoped negation (below). A set, so a mixed statement keeps both (L33)."""
+
+def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
+    """v1.3 (D12): diagnosis → certainties asserted. "r/o PE" → {"pe": {"rule_out"}}.
+    Lexicon is corpus-driven (MVP), like FINDINGS."""
+```
+
+Callers add the claim linkage themselves. These two helpers live in `evals/` — they touch
+spine types, and `clinical/` imports nothing from the spine:
+
+```python
+def drug_mentions(note: SOAPNote) -> list[tuple[str, tuple[int, ...]]]:   # (drug, claim ids)
+    return [(d, (c.id,)) for c in note.claims for d in extract_drugs(c.text)]
+
+def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:        # v1.3 (L35)
+    return None if claim.source_span is None else raw_text[slice(*claim.source_span)]
+```
+
+**The negation scope rule (v1.3, L31).** v1.2 had `NEGATION_CUES: set[str]` and no rule for
+what a cue governs. "Cue anywhere in the string" gets all of these wrong:
+
+```
+"no fever, but reports chest pain"   → chest pain negated          ✗ terminator ignored
+"no increase in pain"                → pain negated                ✗ pseudo-negation
+"chest pain: denied"                 → chest pain positive         ✗ post-negation missed
+"know" / "nose"                      → contains the cue "no"        ✗ substring match
+```
+
+The MVP rule is NegEx-shaped and deterministic: **token-level** cue matching; a
+**pre-negation** cue negates findings within `NEGATION_WINDOW` tokens after it; a
+**post-negation** cue negates the finding immediately before it; **terminators** ("but",
+"however", "although", ";", ".") close the window; **pseudo-negations** ("no increase",
+"no change", "not only") are matched first and suppress the cue. The same window machinery
+serves `MED_STOP_CUES` / `MED_START_CUES` and `CERTAINTY_CUES` — one scope engine, three cue
+classes.
+
+**`clinical/lexicons.py` — the shape (v1.3):**
+
+```python
+# imports NOTHING. Severities are plain strings ("critical" / "warning") so clinical/ never
+# imports the spine; evals converts with Severity(value). (v1.3, L65)
+
+BRAND_TO_GENERIC:  dict[str, str]    # "tylenol" -> "acetaminophen", "augmentin" -> "amoxicillin-clavulanate"
+ALLERGY_ALIASES:   dict[str, str]    # "pcn" -> "penicillin", "sulfa drugs" -> "sulfa",
+                                     # "no known drug allergies" -> "nkda", "nka" -> "nka"     (D10)
+ALLERGY_CUES:      set[str]          # "allergic to", "allergy", "allergies:", "reaction to"
+FINDING_NEG_PRE:   set[str]          # "denies", "no", "without", "negative for"
+FINDING_NEG_POST:  set[str]          # "denied", "absent", "negative"
+PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "not only"
+TERMINATORS:       set[str]          # "but", "however", "although", ";", "."
+NEGATION_WINDOW:   int               # tokens a pre-cue governs — linguistic knowledge, so it lives here
+MED_STOP_CUES:     set[str]          # "discontinue", "d/c", "stop", "held", "hold"    (L31: split out)
+MED_START_CUES:    set[str]          # "start", "begin", "initiate", "prescribe", "rx" (L41)
+CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
+DRUG_CLASS:        dict[str, str]    # "amoxicillin" -> "penicillin", "cephalexin" -> "cephalosporin",
+                                     # "ibuprofen" -> "nsaid". v1.3 (L67): ONE direction. v1.2 kept
+                                     # ALLERGY_CLASSES (class → members) AND DRUG_CLASSES (member →
+                                     # class) — two encodings of one relation, free to disagree.
+R1_GROUP:          dict[str, str]    # D9: generic -> R1 side-chain group, for drugs whose side chain
+                                     # is shared ACROSS classes (ampicillin with cephalexin/cefaclor;
+                                     # amoxicillin with cefadroxil/cefprozil). Each entry commented
+                                     # with its rationale.
+CROSS_REACTIVITY:  dict[tuple[str, str], str]
+                                     # (allergen class, drug class) -> severity when the side chain is
+                                     # DISSIMILAR or UNKNOWN: ("penicillin", "cephalosporin") -> "warning"
+DOSE_PATTERN:      re.Pattern        # number + unit + frequency token
+FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
+DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS
+```
+
+**DECISION D9 (v1.3, vetoable) — cross-reactivity is keyed on the R1 side chain.** The
+evidence v1.2 cited (~1–2% overall penicillin → cephalosporin cross-reactivity, concentrated
+in shared R1 side chains, not the old "10%") is side-chain-level; v1.2's table was
+class-level, so cephalexin on an ampicillin allergy (identical R1) got the same WARNING as
+ceftriaxone (dissimilar). `contraindication(allergen, drug)` in `evals/checks.py` resolves
+one pair by walking a ladder, first match wins:
+
+```
+1. same drug                                        → CRITICAL
+2. same class (DRUG_CLASS; a class key is its own)  → CRITICAL
+3. allergen is a specific drug AND its R1_GROUP
+   matches the drug's across classes                → CRITICAL   (identical side chain)
+4. CROSS_REACTIVITY[(class(allergen), class(drug))] → the table's call (WARNING for PCN → ceph)
+5. otherwise                                        → no finding
+```
+
+**DECISION D14 (v1.3, vetoable) — the unspecified allergy and the reaction type.** "PCN
+allergy" names no specific penicillin, so no R1 group resolves: penicillins are CRITICAL
+(rung 2), every cephalosporin is WARNING (rung 4), and the finding's detail says *"specify
+the penicillin to refine the risk."* This is the most common way allergies are documented;
+flagging every cephalosporin CRITICAL would teach clinicians to ignore red, and flagging
+none would go silent. **Reaction type** (anaphylaxis vs rash) changes the clinical calculus
+and is not extracted in v1 — a stated limitation (§8.8), backlogged (§15). Carbapenems and
+aztreonam enter the lexicon only if a corpus case needs them. *These are defaults drafted
+from the modern evidence; they get Cal's clinical sign-off when `lexicons.py` is authored,
+with the rationale in a comment beside each entry.*
+
+All lexicon entries are **generic-only** post-normalization: every extractor maps
+brand→generic first, so a class entry containing a brand name is dead weight at best and a
+missed match at worst.
+
+**MVP scope:** a small hand-curated lexicon + the scope engine + a dose-pattern regex +
+findings and diagnosis lists covering exactly the traps in *my* corpus.
+**v2:** medspaCy / NegEx / RxNorm for robust, ontology-derived extraction.
+
+---
+
+## 8. Layer 4 — Evals ⭐ THE MOAT
+
+**Job:** `await run_checks(note, raw_text, case=None, *, mode, judge=None) -> EvalReport`.
+Take a finished, *grounded* note and answer one question — **is this clinically safe?**
+— as a verdict you can run. This is the layer a strong generalist cannot build, because
+they don't know what to check for. (Async because the judge is a network call — §8.2. The domain holds a
+`Judge` protocol, never an Anthropic client — v1.3, L17.)
+
+### 8.1 Two species of check (the keystone distinction)
+
+- **Reference-free (intrinsic):** verifiable from `(note, raw_text)` alone — *"every
+  medication in the summary appears in the source."* Can run **in production**, on real
+  encounters, because real inputs have no answer key.
+- **Reference-based (extrinsic):** needs a known-correct expectation — *"the penicillin
+  allergy was preserved."* Runs **only** in CI, against labeled cases.
+
+**The deep asymmetry:** the most dangerous error — **omission** — is fundamentally
+reference-based. You cannot detect a *dropped* allergy by inspecting the output; the
+dropped thing isn't there to inspect. Absence requires knowing what *should* have existed.
+
+**Refinement (the precise axis):** the real test isn't "needs a reference: yes/no," it's
+**how much you trust the derivation**. A contraindication check reads an *explicit* allergy
+and an *explicit* prescription — high-confidence extraction — so it qualifies as
+reference-free and **runs live on real patients.** Comprehensive omission detection fails
+the test because it needs a *trustworthy exhaustive enumeration* of everything that should
+have been captured, and automating that exhaustively is the fallible step — so in CI we
+replace the fallible extraction with a hand-labeled `must_preserve` list.
+
+**The trust axis is a placement rule (v1.3).** Where a check runs is decided by
+*derivation trust × severity*: a high-trust derivation can run live at CRITICAL
+(`allergy_preserved`); a lower-trust one either narrows until it is trustworthy
+(`new_prescriptions` → `new_prescription_preserved`, WARNING) or moves to CI behind a hand
+label (`must_preserve`). The worked counterexample — why `medication_preserved` never runs
+live — is in §8.4.
+
+### 8.2 Match the tool to the check
+
+```
+deterministic     set/string ops      fast · free · reproducible · brittle to synonyms
+lexicon-assisted  RxNorm / NegEx       robust to medical variation · still deterministic
+LLM-as-judge      a 2nd model call     handles semantics · stochastic, fallible
+```
+
+**The senior move is not "use the most powerful tool everywhere."** Structural checks get
+deterministic code; semantic checks get the LLM judge — **and the judge's verdict is never
+the sole gate on a CRITICAL.** Being able to say *"here's where I used LLM-as-judge, and
+here's exactly why I didn't trust it for the critical path"* is more senior than the
+technique itself.
+
+**The judge, scoped (v1.1 D2) and reframed (v1.3, DECISION D8, vetoable).** Exactly one
+judge check ships, in build phase 2c: `text_entailment_judge`. v1.2's judge asked whether
+each Assessment claim was *clinically supported* by its cited span — its showcase was
+"BP 190/110" → "hypertensive urgency," sound inference that grounds nowhere textually. D7
+made that showcase a *violation*: the model may not infer an assessment. So the question
+flips from "is this inference supported?" to **"is this claim's text entailed by its source
+span?"** — asked of every grounded claim, in every section. That is the general form of the
+claim-local consistency family (§8.4): the deterministic checks answer it for the entities
+their lexicons know; the judge answers it for everything else — the degenerate quote (D15),
+the invented assessment (D7, D12), drift no lexicon names. WARNING tier, reference-free,
+never a CRITICAL gate (invariant 7). This is the concrete artifact behind the interview line
+above — the line needs a `git blame`-able referent.
+
+**The judge is a network call, and the domain doesn't speak Anthropic (v1.2; v1.3, L17).**
+`run_checks` is async because one member awaits. v1.3 changes *what* it awaits: evals
+declare a protocol —
+
+```python
+# evals/judge.py — a DOMAIN interface
+class Judge(Protocol):
+    usage: TokenUsage
+    async def entailment(self, pairs: Sequence[tuple[str, str]]) -> list[bool]: ...
+```
+
+— and `judge_client.py` (edge) implements it over the Anthropic API: one batched call
+carrying every `(text, span)` pair and returning one verdict per pair (L40 — a 20-claim note
+is one call, not twenty), `temperature=0`, its own `settings.judge_timeout_s`, shorter than
+the summarize timeout (L54). A judge is constructed per request (and per corpus case), so
+its `usage` belongs to exactly one report and lands in `EvalReport.judge_usage` (L7).
+Whether the judge runs is a *parameter* — `run_checks(..., judge=None)` skips it — not a
+global read inside the domain (L49); `settings.judge_enabled` is read only at the edge that
+decides whether to construct one. Tests pass a fake `Judge` with canned verdicts.
+
+**Negation** is the cleanest illustration of why generic code fails: a naive `"chest pain"
+in summary` matches both "denies chest pain" and "reports chest pain" — it cannot tell a
+faithful note from a catastrophic flip. You need negation-aware comparison because you've
+read ten thousand notes and know it's a named failure mode.
+
+### 8.3 Safety extraction scans the WHOLE note (never trusts the section)
+
+The section is the model's *judgment call* and is for **display only**. If the model
+misfiles "start amoxicillin" into Assessment instead of Plan, a Plan-only check reads an
+empty Plan and the contraindication sails through. **Safety-critical extraction iterates
+every claim** — which, on the v1.1 flat spine, is literally just `note.claims`. The safe
+path and the easy path are now the same path. A misfiled drug is still a prescribed drug.
+Invariant 5 protects checks against *misfiling*; its sibling for *omission* is D17 (§8.4).
+
+### 8.4 The showpiece check (the moat, executing) + the roster
+
+```python
+@register_check(name="allergy_contraindication", severity=Severity.CRITICAL, origin="source")
+def check_allergy_contraindication(note: SOAPNote, raw_text: str,
+                                   case: EvalCase | None = None) -> list[Finding]:
+    """Omission behavior (D17):
+    - allergy omitted from the note  → still read from raw_text.
+    - NEW drug omitted from the note → still read via new_prescriptions(raw_text) (L51);
+      the finding is note-level (claim_ids=()) → the banner.
+    - CONTINUED home med omitted     → not seen live. Declared CI-only gap, covered by
+      must_preserve(kind="medication")."""
+    allergy_claim: dict[str, int] = {a: c.id for c in note.claims
+                                     for a in extract_allergies(c.text)}
+    allergens = (extract_allergies(raw_text) | allergy_claim.keys()) - {"nkda", "nka"}
+
+    drugs = drug_mentions(note)                                        # WHOLE note (inv. 5)
+    in_note = {d for d, _ in drugs}
+    drugs += [(d, ()) for d in sorted(new_prescriptions(raw_text) - in_note)]   # L51
+
+    findings: list[Finding] = []
+    for drug, drug_ids in drugs:
+        for allergen in sorted(allergens):
+            hit = contraindication(allergen, drug)                     # the D9/D14 ladder:
+            if hit is None:                                            #   pure, unit-tested
+                continue                                               #   rung by rung
+            severity, why = hit
+            ids = drug_ids + ((allergy_claim[allergen],) if allergen in allergy_claim else ())
+            findings.append(Finding(                                   # L37: the allergy
+                detail=f"{allergen} allergy on record; {drug}: {why}",  #   claim's id too
+                claim_ids=ids,
+                severity=severity,                                     # ≤ CRITICAL (L38)
+            ))
+    return findings                                                    # [] = passed
+```
+
+The decorator (§8.7) turns `[]` into one `passed=True` result and a non-empty list into one
+`passed=False` result per finding, each stamped with `check` and `severity`. The check
+function never spells its own name.
+
+Catching this requires *knowing amoxicillin is a penicillin* — and, after D9, knowing that
+cephalexin shares ampicillin's side chain while ceftriaxone shares nobody's, and that the
+~10% cross-reactivity figure everyone memorized was an artifact of manufacturing-era
+contamination. That knowledge isn't on Stack Overflow. The fixtures that test it **are** my
+background, executing.
+
+**What v1.3 fixed in the showpiece.** Two holes, both CRITICAL:
+
+```
+L30  "allergic to amoxicillin" + amoxicillin prescribed
+     v1.2: ALLERGY_CLASSES.get("amoxicillin") → None → no finding. Allergic to the exact
+           drug prescribed, and the check passed. Same for "PCN", "Augmentin", ampicillin.
+     v1.3: allergens normalize like drugs; rung 1 (same drug) and rung 2 (same class) fire.
+
+L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, misapplied)
+     v1.2: allergies read from raw ∪ note, drugs from the note ONLY → the loop never sees it.
+     v1.3: drugs = note ∪ new_prescriptions(raw). The model's omission can no longer remove
+           the danger from both the note and the check that would catch it.
+```
+
+**The roster (v1.3).** Every check the corpus can score, with what it trusts:
+
+| check | severity | ref? | compares | catches |
+|---|---|---|---|---|
+| `allergy_contraindication` | CRITICAL (rungs may lower) | no | allergies(raw ∪ note) vs drugs(note) ∪ new_prescriptions(raw) | prescribing into an allergy |
+| `allergy_preserved` | CRITICAL; NKDA → WARNING (D10) | **no** | allergies(raw) − allergies(note) | **a dropped allergy, live** |
+| `hallucinated_medication` | CRITICAL | no | `UNSUPPORTED` flag + drugs(text) | a drug in a claim that grounds nowhere |
+| `drug_in_quote` | CRITICAL | no | drugs(text) ⊆ drugs(span) | a drug the source span doesn't say |
+| `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13) | "continue" ↔ "discontinue" |
+| `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span) | "denies" → "reports" |
+| `diagnosis_in_quote` | CRITICAL; downgrade → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12) | an invented or upgraded assessment |
+| `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed | 50 mg → 500 mg |
+| `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − drugs(note) (L41) | a started drug the note dropped |
+| `quote_informativeness` | WARNING | no | content tokens ≥ `min_quote_content_tokens`, or a lexicon entity (D15) | degenerate quotes |
+| `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw yields any extracted entity (L55) | total omission reading green |
+| `text_entailment_judge` | WARNING | no (LLM) | text entailed by span, one batched call (D8) | drift no lexicon names |
+| `must_preserve` | by `PreserveItem.kind` | **yes** | labels vs extract_*(note), polarity-aware (L36) | any labeled omission |
+| `must_not_add` | CRITICAL | **yes** | labels vs extract_*(note), positive polarity only (L36) | a labeled invention |
+
+`span` is `raw_text[claim.source_span]` (§6.4, L35). The consistency checks skip claims
+whose span is `None` — those belong to grounding's red badge and `hallucinated_medication`.
+
+Four things to read off the table:
+
+1. **`allergy_preserved` is reference-free.** "Allergic to X" / "NKDA" is about the most
+   explicit language in a clinical note, and the prompt says *never omit an allergy* — so
+   the prompt and the check agree, and the single most dangerous omission gets a live check.
+   A dropped NKDA is a WARNING (D10): undocumented status prompts a re-ask; it is not a
+   missed allergy.
+2. **The claim-local consistency family compares against the span (L35).** v1.2 compared
+   `claim.text` to the model's `source_quote`. At Tier 3 those differ by definition:
+
+   ```
+   span:  "…tolerating PO well, will start azithromycin 500 mg daily…"
+   quote: "…tolerating PO well, will start amoxicillin 500 mg daily…"   long shared context,
+   text:  "Start amoxicillin 500 mg daily"                                 digits intact → PARAPHRASED
+   v1.2 drug_in_quote: {amox} ⊆ drugs(QUOTE) = {amox}      → passes. A fabricated drug, yellow.
+   v1.3 drug_in_quote: {amox} ⊆ drugs(SPAN)  = {azithro}   → FIRES.
+   ```
+3. **Presence and status are partitioned (D13).** `drug_in_quote` owns *is the drug in the
+   source?*; `med_status_consistency` owns *active vs stopped, for a drug in both*. The
+   dangerous direction — "discontinue apixaban" written for a continued apixaban — is
+   invisible to a subset check on active drugs (∅ ⊆ anything); the status check catches it.
+   One error, one finding.
+4. **`must_preserve` / `must_not_add` use the live primitives.** An item survives if its
+   normalized `text` is in the kind's extractor output over the whole note — with polarity
+   for findings (L36): "denies chest pain" preserves as `present=False`; a flipped note has
+   not preserved it, and a faithful "denies chest pain" is not an invented chest pain.
+
+**Why `medication_preserved` is NOT on the roster (§8.1's trust axis, applied).**
+`extract_drugs(raw) − extract_drugs(note)` looks like `allergy_preserved`'s twin. It isn't:
+raw encounters are full of drug names a faithful note may omit — family history, failed
+past therapy, counseling a patient declined, contingencies, patient questions, an 18-item
+pasted home-med list — and the prompt *sanctions* omitting uncertain content. A live
+CRITICAL would fire on most correct notes, clinicians would learn that red means nothing,
+and the real allergy red would be ignored with it. One noisy check devalues the whole
+channel. Medication omission therefore stays in CI (`must_preserve`, `kind="medication"`);
+the only live slice is the narrow, high-trust one — `new_prescriptions` — at WARNING.
+
+**DECISION D17 (v1.3, vetoable) — the omission law.** Invariant 5 protects checks against
+*misfiling*. Its sibling protects them against *omission*: **every CRITICAL check documents,
+per input, what happens when the model omits it; an omission that silences the check must be
+covered by another live check or declared a CI-only gap.** L51 is the bug this law would
+have caught. The contract, per CRITICAL check:
+
+| check | if the model omits… | then |
+|---|---|---|
+| `allergy_contraindication` | the allergy | read from raw — still fires |
+| | a new drug | read via `new_prescriptions(raw)` — still fires, banner |
+| | a continued home med | **CI-only gap** → `must_preserve(kind="medication")` |
+| `allergy_preserved` | the allergy | that omission is its subject — fires |
+| consistency family, `hallucinated_medication` | the claim | nothing left to contradict; the omission belongs to `allergy_preserved` / `new_prescription_preserved` live and `must_preserve` in CI |
+| `must_preserve` / `must_not_add` | — | omission is their subject (CI) |
+
+Each row is a docstring on the check and a free-tier test (§11).
+
+### 8.5 The synthetic corpus (`evals/cases/`) — three species, two ways to run them
+
+Each case is a fixture carrying its own answer key (`EvalCase`, §4.2).
+
+**Three species** (v1.1; an explicit field in v1.3, L9):
+
+- **Fidelity traps** — test the *model*. `must_preserve` (the allergy must survive),
+  `must_not_add` (no invented meds). Pass when nothing CRITICAL fires. `expected_flags: []`.
+- **Detection traps** — test the *safety layer*. Pass when the expected flag fires. The best
+  single fixture in the repo: a penicillin-allergic patient prescribed amoxicillin
+  (`expected_flags: ["allergy_contraindication"]`).
+- **Clean controls** — `trap: None`, `expected_flags: []`. Any CRITICAL that fires is a false
+  positive and fails the case — a check that flags a perfect note is as broken as one that
+  misses a fabrication.
+
+**Two ways to run a case (v1.3, L42 — the largest structural change in this revision).**
+v1.2 made every case `raw_text` + an answer key, run through the real model. That works for
+exactly one kind of detection trap — **the danger is in the source**: a faithful model
+reproduces "PCN allergy … start amoxicillin," and the check fires. It cannot work for the
+other kind — **the danger is created by the model**: a drug in the text its span doesn't
+say, a flipped negation, an invented assessment. No raw text makes a good model fabricate
+on cue; at `temperature=0` it mostly won't. v1.2's `detect_drug_not_in_quote` and
+`detect_negation_flip` would have reported `missing_expected` and failed nearly every run —
+the scorecard saying "the checks don't work" when the truth was "the model gave them nothing
+to catch." And v1.2's coverage rule *required* such traps for every CRITICAL check.
+
+The root cause: two questions blended into one case.
+
+| question | stochastic? | case kind | tier |
+|---|---|---|---|
+| Given a draft containing mistake X, does the safety layer catch X? | **no** — ground + checks are pure functions of the draft | **injected** (`draft` set) | free, every commit |
+| Does the model make X — and do the live checks catch what it actually makes? | **yes** | **model** (`draft` unset) | paid, manual |
+
+```yaml
+# evals/cases/detect_drug_not_in_quote.yaml — an INJECTED case
+id: detect_drug_not_in_quote
+species: detection
+raw_text: |
+  Pt with acute sinusitis. Will start antibiotics, f/u 1 wk.
+trap: "claim text names a drug its source span does not"
+draft:                                  # the planted mistake, hand-written
+  claims:
+    - text: "Start amoxicillin"
+      section: P
+      source_quote: "Will start antibiotics"
+expected_flags: [drug_in_quote]
+```
+
+Tier 1 grounds, `drug_in_quote` fires, every time. The injected case proves the check; the
+model cases measure the model. Design for evaluability (principle 3), applied to the eval
+harness itself — and most of the moat's *proof* moves from the paid tier to the free one.
+
+**Corpus mechanics:**
+
+- **One YAML file per case**, loaded with `EvalCase.model_validate`. Filename = `id`.
+- **The loader validates the answer key against the registry.** Every `expected_flags` entry
+  must be a registered check name — a typo is a load error, not a case that fails forever
+  and gets rationalized as "the model's fault."
+- **`corpus_version` is derived** — a hash over the sorted contents of `evals/cases/`.
+- **Size:** ≥ 24 **model** cases, ≥ 6 per species; injected cases as many as the coverage
+  rule demands (they're free).
+- **The coverage rule (restated v1.3 for L42), unit-tested free:** for every registered
+  CRITICAL check — ≥ 1 injected detection trap with it in `expected_flags`, and ≥ 1 injected
+  clean control that exercises its extraction path without a violation. Checks with
+  `origin="source"` additionally need ≥ 1 **model** detection trap (does a real model keep
+  the danger visible?). A check nobody wrote a trap for is a check nobody knows works.
+- **DECISION D16 (v1.3, vetoable) — one planted danger per trap.** Expected flags match on
+  check *name*, so a trap can pass for the wrong reason: the check fires on an incidental
+  claim while missing the planted one. Injected drafts make that nearly impossible — they
+  contain only the planted claim. For model cases, the authoring rule: **no incidental
+  entities that could trip the same check.** The residual gap is stated in §8.8; an `about:`
+  field on expected flags is backlogged (§15).
+- **Tier-3 fixtures self-check.** An injected case meant to exercise the fuzzy tier
+  (`detect_paraphrase_drug_swap`) asserts in its test that the claim actually grounded
+  `PARAPHRASED` — otherwise a cutoff change silently turns it into a Tier 4 case testing
+  something else.
+
+**The regression fixtures (each one a frozen bug from v1.2 or v1.3):**
+
+| fixture | kind | species | freezes |
+|---|---|---|---|
+| `control_pcn_allergy_azithro` | model + injected | control | allergy context read as a prescription (v1.2) |
+| `detect_drug_not_in_quote` | injected | detection | the text-vs-quote gap (v1.2) |
+| `detect_negation_flip` | injected | detection | "denies" → "reports" (v1.2) |
+| `fidelity_dropped_allergy` | model | fidelity | allergy omission (v1.2); its injected twin is a detection trap expecting `[allergy_preserved, must_preserve]` |
+| `detect_same_drug_allergy` | model + injected | detection | L30 |
+| `detect_contra_omitted_rx` | injected | detection | L51 — the draft omits the amoxicillin the raw text starts |
+| `detect_paraphrase_drug_swap` | injected | detection | L35 — a Tier 3 quote with a swapped drug |
+| `detect_status_flip` | injected | detection | D13 |
+| `detect_invented_assessment` | injected | detection | D7/D12 — "BP 190/110" → "hypertensive urgency" |
+| `detect_certainty_upgrade` | injected | detection | D12 — "r/o PE" → "PE" |
+| `detect_degenerate_quote` | injected | detection | D15 |
+| `detect_empty_note` | injected | detection | L55 |
+| `control_hedged_assessment` | model + injected | control | D7 — a hedged A kept hedged is clean (L23) |
+| `control_empty_assessment` | model | control | D7 — no stated A, no A claims, clean (L23) |
+
+(v1.2's `detect_vital_drift` expected no eval check — it tests grounding's numeric guard. It
+moved to `tests/test_grounding.py`, L66.)
+
+### 8.6 Severity = clinical triage (the moat hiding in one enum)
+
+```
+CRITICAL   dropped allergy · hallucinated med · contraindication (same drug, same class,
+           identical R1) · negation flip · status flip · drug absent from its span ·
+           invented or certainty-upgraded diagnosis · labeled invention · labeled omission
+           (allergy / medication / finding / diagnosis)
+WARNING    dose mismatch · cross-class contraindication with a dissimilar or unknown side
+           chain (D9, D14) · dropped NKDA (D10) · dropped new prescription · degenerate
+           quote · empty note on clinical input · certainty downgrade · not entailed
+           (judge) · labeled dropped dose
+INFO       section misplacement · stylistic drift — the tier is defined, no INFO check
+           ships in v1 (§15)
+```
+
+v1.3 (L49) removed v1.2's "temporal error" from WARNING: no check produced it, and a triage
+list names only what exists. Triage drives everything practical — which flags interrupt the
+clinician, which merely annotate, which block a deploy. A finding may *lower* its check's
+severity (the contraindication rungs, NKDA, a certainty downgrade) and never raise it
+(§8.7, L38).
+
+### 8.7 The dual-mode runner (one engine, two jobs) + the verdict + the lineage
+
+**The registry (v1.1, sharpened v1.2 and v1.3).** Checks self-register; adding a safety check
+is one decorator. The name and severity are declared once and stamped onto every result; the
+registry is a dict that refuses duplicates (pytest re-imports will hand you a doubled
+registry otherwise).
+
+```python
+# evals/registry.py
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Literal
+
+@dataclass(frozen=True)
+class Finding:                        # what a check RETURNS: the facts of one violation.
+    detail: str                       # Check-internal: never crosses a layer boundary, so it
+    claim_ids: tuple[int, ...] = ()   #   lives here, not in schemas.py (sanctioned, CLAUDE.md)
+    severity: Severity | None = None  # optional DOWNGRADE — enforced at stamping (v1.3, L38)
+
+@dataclass(frozen=True)
+class Check:
+    name: str
+    severity: Severity
+    fn: Callable[..., list[Finding] | Awaitable[list[Finding]]]
+    requires_reference: bool                # CI-only
+    needs_judge: bool                       # v1.3: was needs_client — the domain holds a
+                                            #   Judge, never a vendor client (L17)
+    origin: Literal["model", "source"]      # v1.3 (L42): who creates the danger — drives
+                                            #   the coverage rule (§8.5)
+
+REGISTRY: dict[str, Check] = {}
+
+def register_check(*, name: str, severity: Severity, requires_reference: bool = False,
+                   needs_judge: bool = False, origin: Literal["model", "source"] = "model"):
+    def deco(fn):
+        if name in REGISTRY:
+            raise RuntimeError(f"duplicate check name: {name}")
+        REGISTRY[name] = Check(name, severity, fn, requires_reference, needs_judge, origin)
+        return fn
+    return deco
+
+_RANK = {Severity.INFO: 0, Severity.WARNING: 1, Severity.CRITICAL: 2}
+
+def stamp(check: Check, f: Finding) -> EvalResult:
+    sev = f.severity or check.severity
+    if _RANK[sev] > _RANK[check.severity]:        # v1.3 (L38): v1.2's "never an upgrade"
+        raise ValueError(f"{check.name}: finding severity exceeds the check's")   # was a comment
+    return EvalResult(check=check.name, severity=sev, passed=False,
+                      detail=f.detail, claim_ids=f.claim_ids)
+# runner.py imports checks.py for the side effect of registration;
+# checks.py imports only register_check + Finding. No cycle.
+```
+
+**The engine** (async; fail-closed per check; production gets the reference-free subset):
+
+```python
+async def run_checks(note: SOAPNote, raw_text: str, case: EvalCase | None = None, *,
+                     mode: Literal["production", "ci"],
+                     judge: Judge | None = None) -> EvalReport:
+    selected = [c for c in REGISTRY.values()
+                if (mode == "ci" or not c.requires_reference)
+                and (not c.needs_judge or judge is not None)]    # v1.3 (L49): a parameter,
+    results: list[EvalResult] = []                               #   not a global read
+    for check in selected:
+        try:
+            out = (check.fn(note, raw_text, case, judge=judge) if check.needs_judge
+                   else check.fn(note, raw_text, case))
+            findings = await out if inspect.isawaitable(out) else out
+            stamped = [stamp(check, f) for f in findings]        # a bad finding = a bad check
+        except Exception:
+            # A crashed check is NOT a passed check and NOT a 500 (invariant 12). Logged by
+            # NAME, never the note's content (L53). CancelledError is a BaseException and
+            # correctly passes through.
+            logger.exception("check %s crashed", check.name)
+            results.append(EvalResult(check=check.name, severity=check.severity,
+                                      passed=False, errored=True, detail="check errored"))
+            continue
+        results.extend(stamped or [EvalResult(check=check.name, severity=check.severity,
+                                              passed=True)])
+    return EvalReport(results=results,
+                      checks_run=frozenset(c.name for c in selected),
+                      checks_version=CHECKS_VERSION,
+                      judge_usage=judge.usage if judge is not None else TokenUsage())
+```
+
+Why an errored result is `passed=False`: silently skipping a check is the v1.1 vacuous-truth
+bug wearing a stack trace. A crashed CRITICAL in production turns the note red — loud,
+honest, fixable. A judge that times out is an errored WARNING: the note is returned, its
+CRITICAL verdict is unchanged (invariant 7 is exactly why a judge outage can turn a note
+neither red nor green), and the UI says the semantic check didn't run (§9.10). "Not checked"
+never renders as "passed."
+
+**The per-case verdict (v1.1; tri-state v1.3).** The v1.1 fix — consume the answer key, so a
+fired expected flag is a PASS for a detection trap — stands. v1.3 adds the two cases it
+couldn't express, and renames `case_passed` because the answer is no longer a bool:
+
+```python
+def case_verdict(report: EvalReport, case: EvalCase) -> CaseStatus:
+    expected = set(case.expected_flags)
+    if not expected <= report.checks_run:
+        return "not_applicable"           # L44: an expected check didn't RUN (judge off) —
+                                          #   excluded from the rates, recorded, not a fail
+    errored = {r.check for r in report.results if r.errored}
+    if errored & expected or any(r.errored and r.severity is Severity.CRITICAL
+                                 for r in report.results):
+        return "failed"                   # L43: an error never satisfies an expectation,
+                                          #   and a crashed CRITICAL never passes a case
+    fired = {r.check for r in report.results if not r.passed and not r.errored}
+    unexpected_critical = any(
+        not r.passed and not r.errored and r.severity is Severity.CRITICAL
+        and r.check not in expected
+        for r in report.results
+    )
+    return "passed" if expected <= fired and not unexpected_critical else "failed"
+```
+
+The v1.2 bug L43 closes, traced:
+
+```
+v1.2: allergy_contraindication raises → EvalResult(passed=False, detail="check_error")
+      fired = {… if not r.passed} ∋ "allergy_contraindication" → expected <= fired → PASS
+      The showpiece trap scored green BECAUSE its check was broken.
+v1.3: errored=True → excluded from fired, and errored ∩ expected ≠ ∅ → FAILED
+```
+
+How the verdict reads across species:
+
+```
+species     expected   what happened                    verdict   all_critical_passed alone
+─────────────────────────────────────────────────────────────────────────────────────────────
+detection   {contra}   fired {contra}                   PASSED    FAIL  ← the v1.1 inversion
+detection   {contra}   fired {}                         FAILED    PASS
+detection   {contra}   errored {contra}                 FAILED    FAIL  (v1.2's verdict: PASS, L43)
+detection   {judge}    judge not selected               N/A       —     ← L44
+fidelity    {}         fired {}                         PASSED    PASS
+fidelity    {}         fired {allergy_preserved}        FAILED    FAIL
+control     {}         fired {dose_consistency} (W)     PASSED*   PASS
+control     {}         fired {drug_in_quote} (C)        FAILED    FAIL  ← a false positive
+                                                        * visible in unexpected_fired
+```
+
+**The verdict is CRITICAL-scoped, on purpose.** An unexpected WARNING doesn't fail a case — a
+corpus that fails on every borderline dose regex is one nobody trusts. But `unexpected_fired`
+and `errored_checks` record every severity: gate on CRITICAL, *watch* everything.
+
+(`fidelity_dropped_allergy`, §8.5: `allergy_preserved` fires live and `must_preserve` fires
+in CI — two CRITICALs on a fidelity trap, so it fails, correctly, because the model dropped
+the allergy. Its injected twin, a detection trap expecting both names, passes when both
+fire. The answer key decides which question a case asks. That's the point of having one.)
+
+**The metrics (v1.3, L3).** One `pass_rate` blended three species: a clean control passing
+caught nothing, and a fidelity trap where the model dropped the allergy *and*
+`allergy_preserved` fired live was a failure in the rate even though the safety layer
+worked. `corpus_metrics()` separates them:
+
+```
+detection_recall     = detection repeats passed / detection repeats applicable
+control_specificity  = control repeats passed   / control repeats applicable
+model_fidelity       = fidelity repeats passed  / fidelity repeats applicable
+fidelity_caught      = of fidelity repeats that FAILED without a pipeline error, the fraction
+                       where at least one reference-free (live) check fired
+```
+
+`fidelity_caught` is the number the interview sentence (§2) was reaching for: *when the model
+got it wrong, would production have seen it?* Recall for the fabrication checks is not in
+this record at all — it is the injected tier, and it is 100% or CI is red. Every metric is
+`None`, not 1.0, over an empty denominator.
+
+**The scorer, with lineage (v1.1; hardened v1.2 and v1.3).**
+
+```python
+async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
+                       judge_factory: Callable[[], Judge] | None) -> CorpusRunRecord:
+    model_cases = [c for c in cases if c.draft is None]        # injected cases are pytest's
+    if not model_cases:
+        raise ValueError("no model cases — refusing to emit metrics over nothing")
+
+    sem = asyncio.Semaphore(settings.corpus_concurrency)
+
+    async def run_one(case: EvalCase, repeat: int) -> tuple[CaseResult, TokenUsage, TokenUsage]:
+        async with sem:
+            judge = judge_factory() if judge_factory else None   # per case: its usage is its own
+            try:
+                result = await summarize(case.raw_text, client=client)
+                note   = ground(result.draft, case.raw_text)
+                report = await run_checks(note, case.raw_text, case, mode="ci", judge=judge)
+            except OrchestratorError as e:
+                return errored_case(case, repeat, e.code), e.usage, TokenUsage()
+            except Exception as e:                      # v1.3 (L46): parity with run_checks —
+                logger.exception("case %s crashed", case.id)   # an APIError under the
+                return errored_case(case, repeat, type(e).__name__), TokenUsage(), TokenUsage()
+        return (case_result(case, repeat, report),      # status via case_verdict()
+                result.metadata.usage, report.judge_usage)
+
+    triples = await asyncio.gather(*(run_one(c, r) for c in model_cases
+                                     for r in range(settings.corpus_repeats)))   # D11
+    results = [cr for cr, _, _ in triples]
+    record = CorpusRunRecord(
+        ran_at=datetime.now(timezone.utc),
+        git_sha=current_git_sha(), git_dirty=git_is_dirty(),        # L45
+        model=settings.model, prompt_version=PROMPT_VERSION,        # L46: known without a
+        corpus_version=corpus_version(cases),                       #   successful call, so an
+        checks_version=CHECKS_VERSION,                              #   all-failed run is still
+        judge_enabled=judge_factory is not None,                    #   recorded — it's the run
+        repeats=settings.corpus_repeats,                            #   you most need to see
+        n_cases=len(model_cases),
+        metrics=corpus_metrics(results),
+        usage=sum((u for _, u, _ in triples), TokenUsage()),
+        judge_usage=sum((j for _, _, j in triples), TokenUsage()),
+        cases=results,
+    )
+    append_jsonl(settings.runs_path, record)
+    return record
+```
+
+v1.2 had three ways to lose a record — one error unwinding the run, an empty corpus dividing
+by zero, sequential awaits — and fixed them. v1.3 closes the last two: a non-orchestrator
+exception on one case (an upstream `APIError`) no longer escapes `gather` and discards the
+other 23; and a run where every case failed still writes its record, because lineage no
+longer depends on a successful call.
+
+`CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`, and
+`grounding.py`, computed at import — derived like every other version (invariant 15). v1.2
+hashed the model, the prompt, and the corpus but not the checks: editing a lexicon changed
+verdicts with every lineage field unchanged.
+
+**DECISION D11 (v1.3, vetoable) — repeats.** `temperature=0` is not deterministic (§3), and
+at n = 24 with one run, a single flaky case moves a rate by ~4 points — noise that reads as a
+regression. `settings.corpus_repeats` (default 3; cost × k) runs every model case k times;
+`CaseResult` rows are per (case, repeat); `CorpusMetrics.flaky_cases` names every case whose
+pass fraction is strictly between 0 and 1. The README states n and k beside every number.
+
+**DECISION D5 (v1.2, amended v1.3) — where the lineage lives.** Corpus runs happen locally,
+and `corpus_runs.jsonl` is committed *in the same commit* as the prompt/model change that
+prompted them; the manual-dispatch workflow also uploads the record as a build artifact. v1.3
+(L45): committing the run with its change means the run executes on uncommitted code by
+design — so `git_sha` names the parent commit, `git_dirty=True` says so honestly, and
+`prompt_version` + `checks_version` identify the code that actually ran.
+
+- **production:** the reference-free subset runs on every real note → a **live safety
+  layer**; its CRITICAL findings are the red badges in the UI.
+- **ci:** the full suite → **injected** cases in pytest (deterministic proof of every check)
+  and **model** cases in `score_corpus` (the four metrics, with lineage).
+
+Same code, two masters, three clocks (§11). The eval harness was never a testing
+afterthought — it is what makes the model-choice and prompt-change decisions
+evidence-based.
+
+### 8.8 Honest mirror (state this, don't hide it)
+
+Clinical-semantic evaluation is **genuinely unsolved at the frontier.** The judge has its own
+false-positive and false-negative rates; a truly rigorous version would *meta-evaluate the
+evaluators* (do the checks agree with a human clinician?). What this harness does **not**
+know, stated plainly (v1.3):
+
+- **Lexicon recall on real language.** Injected traps prove each check fires on the text it
+  was written for. How often the hand lexicon misses a real-world phrasing is unmeasured —
+  the corpus is synthetic by design (zero PHI).
+- **Judge quality.** Measured only indirectly, through model cases; never against a
+  clinician.
+- **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.
+- **Wrong-reason passes** (D16). Expected flags match on check name; the authoring rule
+  narrows the gap, it doesn't close it.
+- **Small n** (D11). 24+ model cases × k repeats is a regression tripwire, not an accuracy
+  estimate — the README says so next to the number.
+
+Don't oversell the harness as bulletproof. The strength isn't claiming I solved clinical
+safety — it's understanding the problem deeply enough to know I *haven't*, and building
+honest guardrails anyway. That humility reads as more senior than any accuracy number.
+
+---
+
+## 9. Layer 5 — API + persistence
+
+Less *conceptual* weight than the layers above; its value is **craft and credibility.**
+This is where the project reads as "shipped software" vs "school assignment," and the
+difference is entirely the boring stuff done right. It's Phase 2 material (FastAPI, SQL)
+doing load-bearing work.
+
+### 9.1 The route is a composition root (no logic lives here)
+
+```python
+class SummarizeRequest(BaseModel):          # HTTP-boundary shape; lives in api.py (EDGE —
+    raw_text: str = Field(                  #   sanctioned outside schemas.py, CLAUDE.md)
+        min_length=settings.min_input_chars,    # degenerate-input guard (§10)
+        max_length=settings.max_input_chars,    # an oversized paste fails honestly at
+    )                                           # validation (422). Chunking stays v2.
+
+class SummarizeResponse(BaseModel):
+    note_id: UUID                            # minted HERE, before persist runs
+    note: SOAPNote
+    report: EvalReport                       # incl. judge_usage (L7)
+    metadata: RunMetadata                    # model / prompt_version / usage / attempts
+
+@app.post("/summarize", response_model=SummarizeResponse)
+async def summarize_endpoint(
+    req: SummarizeRequest,
+    background_tasks: BackgroundTasks,
+    client: LLMClient = Depends(get_client),
+    judge: Judge | None = Depends(get_judge),   # None unless settings.judge_enabled (edge)
+    _: None = Depends(reserve_budget),          # §9.8: 503 budget_exhausted BEFORE any spend
+):
+    note_id = uuid4()
+    result = await summarize(req.raw_text, client=client)                     # orchestrator
+    note   = ground(result.draft, req.raw_text)                               # grounding
+    report = await run_checks(note, req.raw_text, mode="production",          # evals (live subset)
+                              judge=judge)
+    background_tasks.add_task(persist, note_id, req.raw_text, note, report, result.metadata)
+    return SummarizeResponse(note_id=note_id, note=note, report=report,       # sink runs AFTER this
+                             metadata=result.metadata)
+```
+
+A handful of lines that wire the pipeline in order. **The thinness is the signal** — a
+six-line route instead of a 200-line god-handler is the visual proof of "dependencies point
+inward." `persist` rides a `BackgroundTask`, so "the sink runs after the response" is the
+framework's execution order, not a promise the route keeps (§9.6). The id is minted in the
+route because the response must carry it and the response is built before the row exists.
+
+**Phase 1 is smaller, and says so (v1.3).** No grounding, no report: the phase-1 route
+returns `{draft: SOAPNoteDraft, metadata: RunMetadata}`. The type name tells the reader the
+content is unverified (§4.1) — honest by construction.
+
+### 9.2 Async, justified (amended v1.2)
+
+`await` the I/O-bound steps: the LLM call (seconds) and, when enabled, the judge's
+second call inside `run_checks`. Grounding and the deterministic checks are fast,
+CPU-bound, pure → they run inline *inside* those awaits; nothing about them is
+awaited individually. *"Why async here?"* → "two network calls per request, one of
+them optional, and I didn't want either serializing the event loop, while the
+deterministic layers stay inline." (v1.1 said "grounding and evals run inline";
+D2 made half of that false and v1.2 says the true version.)
+
+### 9.3 Response contract = the spine's 4th job
+
+`SOAPNote` + `EvalReport` are Pydantic models already written in §4 → FastAPI serializes
+them, validates the outgoing shape, and generates live OpenAPI docs **for free.**
+
+### 9.4 Error translation at the HTTP boundary
+
+```
+RequestValidationError (length guard)  → 422  input_invalid          the INPUT is the problem
+RateLimitExceeded (slowapi)            → 429  rate_limited           THIS client is over its limit
+BudgetExhaustedError                   → 503  budget_exhausted       the demo's daily cap (§9.8)
+OutputTruncatedError                   → 502  output_truncated       config ratio / model verbosity
+ModelOutputError                       → 502  model_output_invalid   the MODEL is the problem
+anthropic.RateLimitError               → 503  upstream_busy          + Retry-After if exposed
+anthropic.APITimeoutError              → 504  upstream_timeout       v1.3 (L54)
+anthropic.APIError (other)             → 502  upstream_error         not my bug
+unexpected Exception                   → 500  internal_error         logged in full, internally
+```
+
+Every body has one shape — `{"error": <code>, "request_id": <id>}` — and **never** the
+exception's message (v1.3, L53). A Pydantic `ValidationError` string carries `input_value`,
+which here is model-emitted clinical text; v1.2's handlers returned `{"detail": str(exc)}`
+and echoed it to the client. Handlers resolve by the exception's MRO, so the specific
+subclasses (`OutputTruncatedError`, `APITimeoutError`) win over their parents.
+
+```python
+@app.exception_handler(ModelOutputError)          # OutputTruncatedError inherits → its own code
+async def handle_model_output_error(request: Request, exc: ModelOutputError):
+    rid = request.state.request_id
+    logger.warning("model output failure", extra={"code": exc.code, "request_id": rid})
+    return JSONResponse(status_code=502, content={"error": exc.code, "request_id": rid})
+```
+
+The route never leaks a stack trace; it speaks HTTP semantics, and each code says a
+*different true thing about whose fault it was*. v1.2 split `OrchestratorError` so a model
+that returned garbage three times wasn't reported as the client's malformed request; v1.3
+(L14) finishes the job — truncation on an input the route already accepted isn't the
+client's fault either. And 429 is reserved for *our* rate limit: passing upstream throttling
+through as 429 would tell the client *they* sent too many requests.
+
+### 9.5 Persistence: hybrid relational-envelope + JSONB
+
+A SOAP note is a **document-shaped aggregate** — read and written whole; you never query
+"every claim across all notes where section='A'." Normalizing into a claims table builds
+query power you have no query for (Volkswagen). So: relational envelope, JSONB payload.
+
+```python
+class NoteRecord(Base):
+    __tablename__ = "notes"
+    id                         = Column(UUID, primary_key=True)   # minted in the route (§9.1)
+    created_at                 = Column(DateTime, server_default=func.now())
+    raw_text                   = Column(Text)
+    model_used                 = Column(String)      # ← regression metadata
+    prompt_version             = Column(String)      # ← regression metadata
+    checks_version             = Column(String)      # ← v1.3 (L57): verdicts stay interpretable
+                                                     #   across a lexicon change
+    input_tokens               = Column(Integer)     # ← the cost axis (§5.5), summed across
+    output_tokens              = Column(Integer)     #   validation attempts (L13)
+    validation_attempts        = Column(Integer)     # ← v1.3 (L57)
+    judge_input_tokens         = Column(Integer)     # ← v1.3 (L7, L57): the second call's cost
+    judge_output_tokens        = Column(Integer)
+    production_critical_passed = Column(Boolean)     # ← PER-NOTE verdict from the PRODUCTION
+                                                     #   (reference-free) mode
+    note                       = Column(JSONB)       # ← the whole validated SOAPNote
+    report                     = Column(JSONB)       # ← the whole EvalReport
+```
+
+The pulled-out columns are exactly the ones you'd ever filter or trend on. `model_used` +
+`prompt_version` + `production_critical_passed` make the **regression thesis durable**:
+later you can query *"did my CRITICAL pass-rate drop when I switched from Opus to Haiku?"*
+— the evals-as-regression story becomes a tracked metric with history, not a one-shot
+script print.
+
+> ⚠️ Naming (v1.1, sharpened): there are **two similarly-shaped metrics** and the name
+> now says which is which. `production_critical_passed` is a per-note boolean from the
+> reference-free production subset. The **CI corpus rate** is a different number from a
+> different check-set, and it lives in `evals/runs/corpus_runs.jsonl` (§8.7). Never
+> store either aggregate in a per-row column; never let the two share a name.
+
+### 9.6 Persistence is a sink, not a dependency
+
+`persist()` runs *after* the response is returned — as a `BackgroundTask`, that's the
+framework's guarantee, not the route's good manners. The pipeline never reads from the
+DB. A write failure must NOT 500 the user — they already have their valid,
+safety-checked note (and by the time the task runs, the response is already gone):
+
+```python
+async def persist(note_id, raw_text, note, report, metadata) -> None:
+    if not settings.persist_enabled:                    # v1.2: the demo can run stateless (§9.8)
+        return
+    try:
+        async with SessionLocal() as session:           # v1.2: its OWN session — see below
+            session.add(NoteRecord(id=note_id, raw_text=raw_text, ...))
+            await session.commit()
+    except DBError:
+        logger.error("persist failed", exc_info=True)   # log, don't raise
+```
+
+**The session trap (v1.2):** `persist` must open its own session from the sessionmaker,
+never receive the request's `Depends(get_session)`. Since FastAPI 0.106, dependencies
+with `yield` run their cleanup *before* background tasks execute — the request-scoped
+session is already closed by the time the sink runs, and the write fails with a
+closed-connection error on every single request. It would be logged and swallowed
+(§9.6 promises exactly that), so the app would look healthy while persisting nothing.
+A sink that silently sinks nothing is the failure mode this section was written to
+prevent; the integration test asserts a row exists after the response.
+
+### 9.7 Two UI render channels (present-but-suspect vs absent-but-required)
+
+Flags live in two places, and **omissions have nowhere to hang** (the dropped thing isn't
+in the note):
+
+- **claim-anchored findings** → **inline highlights.** Two sources, joined by
+  `claim.id` (v1.2): grounding's `ClinicalClaim.flags` + `source_span` (hover a claim,
+  see its source; yellow for `PARAPHRASED`, red for `UNSUPPORTED`), and any
+  `EvalResult` whose `claim_ids` is non-empty (the contraindication finding lands on
+  the amoxicillin claim *and* the allergy claim).
+- **note-level findings** (`EvalResult` with `claim_ids == ()`: omissions, an errored check,
+  the dropped allergy that has no claim to hang on, and — v1.3, L51 — a contraindication
+  whose drug exists only in the source because the note dropped it) → a **top-of-note
+  safety banner.**
+
+"flags → badges" was too simple; the response contract must expose both channels —
+and in v1.2 it actually can, because `claim_ids` exists (v1.1 described the two
+channels and shipped a contract that could only express the first).
+
+### 9.8 Edge cases / production realities (flag, don't all build)
+
+- **Connection pooling** — the real concurrency concern is the DB, not async itself. Async
+  engine (`asyncpg` pool via SQLAlchemy). Cheap; do it right.
+- **`/health` endpoint** — five lines; its *presence* signals you thought about deployment.
+- **CORS** (v1.1) — the React dev server runs on a different origin; without
+  `CORSMiddleware` (allow the frontend origin, configured in `config.py`) phase 3 begins
+  with a mystery evening. One middleware registration, specced now so future-me doesn't
+  debug it at midnight.
+- **Logging / observability (v1.1; PHI-scoped v1.3).** stdlib `logging` configured once in
+  `api.py`: per-request id, model, latency, token counts, error *codes*. v1.3 (L53) makes one
+  rule absolute: **raw text, note content, and exception messages that may carry them never
+  reach a log line or an HTTP body.** Concretely: `OrchestratorError` is logged by `code`
+  without `exc_info`; checks log by check *name*; any stringified validation error uses
+  `errors(include_input=False)`; error bodies are `{error, request_id}` (§9.4).
+  `persist_enabled=false` keeps the demo out of the database; this rule keeps it out of the
+  hosting platform's log retention, which v1.2's "not a PHI sink" had forgotten.
+  Structured/JSON logging → v2.
+- **Migrations** (v1.1, DECISION D3) — `Base.metadata.create_all` for build phases 1–2
+  (schema churn is high, data is disposable); **Alembic adopted in phase 3** when
+  Postgres becomes real and the schema stabilizes. The ladder is the decision: create_all
+  isn't a gap, it's a phase.
+- **Secrets** — API key in env, never in code (`.env` gitignored, `.env.example` committed —
+  the reflex carries over from the APIs arc; matters more here, clinical-adjacent).
+- **Oversized transcripts** → rejected honestly at the boundary via `max_length` (§9.1);
+  chunking to *accept* them → v2.
+- **The wallet (v1.2; hardened v1.3).** A deployed `/summarize` with no auth and a paid API
+  key behind it is a denial-of-wallet endpoint. Minimum viable defense, both required: a
+  per-IP rate limit (`slowapi`, a few requests/minute → 429) *and* a daily spend cap
+  enforced in code (`settings.daily_token_budget` → 503 `budget_exhausted`). v1.3 (L56)
+  closes three ways v1.2's cap leaked. **Reserve before spend:** the `reserve_budget`
+  dependency atomically charges the worst case (`settings.max_request_tokens` — max input
+  plus max output across every validation attempt, plus the judge's ceiling) *before* any
+  call, so concurrent requests can't all pass a check-then-spend race. **No refund:** the
+  demo charges the reservation, not actual usage — a conservative cap is a correct cap, and
+  it needs no settlement path. **One counter:** the demo runs a single worker with an
+  in-process counter under an `asyncio.Lock`, documented, because N workers × N counters is
+  N× the cap and a restart is a reset. A shared counter is v2. Neither defense is "auth"
+  (v2). Both are what a reviewer from a health-AI company will check for within thirty
+  seconds of seeing a live link.
+- **Proxies (v1.3, L58).** Behind a platform proxy, `request.client.host` is the proxy —
+  every user shares one rate-limit bucket. Run uvicorn with `--proxy-headers` and
+  `--forwarded-allow-ips` set to the platform's proxy range (`settings.forwarded_allow_ips`).
+- **The paste box is a PHI intake (v1.2).** The repo has zero real PHI. The *deployed
+  demo* has a text box, and someone will paste a real note into it. Two consequences:
+  (1) the UI carries a visible "synthetic / de-identified text only — this is a demo,
+  not a HIPAA environment" banner above the box; (2) `settings.persist_enabled`
+  exists and the public demo runs with it **off** — the pipeline runs, the note is
+  returned, nothing is written. Persistence is demonstrated in the integration tests
+  and in a locally-run instance, not by accumulating strangers' clinical text on a
+  free-tier Postgres. Knowing to make that call is the clinical-adjacent judgment
+  the whole project is supposed to prove. (v1.3: persistence off is necessary, not
+  sufficient — the logging rule above is the other half.)
+
+**Deliberate non-feature (architecturally interesting):** **streaming.** It fights the
+design — you cannot ground a claim until it's *complete*, nor safety-check a half-emitted
+note. The whole flow is a *whole-object* pipeline. *"I chose not to stream because it
+conflicts with grounding the output before display"* is a better interview answer than most
+features. (Auth, multi-tenancy, real EHR/FHIR write-back → same v2 bucket.)
+
+### 9.9 Honest mirror
+
+This layer is where the instinct is to coast (the moat is elsewhere). Don't. Reviewers
+**judge competence by the plumbing precisely because it's unglamorous.** The moat gets the
+interview; the clean route, translated errors, health check, pooled connections, and real
+tests get me trusted.
+
+### 9.10 The frontend contract (v1.2 — previously a directory name)
+
+`frontend/` had a one-line description and a promise ("the frontend's type
+source-of-truth") with nothing backing it. The contract, minimally:
+
+- **Types are generated, not typed.** `openapi-typescript` runs against FastAPI's
+  `/openapi.json` and emits `frontend/src/api.d.ts`. `SOAPNote`, `EvalReport`,
+  `SummarizeResponse` exist exactly once, in `schemas.py`; the TypeScript is a build
+  artifact. That's what makes the §12 receipt's last line true rather than aspirational.
+- **One highlight at a time.** Spans can overlap (two claims from one sentence) and
+  coincide (the duplicate-quote case, §6.5). The UI never paints all spans onto the
+  source at once — it highlights the span of the claim under the cursor (or the one
+  clicked), and nothing else. This sidesteps overlap rendering entirely and matches
+  the product motion (§1: "hover → highlight"). A claim with `source_span: None`
+  highlights nothing and shows its `UNSUPPORTED` badge; that absence *is* the signal.
+- **Findings join by `claim.id`.** The claim card shows grounding flags plus every
+  `EvalResult` whose `claim_ids` contains its id; the banner shows every result with
+  `claim_ids == ()`. The UI does no clinical reasoning; it renders two lists.
+- **Every state designed (v1.3, L24, L55, L58)** — keyed on the body's `error` code, never
+  on parsing a message: loading; result; **empty** (no claims *and* no clinical entities →
+  "no clinical content found," §10 — if the input *was* clinical, the result state renders
+  with the `empty_note_on_clinical_input` warning instead); **empty Assessment** ("No
+  assessment documented" — a faithful note under D7, not a blank section); **coverage
+  reduced** (an errored check → "this check didn't run on this note," never rendered as
+  passed); `input_invalid` 422; `rate_limited` 429; `upstream_busy` and `budget_exhausted`
+  503 (different copy — one says retry shortly, one says the demo is done for today);
+  `model_output_invalid` / `output_truncated` / `upstream_error` 502; `upstream_timeout`
+  504. No state is a blank page or a raw JSON dump.
+- **`note_id` is not a link (v1.3, L58).** With `persist_enabled=false` the id refers to
+  nothing, and `GET /notes/{id}` is v2 — the UI never implies the note can be retrieved.
+- **Read-only in v1.** "Review, edit, sign off" (§1) is the product; edit and
+  sign-off *persistence* is v2 (§15) — the v1 UI is a review surface. Naming that
+  here is what makes it a decision instead of an omission.
+- **The PHI banner** (§9.8) is above the paste box, always, not a dismissible toast.
+
+---
+
+## 10. Cross-cutting concerns
+
+- **`config.py` (pydantic-settings):** every operational knob (invariant 10) — `model`
+  (dated id); `max_input_chars` → derived `max_output_tokens` (validated against the model's
+  ceiling at boot, L16); `max_validation_retries` (L5); `sdk_transport_retries`;
+  `llm_timeout_s`, `judge_timeout_s` (L54); `fuzzy_score_cutoff`; `min_input_chars`;
+  `min_quote_content_tokens` (D15); `judge_enabled`; `persist_enabled`;
+  `corpus_concurrency`; `corpus_repeats` (D11); `daily_token_budget`, `max_request_tokens`
+  (L56); `rate_limit`; `forwarded_allow_ips` (L58); `runs_path`; CORS origins. Clinical
+  knowledge — including `NEGATION_WINDOW` — lives in `clinical/lexicons.py`. The literal
+  numbers in this spec's code samples are `settings.*` in the repo.
+- **Degenerate input (v1.3, L55, L58) — three paths, not one.** A paste shorter than
+  `min_input_chars` → 422 at the route (v1.2's example, "hello," never reached the pipeline;
+  this is where it was rejected). A long non-clinical paste → a valid empty `SOAPNote`
+  (`claims=()`) → "no clinical content found." A *clinical* paste that comes back with zero
+  claims → the `empty_note_on_clinical_input` WARNING (§8.4): total omission must not read
+  green — invariant 12's law, reached by a different road.
+- **No dedup / idempotency:** same paste twice = two rows. Correct for MVP; *know* it;
+  caching → v2.
+
+---
+
+## 11. Testing strategy — tiers by determinism, not by folder
+
+The whole-system view reveals a split the per-layer view hid. **A test's tier is decided by
+whether anything stochastic sits in its path — not by what it tests, and not by which folder
+its fixture lives in** (v1.3, L42).
+
+| Tier | What | Determinism | Cost | Cadence |
+|---|---|---|---|---|
+| **Unit** | pure functions: the ladder, extraction, each check, `contraindication` rungs, `case_verdict` | deterministic | free | **every commit** |
+| **Injected corpus** (v1.3) | every YAML case with a `draft`: ground + `run_checks` + `case_verdict`, fake `Judge` | deterministic | free | **every commit** |
+| **Integration** | route + fake client/judge (`dependency_overrides`) + test DB (phase 3) | deterministic | free | **every commit** |
+| **Model corpus** | `score_corpus` — real API calls over model cases, k repeats | **stochastic** | **$ × k** | **pre-deploy / manual dispatch** |
+
+Naming this cadence split is itself a production-AI signal: evals are CI, but a *different
+kind* of CI than unit tests. And the cheap tiers verify the expensive one: `case_verdict` is
+unit-tested, and the injected corpus proves every check the model corpus relies on.
+
+**The workflow file:** the free tiers run in **GitHub Actions** (`.github/workflows/ci.yml`:
+`uv sync` → `ruff` → `mypy` → `pytest`) on every push **from phase 1** (v1.3, L60 — v1.2
+scheduled CI in phase 3 while CLAUDE.md said it ran on push; a green badge from the first
+commit is the cheapest credibility signal in the repo). The model corpus is deliberately not
+in the push workflow — it spends real money.
+
+**Free-tier tests the spec demands** (each guards a specific bug or claim):
+
+- **Property-based, on the index map** (`hypothesis`, with non-ASCII strategies — L26).
+  v1.3 (L62) restates both properties, because v1.2's were false as written: (1) for any
+  `raw_text` and any substring `q` with `q.strip()` non-empty, grounding a claim quoting `q`
+  returns a span `s` with `raw_text[s[0]:s[1]] == q.strip()` — v1.2 asserted `== q`, but the
+  quote is stripped, and hypothesis would find a leading space in under a second; (2) for
+  every original character `ch` of any text, the normalized characters mapped to its index
+  are exactly `PUNCT_MAP.get(ch, ch).lower()` (or a single space for the first character of
+  a whitespace run, nothing for the rest) — stated per *original* character, so
+  multi-character lowercasing can't break it.
+- **Tool-schema snapshot** — `SUMMARY_TOOL["input_schema"]` against a committed JSON; any
+  change to `ClaimDraft` is a reviewed diff *and* a new `PROMPT_VERSION`.
+- **Orchestrator boundary (phase 1)** — fake client: happy path; a validation retry with a
+  correctly shaped `tool_result` (`tool_use_id`, `is_error=True`); `max_tokens` fails fast;
+  a missing block fails fast; retries exhausted; usage summed across attempts; a
+  `RunMetadata` construction error is NOT fed back to the model (L12).
+- **HTTP mapping (phase 1)** — every §9.4 row reachable in phase 1, including 504 on a client
+  timeout, and no body ever containing exception text (L53).
+- **Grounding** — Tiers 0–4; the numeric guard (`"BP 190/110"` vs a `130/110` source →
+  `UNSUPPORTED` with its score kept); the rapidfuzz coordinate pin (L27); v1.2's
+  `detect_vital_drift`, moved here (L66).
+- **Extraction** — `extract_drugs("allergic to penicillin") == set()`; the four negation
+  scope cases (L31); `extract_allergies("PCN allergy") == {"penicillin"}` (L30); parsed doses
+  compare equal across spacing and case (L33); each `contraindication` rung (D9, D14).
+- **Corpus load + coverage** — every fixture parses; every `expected_flags` entry is
+  registered; the §8.5 coverage rule holds.
+- **Fail-closed engine** — a raising check yields `errored=True, passed=False` and the others
+  still run; a severity-upgrading finding errors its check (L38); an errored expected check
+  fails its case (L43); a check absent from `checks_run` makes its case N/A (L44).
+- **Omission law (D17)** — for each row of the §8.4 omission table, a test that omits the
+  input and asserts the stated behavior.
+- **Frozen spine** — assigning to or appending to a `ClinicalClaim`'s fields raises (L6).
+- **Judge plumbing (phase 2c)** — a fake `Judge` that times out yields an errored WARNING,
+  the note is returned, and `all_critical_passed` is unchanged.
+- **The sink actually sinks (phase 3)** — the integration test asserts a `notes` row with the
+  returned `note_id` exists after the response; §9.6's session trap would pass every other
+  test in the suite.
+
+---
+
+## 12. The "one spine, many jobs" receipt
+
+One data-modeling decision in the skeleton phase, propagating without re-definition:
+
+```
+SOAPNoteDraft  ──►  LLM tool contract              (orchestrator)
+               ├─►  post-call validation            (orchestrator boundary)
+               └─►  the phase-1 response            (unverified — and the type name says so)
+
+SOAPNote       ──►  grounding output / source of truth
+               ├─►  persistence shape                (DB, JSONB)
+               ├─►  HTTP response contract           (API)
+               ├─►  auto-generated OpenAPI docs       (free)
+               └─►  the frontend's type source-of-truth
+
+EvalCase       ──►  fixture answer key               (corpus authoring)
+               ├─►  the per-case verdict input        (case_verdict — the answer key is
+               │                                       consumed, not decorative)
+               └─►  an injected draft (v1.3)          (a SOAPNoteDraft again: the tool
+                                                       contract doubles as the test fixture)
+```
+
+Get the data contract right at the beginning → citations, grounding, validation,
+persistence, the API, and the docs all become mechanical.
+
+---
+
+## 13. Repo / module structure
+
+```
+notepilot/
+├── pyproject.toml          ← uv project; runtime deps under [project], dev under groups
+├── uv.lock                 ← the environment's source of truth
+├── .github/
+│   └── workflows/ci.yml    ← ruff + mypy + pytest on push, FROM PHASE 1 (model corpus: manual, $)
+├── backend/
+│   ├── schemas.py          ← DOMAIN. the spine. imports nothing; imported by everything.
+│   ├── config.py           ← operational knobs (pydantic-settings)
+│   ├── orchestrator.py     ← EDGE. raw text → SummarizationResult; the LLMClient protocol
+│   ├── judge_client.py     ← EDGE (phase 2c). implements evals' Judge protocol over the API
+│   ├── grounding.py        ← DOMAIN. SOAPNoteDraft → SOAPNote (pure, the ladder)
+│   ├── clinical/           ← DOMAIN. imports nothing from the spine (L65)
+│   │   ├── extract.py      ← the extractors — imports ONLY lexicons.py
+│   │   └── lexicons.py     ← imports nothing; severities as plain strings (§7)
+│   ├── evals/              ← DOMAIN
+│   │   ├── registry.py     ← Check + Finding (check-internal, sanctioned) · @register_check · stamp
+│   │   ├── judge.py        ← the Judge protocol — a domain interface (phase 2c)
+│   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · drug_mentions / span_text
+│   │   ├── runner.py       ← run_checks · case_verdict · corpus_metrics · score_corpus · CHECKS_VERSION
+│   │   ├── loader.py       ← YAML → EvalCase; validates expected_flags; corpus_version()
+│   │   ├── cases/          ← one YAML per case: model cases AND injected cases (§8.5)
+│   │   └── runs/           ← corpus_runs.jsonl — committed from local runs (D5)
+│   ├── api.py              ← EDGE. routes (composition root) · handlers · logging · rate limit · budget
+│   └── db.py               ← EDGE (phase 3). SessionLocal, NoteRecord, persist()
+├── frontend/               ← React (phase 3): paste → SOAP view → hover-highlight + safety banner
+│   └── src/api.d.ts        ← GENERATED by openapi-typescript (§9.10); never hand-edited
+├── tests/                  ← unit + injected corpus + integration (deterministic, every commit)
+│   ├── snapshots/tool_schema.json
+│   └── ...                 ← test_orchestrator, test_api, test_grounding (incl. hypothesis),
+│                              test_extract, test_checks, test_omission, test_runner,
+│                              test_injected_cases, test_corpus_coverage
+├── .env.example            ← committed; real .env gitignored
+└── README.md               ← product layer + four-metric scorecard (n, k) + cost line + CI badge
+```
+
+**The law made visible:** dependencies point *inward* toward `schemas.py`, and the
+DOMAIN / EDGE labels say where a vendor's format may appear (§0). `rag/` does not exist until
+phase 4 — an empty module in the tree is a promise the code hasn't made. `alembic/` joins in
+phase 3 (D3). Each module lands in the phase whose exit criteria need it (§14), not before.
+
+---
+
+## 14. Build sequence (layered — the Volkswagen safeguard)
+
+Strictly sequential. Every phase leaves something that runs end to end, and every phase has
+**exit criteria** (v1.3, L61) — v1.2 had only §17, which audits the finished project, so
+"is phase 1 done?" had no checklist. Every phase closes the same way: exit criteria audited
+line by line, CI green, CLAUDE.md's "Current phase" line updated, and a git tag.
+
+v1.3 (L59) splits phase 2. It held grounding, extraction, nine checks, the corpus, the
+loader, the runner, lineage, and the judge — before this revision added some twenty more
+items. A phase that large has no demoable midpoint: a Volkswagen inside the build sequence
+itself. `run_checks` is async from 2a even though nothing awaits until 2c — free now, a
+signature change across every caller later.
+
+### Phase 1 — MVP spine · `v0.1-spine`
+
+paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No grounding, no DB, no evals.
+*(Closest to done — the authenticated Anthropic call exists from the APIs arc.)*
+
+```
+□ paste → route → summarize → SOAPNoteDraft + RunMetadata → minimal display grouped by section
+□ schemas.py holds ONLY: ClaimDraft (extra="forbid", stripped non-empty quote, structural
+  descriptions) · SOAPNoteDraft · TokenUsage · RunMetadata (every field produced, L11) ·
+  SummarizationResult
+□ orchestrator: one-line try (L12) · usage summed + validation_attempts (L13) ·
+  OutputTruncatedError → 502 (L14) · PROMPT_VERSION over the full call config (L15) ·
+  errors carry usage (L49)
+□ prompt: D7 Assessment rule + certainty (L20) · never omit safety-critical facts (L50)
+□ config.py: dated model id · max_validation_retries + sdk_transport_retries (L5) ·
+  llm_timeout_s (L54) · derived max_output_tokens validated at boot (L16)
+□ LLMClient Protocol (L19) · orchestrator and api are EDGE (L17)
+□ PHI-safe errors and logs: {error, request_id} bodies, codes not messages (L53)
+□ tests: the orchestrator boundary list (§11) · tool-schema snapshot · every §9.4 row
+  reachable in phase 1, incl. 504
+□ CI on push: ruff + mypy + pytest (L60)
+```
+
+### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
+
+```
+□ ground(): Tiers 0–4 · numeric guard · Tier 3 in normalized space (L27) · Unicode-safe
+  map (L26) · scores kept on near-misses (L8) · frozen note, tuple flags (L6) · ids stamped
+□ property tests restated, non-ASCII strategies (L62) · rapidfuzz coordinate pin
+□ extract.py (imports only lexicons): drugs · allergies normalized (L30) · parsed doses
+  (L33) · scoped negation (L31) · med status (D13) · diagnoses + certainty (D12) ·
+  new_prescriptions (L41)
+□ lexicons.py: brand→generic · aliases · split cue classes · DRUG_CLASS (L67) · R1_GROUP
+  (D9) · CROSS_REACTIVITY (D14) · NKDA ≠ NKA (D10) — each clinical entry carries its
+  rationale and Cal's sign-off
+□ registry: dict, rejects duplicates · origin · stamp() enforces downgrade-only (L38)
+□ EvalResult.errored (L43) · EvalReport.checks_run + checks_version (L44, L45)
+□ run_checks: async, fail-closed, judge as a parameter · all_critical_passed guard
+□ every reference-free check on the §8.4 roster except the judge, comparing against the
+  span (L35) · the contraindication with L51 + L37
+□ omission law: a docstring + a test per row of the §8.4 omission table (D17)
+□ injected corpus satisfies the coverage rule (L42) · green in pytest
+□ route returns SOAPNote + EvalReport (production mode) · still no DB
+```
+
+### Phase 2b — the regression thesis goes live · `v0.2b-corpus`
+
+```
+□ ≥ 24 model cases, ≥ 6 per species, explicit species (L9) — incl.
+  control_pcn_allergy_azithro, control_hedged_assessment, control_empty_assessment (L23)
+□ one planted danger per trap (D16), enforced in review
+□ typed must_not_add, polarity-aware reference checks (L10, L36) · must_preserve /
+  must_not_add registered with requires_reference
+□ loader: YAML → EvalCase, expected_flags validated · corpus_version
+□ case_verdict unit-tested: the v1.1 inversion · errored never satisfies (L43) · N/A (L44)
+□ score_corpus: concurrency · per-case catch parity + all-failed runs recorded (L46) ·
+  k repeats + flaky_cases (D11) · failed-attempt usage counted (L49)
+□ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · CorpusMetrics (L3)
+□ one baseline run on the chosen dated model, committed with its change (D5)
+□ README scorecard sentence (§2) drafted from real numbers, with n and k
+```
+
+### Phase 2c — the semantic backstop · `v0.2c-judge`
+
+```
+□ evals/judge.py (Protocol) · judge_client.py (edge): one batched call (L40),
+  temperature=0, judge_timeout_s (L54)
+□ text_entailment_judge (D8): WARNING, needs_judge
+□ judge usage → EvalReport.judge_usage → CorpusRunRecord.judge_usage (L7)
+□ test: judge timeout → errored WARNING, note returned, CRITICAL verdict unchanged
+□ detect_invented_assessment: diagnosis_in_quote fires with the judge off; the judge adds
+  its WARNING with it on
+□ corpus recorded with the judge on AND off; the difference stated in the README
+```
+
+### Phase 3 — full-stack real · `v0.3-shipped`
+
+```
+□ Postgres + Alembic (D3) · NoteRecord lineage parity (L57) · persist in its own session ·
+  integration test asserts the row exists
+□ React: generated api.d.ts · one highlight at a time · findings joined by claim.id ·
+  banner · every §9.10 state · PHI banner above the paste box
+□ deployed: persist_enabled=false · rate limit behind proxy headers (L58) · reserve-before-
+  spend budget, one worker (L56) · CORS · /health · PHI-safe logging (L53)
+□ README: product layer · four-metric scorecard with n and k · cost line (§5.5) · CI badge
+□ §17 audited line by line
+```
+
+### Phase 4 — RAG deepening · `v0.4-rag`
+
+Retrieve a reference corpus (drug interactions, guidelines) to cross-check the summary — the
+retrieval muscle, a *deepening*, not MVP bloat. The spec describes it in one paragraph, so
+its exit criteria begin with a design:
+
+```
+□ spec v1.4: a RAG section designed and reviewed BEFORE any code
+□ retrieval corpus public or licensed · zero PHI
+□ each RAG-backed check placed on §8.1's trust axis (live vs CI-only) before it ships
+□ retrieval quality measured on a labeled set before it gates anything · invariant 7 if an
+  LLM is in the loop
+```
+
+---
+
+## 15. v2 backlog (deliberate non-features — I know the prod version, I chose scope)
+
+- Streaming token output (conflicts with whole-object grounding — §9.8)
+- RxNorm / medspaCy / NegEx ontology-derived extraction (replaces hand lexicons — §7)
+- Locality-based duplicate-quote resolution (§6.5)
+- Auth, multi-tenancy, real EHR / FHIR write-back (§9.8)
+- Transcript chunking for token limits (§5.4, §9.8 — until then, honest rejection)
+- Dedup / idempotency / caching (§10)
+- Meta-evaluation of the evaluators — checks and judge against a clinician (§8.8)
+- Structured / JSON logging (§9.8)
+- Additional LLM-judge checks beyond the entailment judge (§8.2)
+- **Edit + sign-off persistence** — `PATCH /notes/{id}`, clinician edits, signed state. The
+  product's third verb; the v1 UI is a review surface (§9.10)
+- **`GET /notes/{id}`** — `note_id` in the response (§9.1) is the hook
+- **Prompt caching** on the system prompt + tool schema block — changes the cost axis, not
+  the architecture
+- **Real auth** — the v1 rate limit + spend cap protect the wallet, not the data
+- **INFO-tier checks** (section misplacement, stylistic drift) — the tier is defined (§8.6)
+- **Allergy reaction-type extraction** — anaphylaxis vs rash changes the rung (D14, §8.8) (v1.3)
+- **`about:` on expected flags** — matched against structured finding entities; closes the
+  wrong-reason-pass gap D16 narrows (v1.3)
+- **Shared budget counter + actual-usage settlement** for multi-worker deploys (§9.8, L56) (v1.3)
+- **Carbapenem / aztreonam lexicon entries** — only when a corpus case needs them (D14) (v1.3)
+- **Live medication-omission detection beyond new prescriptions** — only if a derivation
+  trustworthy enough for §8.1 appears (§8.4) (v1.3)
+
+---
+
+## 16. Curriculum mapping (nothing wasted)
+
+v1.3 (L63): the curriculum's units are **Arcs**; "Phase" means only a build phase (§14). One
+word, one meaning — so "Current phase: 1" in CLAUDE.md can't be misread.
+
+```
+APIs & HTTP arc            ✓ ──► the authenticated LLM call (orchestrator)
+Type Hints arc             ✓ ──► the Pydantic spine (schemas.py)
+Error Handling arc         ✓ ──► the OrchestratorError hierarchy, EAFP boundary, HTTP translation
+Iterators/Generators arc   ✓ ──► pipeline composition
+Testing arc                ✓ ──► the tier strategy; case_verdict IS the bridge
+                                  (eval = a test — fuzzy asserts over a corpus)
+Web foundations arc          ──► the shell: api.py, frontend/, db.py, Alembic  (build phases 1, 3)
+RAG / evals arc              ──► Layer 4, the moat (build phase 2) and its RAG deepening
+                                  (build phase 4). Not Layer 2 — v1.2 mapped RAG to
+                                  grounding, which retrieves nothing.
+```
+
+Every brick laid or about to be laid has a home in this thing.
+
+---
+
+## 17. Definition of done (portfolio-grade)
+
+The whole project. Per-phase exit criteria live in §14.
+
+- [ ] Pipeline runs end-to-end: paste → grounded, safety-flagged note — **persisted in the
+      integration tests and a locally run instance**; the deployed demo runs with
+      `persist_enabled=false` (v1.3, L64: v1.2 required "persisted" and "persistence off" of
+      the same deploy)
+- [ ] `schemas.py` is the only thing the domain layers import from each other;
+      `clinical/extract.py` imports only `lexicons.py`, which imports nothing; vendor
+      formats appear only in EDGE modules
+- [ ] Grounding is pure + unit-tested: ladder + offset mapping (property-based, non-ASCII) +
+      punctuation folding + Tier 0 + numeric guard + normalized Tier 3 + flag cases
+- [ ] `ClinicalClaim` and `SOAPNote` are frozen with tuple collections (D6 enforced)
+- [ ] Every claim carries an `id`; every `EvalResult` carries `claim_ids`; the UI joins on it
+      (both render channels demonstrable, §9.7)
+- [ ] The §8.4 roster ships, the consistency checks comparing against the span; the
+      omission table holds, one test per row (D17)
+- [ ] Injected corpus satisfies the coverage rule and is green on every commit; ≥ 24 model
+      cases, ≥ 6 per species, one YAML each; every §8.5 regression fixture present
+- [ ] `case_verdict` consumes `expected_flags`, handles errored and N/A, and is unit-tested
+      (incl. the inversion case: a fired expected flag = a PASS)
+- [ ] `score_corpus` emits a `CorpusRunRecord` with `git_sha` + `git_dirty`,
+      `checks_version`, `judge_enabled`, k repeats, the four metrics, usage split from judge
+      usage, and a per-(case, repeat) breakdown; survives failing cases; records all-failed
+      runs; committed per D5; rerun on every prompt / model / check change
+- [ ] `prompt_version`, `corpus_version`, `checks_version` are derived hashes;
+      `settings.model` is a dated snapshot id
+- [ ] `all_critical_passed` guards vacuous truth; `run_checks` fails closed with `errored`
+- [ ] Whole-note safety extraction (never trusts the section)
+- [ ] Token usage captured per note — summed across validation attempts, judge separate —
+      and persisted
+- [ ] Integration test green with a fake client + fake judge + test DB (no network); asserts
+      the persisted row exists
+- [ ] Errors translated to honest HTTP codes (the §9.4 table, incl. 504); bodies carry codes,
+      never messages; `/health` live; CORS; rate limit behind proxy headers;
+      reserve-before-spend budget
+- [ ] Tool-schema snapshot test committed
+- [ ] GitHub Actions CI green on push since phase 1; badge in the README
+- [ ] Deployed, live link, `persist_enabled=false`, PHI banner above the paste box, PHI-safe
+      logs; secrets in env
+- [ ] `frontend/src/api.d.ts` generated from `/openapi.json`; every §9.10 state designed
+- [ ] README carries the product layer (who / what pain / v2) + the four-metric scorecard
+      sentence with n and k (§2) + the cost line (§5.5) + the honest mirror's limits (§8.8)
+- [ ] Clean conventional-commit git history, one tag per phase
+
+---
+
+*The bricks have been laid. v1.1 exists because one of them got interrogated. v1.2 exists
+because the interrogation was pointed at what the checks could actually see — and found
+they'd been trusting a quote to vouch for a sentence. v1.3 exists because someone walked the
+whole building before moving in — and found the checks trusting the model's quote over the
+source, the model's silence over the danger, and a crash over a verdict. Now the source
+answers for the quote, and nothing is safe just because it's missing. 🧱⚔️◡̈*
