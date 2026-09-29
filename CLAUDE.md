@@ -87,6 +87,24 @@ asked.
     model sees its mistake → retry. `max_tokens` / missing block → identical request at
     `temperature=0` → fail fast (spec §5.4).
 
+## Decisions beyond spec v1.2 (implementation-level, not spec amendments)
+
+Recorded here so the design room (claude.ai Project) and the build room agree.
+
+- **`extra="forbid"` on `ClaimDraft` and `SOAPNoteDraft`.** An invented field is
+  a `ValidationError`, not a silent drop — which is exactly the case the §5.4 retry
+  loop is built for (the model sees its mistake → the request changes → retry is
+  worth spending). Emits `additionalProperties: false` into the tool schema so the
+  model is told up front. Same principle as v1.2's `min_length=1` move.
+- **`Field(description=...)` on draft fields, kept structural.** The tool schema is
+  prompt the model reads; descriptions say *shape* (verbatim, contiguous, one fact
+  per claim). *Clinical* rules (negation, allergies always, omit when uncertain)
+  stay in the system prompt per §5.3. Descriptions are covered by `PROMPT_VERSION`
+  (§5.4), so edits are versioned automatically.
+- **Phase 1 `schemas.py` contains only `ClaimDraft`, `SOAPNoteDraft`, `RunMetadata`,
+  `SummarizationResult`.** Grounding and eval types land in the commit that
+  introduces their first consumer and test, not before.
+
 ## Build sequence gate (the Volkswagen safeguard)
 
 Build order is spec §14 and it is strictly sequential:
@@ -110,6 +128,7 @@ uv sync                          # install/sync env (uv owns .venv; never pip in
 uv add <pkg> / uv add --dev <pkg>
 uv run pytest                    # unit + integration — deterministic, free, every commit
 uv run pytest tests/ -x -q       # fast fail during TDD loops
+uv run ruff check . && uv run ruff format --check .   # lint + format; clean before commit
 uv run mypy backend/             # type-check; the spine must stay clean
 uv run python -m backend.evals.runner   # ⚠️ score_corpus: REAL API calls, costs $,
                                         # slow. NEVER run unprompted. Pre-deploy /
