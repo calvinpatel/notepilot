@@ -161,9 +161,11 @@ entry fails this test, flag it; don't record it.
   sections always render; an empty one shows "none stated" (D7). Output labeled
   "DRAFT — unverified" (inv. 12). One-line PHI warning above the textarea (the §9.10
   banner is phase 3). Same-origin, so no CORS in phase 1. No `by_section`, no `SOAPNote`:
-  the phase-1 `schemas.py` fence holds (§14). `backend/static/` is a path §13 doesn't
-  list; it is sanctioned here and deleted when `frontend/` replaces it in phase 3.
-  Test: `GET /` → 200, `text/html`.
+  the phase-1 `schemas.py` fence holds (§14). Claims render via `textContent`, never
+  `innerHTML`: every `source_quote` copies the paste verbatim, so markup in the paste
+  would execute. `backend/static/` is a path §13 doesn't list; it is sanctioned here and
+  deleted when `frontend/` replaces it in phase 3.
+  Test: `GET /` → 200, `text/html`; the served file contains no `innerHTML`.
 
 - **I2 — Unexpected errors log structure, never messages** (conflict: §9.4's 500 row,
   "logged in full, internally," vs L53 in §9.4/§9.8 and inv. 19. L53 wins: the spec's
@@ -193,9 +195,13 @@ entry fails this test, flag it; don't record it.
   naming whose fault it is. The rule wins: a 401 from a bad key is not upstream's bug;
   v1.4 amends the row). `APIStatusError` 4xx except 429 → 500 `internal_error`, logged
   with `upstream_status` (our request or config: schema, key, access, model id, size).
-  5xx → 502 `upstream_error`. 529 → 503 `upstream_busy` (same meaning as
-  `RateLimitError`). All other §9.4 rows are unchanged.
-  Test: one per mapping, with the fake client raising each status.
+  5xx except 529 → 502 `upstream_error`. 529 → 503 `upstream_busy` (same meaning as
+  `RateLimitError`). A connection failure that is not a timeout (`APIConnectionError`,
+  not `APITimeoutError`) takes §9.4's residual `APIError` row → 502 `upstream_error`.
+  All other §9.4 rows are unchanged.
+  Test: one per mapping, with the fake client raising each status. `APIConnectionError`
+  gets its own test: it reaches 502 through a different MRO branch than a 5xx, and
+  `APITimeoutError` subclasses it, so the pair of tests pins the 504 handler winning.
 
 - **I5 — The model's output ceiling is a config knob** (fill: L16 requires validating
   `max_output_tokens` against the model's ceiling at boot; the spec names no source, and
@@ -211,6 +217,9 @@ entry fails this test, flag it; don't record it.
   `rate_limited`, 503 `budget_exhausted`. The HTTP test module lists both sets at the
   top. `request_id` is minted per request by middleware (`uuid4().hex` on
   `request.state.request_id`); every error body and log line carries it.
+  Test: the 502 `model_output_invalid` row is reached twice — a response with no tool
+  block, and `stop_reason="refusal"` with no tool block — so the refusal path is a
+  pinned behavior, not an accident of the missing-block branch.
 
 - **I7 — `LLMClient` declares explicit kwargs** (conflict: §5.5 says the Protocol
   exposes `messages.create(**kwargs)` AND that "mypy checks the seam every test depends
@@ -223,8 +232,31 @@ entry fails this test, flag it; don't record it.
   `@property` on `LLMClient`, not a bare attribute: a bare protocol attribute is settable,
   and the SDK's `messages` is a cached property. Test fakes build real
   `anthropic.types.Message` objects, so the fake can't drift from the wire format.
-  Test: mypy, forced by a binding site. `get_client() -> LLMClient` returns
-  `AsyncAnthropic(...)`; without a site like this, mypy never checks the seam.
+  Test: mypy over `backend/` and `tests/` (see Commands), forced by binding sites on
+  both sides. `get_client() -> LLMClient` returns `AsyncAnthropic(...)`, and the fake in
+  `tests/` is bound to an `LLMClient`-typed name; without both, mypy checks only half
+  the seam.
+
+- **I8 — Parallel tool use is disabled on the summarize call** (conflict: §5.4 states
+  the API contract — once an assistant turn contains a `tool_use` block, the next user
+  message must answer it with a `tool_result` for the same id — while its loop answers
+  only the first block; §5.2's `CALL_CONFIG` forces the tool but leaves parallel tool
+  use on, so a two-block response makes the retry 400, which I4 reports as our 500. The
+  contract wins, and the unanswerable state is prevented rather than handled).
+  `CALL_CONFIG["tool_choice"]` is `{"type": "tool", "name": "emit_soap_note",
+  "disable_parallel_tool_use": True}`. It lives in `CALL_CONFIG`, so it is inside
+  `PROMPT_VERSION` automatically (inv. 15).
+  Test: the fake records the kwargs of every `create` call; `tool_choice` carries the
+  flag on every attempt, validation retries included.
+
+- **I9 — The phase-1 response is an edge shape** (fill: §9.1 says the phase-1 route
+  returns `{draft, metadata}` without naming its type). `SummarizeResponse` in `api.py`
+  (sanctioned above) declares `draft: SOAPNoteDraft` and `metadata: RunMetadata`; the
+  route never uses `SummarizationResult` as its `response_model`. The domain return type
+  and the wire contract are different jobs: in phase 2a the edge shape becomes
+  `note_id` + `note` + `report` + `metadata` (§9.1) and nothing in `schemas.py` changes.
+  Test: the happy-path route test asserts the body's top-level keys are exactly
+  `{"draft", "metadata"}`.
 
 ## Build sequence gate (the Volkswagen safeguard)
 
@@ -259,7 +291,9 @@ uv add <pkg> / uv add --dev <pkg>
 uv run pytest                    # unit + injected corpus + integration — deterministic, free
 uv run pytest tests/ -x -q       # fast fail during TDD loops
 uv run ruff check . && uv run ruff format --check .   # lint + format; clean before commit
-uv run mypy backend/             # type-check; the spine must stay clean
+uv run mypy backend/ tests/      # type-check; the spine AND the test fakes — the fake
+                                 #   client lives in tests/, and I7's seam is only
+                                 #   checked if mypy reads both sides of it
 uv run python -m backend.evals.runner   # ⚠️ score_corpus: REAL API calls, costs $,
                                         # slow. MODEL cases only (injected cases run in
                                         # pytest), × corpus_repeats (default 3) — cost
@@ -269,9 +303,9 @@ uv run python -m backend.evals.runner   # ⚠️ score_corpus: REAL API calls, c
                                         # evals/runs/corpus_runs.jsonl (lineage, D5).
 ```
 
-CI: GitHub Actions (`.github/workflows/ci.yml`) runs ruff + mypy + pytest on every push
-**from phase 1**. The model corpus is deliberately excluded from the push workflow (it
-costs money) — manual dispatch / pre-deploy only.
+CI: GitHub Actions (`.github/workflows/ci.yml`) runs ruff + mypy (`backend/` and `tests/`)
++ pytest on every push **from phase 1**. The model corpus is deliberately excluded from the
+push workflow (it costs money) — manual dispatch / pre-deploy only.
 
 Tests never hit the network: orchestrator tests use an injected fake client (canned
 tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests use
