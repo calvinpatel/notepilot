@@ -146,10 +146,89 @@ Anything else outside `schemas.py`: flag it.
 
 Recorded here so the design room (claude.ai Project) and the build room agree.
 
-None yet. v1.3 absorbed the three v1.2-era entries: `extra="forbid"` and structural
-`Field(description=...)` are in §4.1; the phase-1 `schemas.py` scope is in §14's phase-1
-exit criteria. Record new implementation-level decisions here until the next spec
-revision absorbs them.
+## Decisions beyond spec v1.3 (implementation-level, not spec amendments)
+
+Recorded here so the design room (claude.ai Project) and the build room agree. Each entry
+cites the spec it touches and names the test that enforces it. The next spec revision
+absorbs these, and this section empties again. Deferred amendments that are NOT active in
+the build live in the GitHub issue "spec v1.4: deferred amendments", not here.
+
+**What may go here.** An entry may *fill* a detail the spec leaves unspecified, or
+*resolve a conflict between two statements in the spec*, citing both and naming which
+wins and why. An entry may never override a spec statement that nothing else in the spec
+contradicts. That is an amendment, and it waits for the next revision. If a proposed
+entry fails this test, flag it; don't record it.
+
+- **I1 — Phase-1 display is a static page** (fill: §14's "minimal display"; §13 names no
+  phase-1 UI). `GET /` in `api.py` (EDGE) serves `backend/static/index.html`: textarea →
+  `fetch("/summarize")` → `draft.claims` grouped by `section` client-side. All four
+  sections always render; an empty one shows "none stated" (D7). Output labeled
+  "DRAFT — unverified" (inv. 12). One-line PHI warning above the textarea (the §9.10
+  banner is phase 3). Same-origin, so no CORS in phase 1. No `by_section`, no `SOAPNote`:
+  the phase-1 `schemas.py` fence holds (§14). `backend/static/` is a path §13 doesn't
+  list; it is sanctioned here and deleted when `frontend/` replaces it in phase 3.
+  Test: `GET /` → 200, `text/html`.
+
+- **I2 — Unexpected errors log structure, never messages** (conflict: §9.4's 500 row,
+  "logged in full, internally," vs L53 in §9.4/§9.8 and inv. 19. L53 wins: the spec's
+  PHI rule beats one table cell; v1.4 amends the row). The 500 path logs
+  `code="internal_error"`, `request_id`, `exc_type=type(exc).__name__`, and frames as
+  `file:line:function` from `traceback.extract_tb`. Never `exc_info`, `str(exc)`, or a
+  chained cause. Frames carry no PHI; messages can (a chained `ValidationError` carries
+  `input_value`). Implement as a catch-all middleware that runs inside the request-id
+  middleware, NOT `@app.exception_handler(Exception)`: Starlette's
+  `ServerErrorMiddleware` calls that handler and then re-raises for the server to log,
+  so uvicorn prints the full traceback anyway. Specific handlers (`ModelOutputError`,
+  SDK errors) stay `exception_handler`s.
+  Test: a route raising an exception whose message is a sentinel → 500
+  `{error, request_id}`; the sentinel appears in no `caplog` record and not in the body.
+  With the default `TestClient`, the wrong implementation fails this test by re-raising.
+
+- **I3 — The default 422 handler is replaced** (fill: §9.4 fixes the body shape;
+  FastAPI's default handler returns `exc.errors()`, whose `input` is the entire paste).
+  A `RequestValidationError` handler returns 422 `{"error": "input_invalid",
+  "request_id": ...}` and logs by code only.
+  Test: an oversized and an undersized paste, each containing a sentinel → 422 with the
+  correct body; the sentinel appears in neither the body nor the logs.
+
+- **I4 — Upstream failures are attributed by status** (conflict: §9.4's row
+  `anthropic.APIError (other) → 502 upstream_error, "not my bug"` vs §9.4's rule that
+  each code "says a different true thing about whose fault it was" and §5.4's hierarchy
+  naming whose fault it is. The rule wins: a 401 from a bad key is not upstream's bug;
+  v1.4 amends the row). `APIStatusError` 4xx except 429 → 500 `internal_error`, logged
+  with `upstream_status` (our request or config: schema, key, access, model id, size).
+  5xx → 502 `upstream_error`. 529 → 503 `upstream_busy` (same meaning as
+  `RateLimitError`). All other §9.4 rows are unchanged.
+  Test: one per mapping, with the fake client raising each status.
+
+- **I5 — The model's output ceiling is a config knob** (fill: L16 requires validating
+  `max_output_tokens` against the model's ceiling at boot; the spec names no source, and
+  the SDK exposes none). `config.py` declares `model_max_output_tokens` directly beside
+  `model`, with a comment that the two change together. A validator rejects settings
+  whose derived `max_output_tokens` exceeds it.
+  Test: settings with `max_input_chars` past the ceiling raise at construction.
+
+- **I6 — Phase-1 HTTP scope is named** (fill: §14's "every §9.4 row reachable in phase
+  1"). Reachable: 422 `input_invalid` · 502 `output_truncated` · 502
+  `model_output_invalid` · 503 `upstream_busy` · 504 `upstream_timeout` · 502
+  `upstream_error` · 500 `internal_error`. Not reachable until phase 3: 429
+  `rate_limited`, 503 `budget_exhausted`. The HTTP test module lists both sets at the
+  top. `request_id` is minted per request by middleware (`uuid4().hex` on
+  `request.state.request_id`); every error body and log line carries it.
+
+- **I7 — `LLMClient` declares explicit kwargs** (conflict: §5.5 says the Protocol
+  exposes `messages.create(**kwargs)` AND that "mypy checks the seam every test depends
+  on." No loose signature satisfies both: `**kwargs: Any` alone rejects `AsyncAnthropic`;
+  `*args: Any, **kwargs: Any` is treated as `...` and checks nothing. "mypy checks the
+  seam" wins). The Protocol's `create` declares exactly the keywords the orchestrator
+  passes (`model`, `system`, `tools`, `messages`, `temperature`, `tool_choice`,
+  `max_tokens`), typed with the SDK's own param types so contravariance can't bite
+  (allowed: the orchestrator is EDGE, inv. 1). `messages` is declared as a read-only
+  `@property` on `LLMClient`, not a bare attribute: a bare protocol attribute is settable,
+  and the SDK's `messages` is a cached property. Test fakes build real
+  `anthropic.types.Message` objects, so the fake can't drift from the wire format.
+  Test: mypy, forced by a binding site. `get_client() -> LLMClient` returns
+  `AsyncAnthropic(...)`; without a site like this, mypy never checks the seam.
 
 ## Build sequence gate (the Volkswagen safeguard)
 
