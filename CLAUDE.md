@@ -258,6 +258,71 @@ entry fails this test, flag it; don't record it.
   Test: the happy-path route test asserts the body's top-level keys are exactly
   `{"draft", "metadata"}`.
 
+- **I10 — Configuration fails at boot, not per request** (fill: L16 establishes
+  boot-time validation for one derived knob; §10 lists the knobs without their domains
+  and names no home for the API key, while this file puts secrets in `.env`).
+  `config.py` declares `anthropic_api_key: SecretStr` as a required field, and
+  `get_client` passes it explicitly (`api_key=settings.anthropic_api_key.get_secret_value()`):
+  pydantic-settings reads `.env` into `Settings` but never exports it to `os.environ`,
+  the only place the SDK looks, so an implicit key works in a shell that happens to
+  export it and 401s everywhere else — which I4 would report as our 500. `SecretStr`
+  keeps the key out of `repr` and logs. Every knob declares its domain:
+  `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
+  `min_input_chars` `ge=1`, and a validator rejects `min_input_chars >= max_input_chars`.
+  A negative `max_validation_retries` would make the §5.4 loop run zero times and report
+  a model failure the model never had the chance to cause. `tests/conftest.py` sets a
+  dummy `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret,
+  because no test reaches the network.
+  Test: a missing key, a negative retry count, and `min_input_chars >= max_input_chars`
+  each raise at `Settings()` construction.
+
+- **I11 — The LLM client is built once** (fill: §5.2 says the client "is built once";
+  I7's `get_client()` is a FastAPI dependency, and FastAPI calls dependencies per
+  request). `get_client` is decorated `@functools.cache`: one `AsyncAnthropic` — one
+  connection pool — per process, constructed on first use, and still I7's binding site,
+  because its annotated return is `LLMClient`. Without the cache, every request builds
+  and abandons an httpx pool. Route tests override it via `dependency_overrides`; the
+  override key is the cached function object, which is what `Depends` holds.
+  Test: `get_client() is get_client()` (construction makes no network call; the
+  conftest dummy key suffices).
+
+- **I12 — Log fields render in the message** (conflict: §9.4's handler sample passes
+  `code` and `request_id` via `extra=`, while §5.4 and §9.4 require handlers to log by
+  code + request id, and I6 that every log line carries `request_id`. With no custom
+  formatter, `extra=` attaches attributes to the `LogRecord` that no handler prints —
+  and a `caplog` test asserting on record attributes passes while the terminal shows
+  neither field. The requirement wins over the sample). Log calls put their fields in
+  the message as `key=value` pairs via %-style args:
+  `logger.warning("model_output_failure code=%s request_id=%s", exc.code, rid)`.
+  `api.py` configures the root logger once at app construction: plain text with
+  timestamp, level, and logger name. Structured/JSON logging stays §15.
+  Test: logging assertions read `record.getMessage()`, never record attributes; each
+  handler's test asserts its `code` and `request_id` appear in the rendered message.
+
+- **I13 — Framework default error bodies are replaced** (fill: §9.4's "every body has
+  one shape"; outside I3's `RequestValidationError`, FastAPI's default `HTTPException`
+  handler returns `{"detail": ...}` for unmatched routes and methods). A handler
+  registered on `starlette.exceptions.HTTPException` (FastAPI's subclasses it, and the
+  router raises the Starlette one) returns `{"error": <code>, "request_id": ...}` with
+  the original status: 404 `not_found`, 405 `method_not_allowed`, anything else
+  `http_error`. These are routing codes, not §9.4 rows, and not part of I6's pipeline
+  list.
+  Test: `GET /nope` → 404 `{"error": "not_found", "request_id": ...}`; `GET /summarize`
+  → 405 `{"error": "method_not_allowed", "request_id": ...}`.
+
+- **I14 — Phase 1 closes with one live smoke run** (fill: §14's first phase-1 line,
+  paste → display, has no automated verifier. Every test uses the fake (Commands), so
+  CI can go green on a request the real API rejects: the tool schema's `$defs`, I8's
+  flag, the dated model id, and I10's key wiring are checked by mypy against the SDK's
+  types at best, never by the API). Before tagging `v0.1-spine`, run the app locally
+  and summarize one synthetic encounter (zero PHI, the same rule as `evals/cases/`)
+  through `GET /`. Record `model`, `prompt_version`, `validation_attempts`, and `usage`
+  from the response in the annotated tag message. One call, cents, confirmed by Cal
+  before it runs — a smoke run, not a corpus run. Repeat at any later phase close that
+  changes the request shape.
+  Test: none automated, by design. The annotated tag is the record, audited alongside
+  the §14 lines.
+
 ## Build sequence gate (the Volkswagen safeguard)
 
 Build order is spec §14 and it is strictly sequential:
