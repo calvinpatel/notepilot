@@ -5,14 +5,19 @@ project. FastAPI + Postgres + React; Anthropic API via tool use.
 
 ## Source of truth
 
-`PROJECT_01_NOTEPILOT_v1_3.md` (v1.3 — design-room walkthrough, September 2026) is the
-canonical build spec. It supersedes v1.2 and wins every conflict — including conflicts
-with this file and with in-session requests.
+`PROJECT_01_NOTEPILOT.md` is the canonical build spec; its header states the current
+version. It wins every conflict — including conflicts with this file and with in-session
+requests. `PROJECT_01_NOTEPILOT_CHANGELOG.md` is its history: every `L#` and `D#` the spec
+cites resolves there. The changelog says *why*; the spec says *what is*. Implement against
+the spec.
 
 - Before implementing anything, check the relevant spec section. Cite it ("§6.1", "D12",
   "L35") when explaining a decision.
 - If a request deviates from the spec, **flag the deviation before writing code** and
   ask whether we're amending the spec or the request. Never silently drift.
+- **If the spec contradicts itself, stop.** Don't pick a winner in-session. Quote both
+  statements to Cal; the resolution is a spec patch (see "Changing the spec"), and the
+  code follows the patched text.
 - If the spec itself seems wrong or has a gap, say so directly. Cal has upgraded specs
   before (the cross-reactivity gap in the testing capstone; the v1.3 walkthrough found
   five CRITICALs); finding flaws is welcome, hiding them is not.
@@ -59,7 +64,9 @@ asked.
    find offsets, or compare drug names.
 3. **`temperature=0` on every pipeline LLM call — summarize AND the judge.** Correctness
    requirement (evals need stable outputs), not a preference. Forced `tool_choice` on
-   the summarize call.
+   the summarize call. SDK ≥ 1.0 removed the typed parameter, so it travels in
+   `extra_body` (spec §5.2, L82). If the SDK rejects a sampling kwarg, never "fix" it by
+   deleting the field — that silently breaks this invariant; flag it.
 4. **Errors-as-values inside the pipeline; raise at boundaries.** An ungroundable claim
    is a *result* (`UNSUPPORTED` flag), not an exception. A model that can't produce a
    valid draft IS an exception at the orchestrator boundary: `OrchestratorError` →
@@ -106,8 +113,9 @@ asked.
 15. **Lineage is derived, never declared.** `prompt_version` = hash(system prompt + tool
     schema + correction template + call config); `corpus_version` = hash(cases dir);
     `checks_version` = hash(`evals/` + `clinical/` + `grounding.py`); `settings.model` =
-    a dated snapshot id; `git_dirty` recorded on every corpus run. A hand-bumped version
-    string is a lie waiting for someone to forget.
+    a pinned model id, never an alias (spec §5.5, L84 — dateless ids from the 4.6
+    generation on are pinned; never validate with a date regex); `git_dirty` recorded on
+    every corpus run. A hand-bumped version string is a lie waiting for someone to forget.
 16. **Retry only when the next request differs from the last.** Validation error → the
     model sees its mistake → retry (`max_validation_retries`, §5.4). `max_tokens` or a
     missing block → identical request at `temperature=0` → fail fast. Transport retries
@@ -132,196 +140,23 @@ asked.
     are paid. A danger the *model* creates (a fabrication, a flip) is tested by injecting
     it — never by a model case that hopes the model will make it (spec §8.5, L42).
 
-## Sanctioned shapes outside `schemas.py`
+## Changing the spec
 
-New pipeline data shapes go in `schemas.py`. Two sanctioned exceptions, nothing else:
+Implementation truth lives in the spec. This file holds instructions, and it has no
+staging area for decisions.
 
-- **HTTP edge shapes** (`SummarizeRequest`, `SummarizeResponse`) live in `api.py`.
-- **Check-internal shapes** (`Finding`, `Check`) live in `evals/registry.py` — they never
-  cross a layer boundary.
-
-Anything else outside `schemas.py`: flag it.
-
-## Decisions beyond spec v1.3 (implementation-level, not spec amendments)
-
-Recorded here so the design room (claude.ai Project) and the build room agree. Each entry
-cites the spec it touches and names the test that enforces it. The next spec revision
-absorbs these, and this section empties again. Deferred amendments that are NOT active in
-the build live in the GitHub issue "spec v1.4: deferred amendments", not here.
-
-**What may go here.** An entry may *fill* a detail the spec leaves unspecified, or
-*resolve a conflict between two statements in the spec*, citing both and naming which
-wins and why. An entry may never override a spec statement that nothing else in the spec
-contradicts. That is an amendment, and it waits for the next revision. If a proposed
-entry fails this test, flag it; don't record it.
-
-- **I1 — Phase-1 display is a static page** (fill: §14's "minimal display"; §13 names no
-  phase-1 UI). `GET /` in `api.py` (EDGE) serves `backend/static/index.html`: textarea →
-  `fetch("/summarize")` → `draft.claims` grouped by `section` client-side. All four
-  sections always render; an empty one shows "none stated" (D7). Output labeled
-  "DRAFT — unverified" (inv. 12). One-line PHI warning above the textarea (the §9.10
-  banner is phase 3). Same-origin, so no CORS in phase 1. No `by_section`, no `SOAPNote`:
-  the phase-1 `schemas.py` fence holds (§14). Claims render via `textContent`, never
-  `innerHTML`: every `source_quote` copies the paste verbatim, so markup in the paste
-  would execute. `backend/static/` is a path §13 doesn't list; it is sanctioned here and
-  deleted when `frontend/` replaces it in phase 3.
-  Test: `GET /` → 200, `text/html`; the served file contains no `innerHTML`.
-
-- **I2 — Unexpected errors log structure, never messages** (conflict: §9.4's 500 row,
-  "logged in full, internally," vs L53 in §9.4/§9.8 and inv. 19. L53 wins: the spec's
-  PHI rule beats one table cell; v1.4 amends the row). The 500 path logs
-  `code="internal_error"`, `request_id`, `exc_type=type(exc).__name__`, and frames as
-  `file:line:function` from `traceback.extract_tb`. Never `exc_info`, `str(exc)`, or a
-  chained cause. Frames carry no PHI; messages can (a chained `ValidationError` carries
-  `input_value`). Implement as a catch-all middleware that runs inside the request-id
-  middleware, NOT `@app.exception_handler(Exception)`: Starlette's
-  `ServerErrorMiddleware` calls that handler and then re-raises for the server to log,
-  so uvicorn prints the full traceback anyway. Specific handlers (`ModelOutputError`,
-  SDK errors) stay `exception_handler`s.
-  Test: a route raising an exception whose message is a sentinel → 500
-  `{error, request_id}`; the sentinel appears in no `caplog` record and not in the body.
-  With the default `TestClient`, the wrong implementation fails this test by re-raising.
-
-- **I3 — The default 422 handler is replaced** (fill: §9.4 fixes the body shape;
-  FastAPI's default handler returns `exc.errors()`, whose `input` is the entire paste).
-  A `RequestValidationError` handler returns 422 `{"error": "input_invalid",
-  "request_id": ...}` and logs by code only.
-  Test: an oversized and an undersized paste, each containing a sentinel → 422 with the
-  correct body; the sentinel appears in neither the body nor the logs.
-
-- **I4 — Upstream failures are attributed by status** (conflict: §9.4's row
-  `anthropic.APIError (other) → 502 upstream_error, "not my bug"` vs §9.4's rule that
-  each code "says a different true thing about whose fault it was" and §5.4's hierarchy
-  naming whose fault it is. The rule wins: a 401 from a bad key is not upstream's bug;
-  v1.4 amends the row). `APIStatusError` 4xx except 429 → 500 `internal_error`, logged
-  with `upstream_status` (our request or config: schema, key, access, model id, size).
-  5xx except 529 → 502 `upstream_error`. 529 → 503 `upstream_busy` (same meaning as
-  `RateLimitError`). A connection failure that is not a timeout (`APIConnectionError`,
-  not `APITimeoutError`) takes §9.4's residual `APIError` row → 502 `upstream_error`.
-  All other §9.4 rows are unchanged.
-  Test: one per mapping, with the fake client raising each status. `APIConnectionError`
-  gets its own test: it reaches 502 through a different MRO branch than a 5xx, and
-  `APITimeoutError` subclasses it, so the pair of tests pins the 504 handler winning.
-
-- **I5 — The model's output ceiling is a config knob** (fill: L16 requires validating
-  `max_output_tokens` against the model's ceiling at boot; the spec names no source, and
-  the SDK exposes none). `config.py` declares `model_max_output_tokens` directly beside
-  `model`, with a comment that the two change together. A validator rejects settings
-  whose derived `max_output_tokens` exceeds it.
-  Test: settings with `max_input_chars` past the ceiling raise at construction.
-
-- **I6 — Phase-1 HTTP scope is named** (fill: §14's "every §9.4 row reachable in phase
-  1"). Reachable: 422 `input_invalid` · 502 `output_truncated` · 502
-  `model_output_invalid` · 503 `upstream_busy` · 504 `upstream_timeout` · 502
-  `upstream_error` · 500 `internal_error`. Not reachable until phase 3: 429
-  `rate_limited`, 503 `budget_exhausted`. The HTTP test module lists both sets at the
-  top. `request_id` is minted per request by middleware (`uuid4().hex` on
-  `request.state.request_id`); every error body and log line carries it.
-  Test: the 502 `model_output_invalid` row is reached twice — a response with no tool
-  block, and `stop_reason="refusal"` with no tool block — so the refusal path is a
-  pinned behavior, not an accident of the missing-block branch.
-
-- **I7 — `LLMClient` declares explicit kwargs** (conflict: §5.5 says the Protocol
-  exposes `messages.create(**kwargs)` AND that "mypy checks the seam every test depends
-  on." No loose signature satisfies both: `**kwargs: Any` alone rejects `AsyncAnthropic`;
-  `*args: Any, **kwargs: Any` is treated as `...` and checks nothing. "mypy checks the
-  seam" wins). The Protocol's `create` declares exactly the keywords the orchestrator
-  passes (`model`, `system`, `tools`, `messages`, `temperature`, `tool_choice`,
-  `max_tokens`), typed with the SDK's own param types so contravariance can't bite
-  (allowed: the orchestrator is EDGE, inv. 1). `messages` is declared as a read-only
-  `@property` on `LLMClient`, not a bare attribute: a bare protocol attribute is settable,
-  and the SDK's `messages` is a cached property. Test fakes build real
-  `anthropic.types.Message` objects, so the fake can't drift from the wire format.
-  Test: mypy over `backend/` and `tests/` (see Commands), forced by binding sites on
-  both sides. `get_client() -> LLMClient` returns `AsyncAnthropic(...)`, and the fake in
-  `tests/` is bound to an `LLMClient`-typed name; without both, mypy checks only half
-  the seam.
-
-- **I8 — Parallel tool use is disabled on the summarize call** (conflict: §5.4 states
-  the API contract — once an assistant turn contains a `tool_use` block, the next user
-  message must answer it with a `tool_result` for the same id — while its loop answers
-  only the first block; §5.2's `CALL_CONFIG` forces the tool but leaves parallel tool
-  use on, so a two-block response makes the retry 400, which I4 reports as our 500. The
-  contract wins, and the unanswerable state is prevented rather than handled).
-  `CALL_CONFIG["tool_choice"]` is `{"type": "tool", "name": "emit_soap_note",
-  "disable_parallel_tool_use": True}`. It lives in `CALL_CONFIG`, so it is inside
-  `PROMPT_VERSION` automatically (inv. 15).
-  Test: the fake records the kwargs of every `create` call; `tool_choice` carries the
-  flag on every attempt, validation retries included.
-
-- **I9 — The phase-1 response is an edge shape** (fill: §9.1 says the phase-1 route
-  returns `{draft, metadata}` without naming its type). `SummarizeResponse` in `api.py`
-  (sanctioned above) declares `draft: SOAPNoteDraft` and `metadata: RunMetadata`; the
-  route never uses `SummarizationResult` as its `response_model`. The domain return type
-  and the wire contract are different jobs: in phase 2a the edge shape becomes
-  `note_id` + `note` + `report` + `metadata` (§9.1) and nothing in `schemas.py` changes.
-  Test: the happy-path route test asserts the body's top-level keys are exactly
-  `{"draft", "metadata"}`.
-
-- **I10 — Configuration fails at boot, not per request** (fill: L16 establishes
-  boot-time validation for one derived knob; §10 lists the knobs without their domains
-  and names no home for the API key, while this file puts secrets in `.env`).
-  `config.py` declares `anthropic_api_key: SecretStr` as a required field, and
-  `get_client` passes it explicitly (`api_key=settings.anthropic_api_key.get_secret_value()`):
-  pydantic-settings reads `.env` into `Settings` but never exports it to `os.environ`,
-  the only place the SDK looks, so an implicit key works in a shell that happens to
-  export it and 401s everywhere else — which I4 would report as our 500. `SecretStr`
-  keeps the key out of `repr` and logs. Every knob declares its domain:
-  `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
-  `min_input_chars` `ge=1`, and a validator rejects `min_input_chars >= max_input_chars`.
-  A negative `max_validation_retries` would make the §5.4 loop run zero times and report
-  a model failure the model never had the chance to cause. `tests/conftest.py` sets a
-  dummy `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret,
-  because no test reaches the network.
-  Test: a missing key, a negative retry count, and `min_input_chars >= max_input_chars`
-  each raise at `Settings()` construction.
-
-- **I11 — The LLM client is built once** (fill: §5.2 says the client "is built once";
-  I7's `get_client()` is a FastAPI dependency, and FastAPI calls dependencies per
-  request). `get_client` is decorated `@functools.cache`: one `AsyncAnthropic` — one
-  connection pool — per process, constructed on first use, and still I7's binding site,
-  because its annotated return is `LLMClient`. Without the cache, every request builds
-  and abandons an httpx pool. Route tests override it via `dependency_overrides`; the
-  override key is the cached function object, which is what `Depends` holds.
-  Test: `get_client() is get_client()` (construction makes no network call; the
-  conftest dummy key suffices).
-
-- **I12 — Log fields render in the message** (conflict: §9.4's handler sample passes
-  `code` and `request_id` via `extra=`, while §5.4 and §9.4 require handlers to log by
-  code + request id, and I6 that every log line carries `request_id`. With no custom
-  formatter, `extra=` attaches attributes to the `LogRecord` that no handler prints —
-  and a `caplog` test asserting on record attributes passes while the terminal shows
-  neither field. The requirement wins over the sample). Log calls put their fields in
-  the message as `key=value` pairs via %-style args:
-  `logger.warning("model_output_failure code=%s request_id=%s", exc.code, rid)`.
-  `api.py` configures the root logger once at app construction: plain text with
-  timestamp, level, and logger name. Structured/JSON logging stays §15.
-  Test: logging assertions read `record.getMessage()`, never record attributes; each
-  handler's test asserts its `code` and `request_id` appear in the rendered message.
-
-- **I13 — Framework default error bodies are replaced** (fill: §9.4's "every body has
-  one shape"; outside I3's `RequestValidationError`, FastAPI's default `HTTPException`
-  handler returns `{"detail": ...}` for unmatched routes and methods). A handler
-  registered on `starlette.exceptions.HTTPException` (FastAPI's subclasses it, and the
-  router raises the Starlette one) returns `{"error": <code>, "request_id": ...}` with
-  the original status: 404 `not_found`, 405 `method_not_allowed`, anything else
-  `http_error`. These are routing codes, not §9.4 rows, and not part of I6's pipeline
-  list.
-  Test: `GET /nope` → 404 `{"error": "not_found", "request_id": ...}`; `GET /summarize`
-  → 405 `{"error": "method_not_allowed", "request_id": ...}`.
-
-- **I14 — Phase 1 closes with one live smoke run** (fill: §14's first phase-1 line,
-  paste → display, has no automated verifier. Every test uses the fake (Commands), so
-  CI can go green on a request the real API rejects: the tool schema's `$defs`, I8's
-  flag, the dated model id, and I10's key wiring are checked by mypy against the SDK's
-  types at best, never by the API). Before tagging `v0.1-spine`, run the app locally
-  and summarize one synthetic encounter (zero PHI, the same rule as `evals/cases/`)
-  through `GET /`. Record `model`, `prompt_version`, `validation_attempts`, and `usage`
-  from the response in the annotated tag message. One call, cents, confirmed by Cal
-  before it runs — a smoke run, not a corpus run. Repeat at any later phase close that
-  changes the request shape.
-  Test: none automated, by design. The annotated tag is the record, audited alongside
-  the §14 lines.
+- **Patch (v1.3.x)** — fills a detail the spec leaves unspecified, or resolves a conflict
+  between two spec statements (cite both, name the winner, say why). Cal approves the
+  resolution first. Then edit the spec **in place**, in the section the decision belongs
+  to; bump the header version; add a changelog entry under the next `L#`, with severity.
+  It lands in the same commit as the code that depends on it.
+- **Minor (v1.x)** — anything that changes a statement nothing else in the spec
+  contradicts. That is an amendment: flag it and log it on the GitHub issue "spec v1.4:
+  deferred amendments." Never implement it ahead of the revision.
+- New spec text cites ledger ids (`L82`), not version numbers; the changelog maps ids to
+  versions.
+- After any commit that touches the spec or changelog, tell Cal the design room's copies
+  in project knowledge need re-uploading.
 
 ## Build sequence gate (the Volkswagen safeguard)
 
@@ -356,9 +191,14 @@ uv add <pkg> / uv add --dev <pkg>
 uv run pytest                    # unit + injected corpus + integration — deterministic, free
 uv run pytest tests/ -x -q       # fast fail during TDD loops
 uv run ruff check . && uv run ruff format --check .   # lint + format; clean before commit
-uv run mypy backend/ tests/      # type-check; the spine AND the test fakes — the fake
-                                 #   client lives in tests/, and I7's seam is only
-                                 #   checked if mypy reads both sides of it
+uv run mypy backend/ tests/      # strict (pyproject, L91). The spine AND the test
+                                 #   fakes — the fake client lives in tests/, and the
+                                 #   LLMClient seam (spec §5.5, L74) is only checked
+                                 #   if mypy reads both sides of it
+uv run uvicorn backend.api:app --reload  # local app; GET / serves the phase-1 page.
+                                         # ⚠️ every summarize is a REAL API call. The
+                                         # phase-close smoke run (spec §14, L81) only
+                                         # with Cal's go-ahead.
 uv run python -m backend.evals.runner   # ⚠️ score_corpus: REAL API calls, costs $,
                                         # slow. MODEL cases only (injected cases run in
                                         # pytest), × corpus_repeats (default 3) — cost
@@ -380,7 +220,7 @@ tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests u
 
 - Conventional commits, atomic. History is part of the portfolio. One tag per phase.
 - Pydantic models: draft/enriched family per spec §4. New pipeline data shapes go in
-  `schemas.py` (sanctioned exceptions above).
+  `schemas.py`; the two sanctioned exceptions are in spec §13. Flag anything else.
 - Type hints everywhere; mypy clean before commit.
 - Secrets: `.env` (gitignored), `.env.example` (committed). API key never in code —
   clinical-adjacent repo, zero tolerance.

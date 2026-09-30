@@ -2,7 +2,8 @@
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
-**Spec version: v1.3** (design-room walkthrough, September 2026). Supersedes v1.2.
+**Spec version: v1.3.2** (patch — Phase 1 pre-build pass, September 2026).
+Supersedes v1.3.1.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -11,258 +12,15 @@ Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
 >
 > *However long — I arrive. However broken — I forge. So I return, and begin.* 🧱
 
----
+**Where history lives.** This document states what the system *is*. How it got here —
+each version's deltas, the `L#` ledger, and the `D#` decision records with their
+reasoning — lives in `PROJECT_01_NOTEPILOT_CHANGELOG.md`. An `L#` or `D#` here is a
+citation into that file.
 
-## v1.3 changelog (design-room walkthrough deltas)
-
-Severity uses the project's own triage enum. `L#` is the walkthrough ledger id; each delta
-names the section it lands in. Theme of this pass: **v1.1 fixed the scoring; v1.2 fixed
-what the checks can see; v1.3 fixes what the checks *assume* — where a danger comes from,
-what the model is allowed to omit, and which question a test is actually asking.**
-
-**DECISIONS (vetoable, like every D)**
-- **D7 — the model is a scribe, not a consultant (§5.3).** Assessment records only what the
-  clinician stated, certainty verbatim; a patient's self-diagnosis is Subjective; an empty A
-  is a valid note. Reasons: authorship, product category (documentation, not decision
-  support), and a prompt that no longer contradicts itself.
-- **D8 — the judge stays, reframed as entailment (§8.2).** `text_entailment_judge`: is each
-  claim's text entailed by its source span? One batched call, WARNING, behind an injected
-  `Judge` protocol. v1.2's showcase ("BP 190/110 → hypertensive urgency") is now a
-  detection trap, not sound inference.
-- **D9 — cross-reactivity is keyed on the R1 side chain (§7).** The evidence the table cites
-  is side-chain-level; now the table is too.
-- **D10 — a dropped NKDA is a WARNING (§8.4).** Undocumented status prompts a re-ask; it is
-  not a missed allergy. NKA ≠ NKDA in the lexicon.
-- **D11 — corpus repeats (§8.7).** `corpus_repeats` (default 3), per-case pass fraction,
-  flaky cases named, n and k beside every number.
-- **D12 — `diagnosis_in_quote` ships (§8.4).** After D7 an invented assessment is a
-  fabrication, and the judge can't gate a CRITICAL (inv. 7) — so a deterministic backstop.
-  Certainty upgrade = CRITICAL, downgrade = WARNING.
-- **D13 — `med_status_consistency` ships (§8.4).** Presence belongs to `drug_in_quote`;
-  active-vs-stopped belongs to this check. One error, one finding.
-- **D14 — the unspecified penicillin allergy, and reaction type (§7, §8.8).** "PCN allergy":
-  penicillins CRITICAL, every cephalosporin WARNING ("specify to refine"). Reaction type is
-  not extracted in v1 — a stated limitation.
-- **D15 — `quote_informativeness` ships (§8.4).** A deterministic floor under the judge for
-  degenerate quotes; lexicon entities count as informative ("NKDA").
-- **D16 — one planted danger per trap (§8.5).** An authoring rule instead of an `about`
-  field; the residual gap is stated in §8.8; `about` → backlog.
-- **D17 — the omission law (§8.4; CLAUDE.md inv. 17).** Every CRITICAL check states, per
-  input, what happens when the model omits it; an omission that silences the check is
-  covered by another live check or declared a CI-only gap.
-
-**CRITICAL**
-- **§8.5, §4.2, §11 — injected-draft cases (L42).** v1.2 asked raw text to make a good model
-  fabricate on cue; at `temperature=0` it mostly won't, so every fabrication trap would fail
-  nearly every run. `EvalCase.draft` injects the planted mistake, skips the model, and runs
-  free on every commit. The paid corpus now measures only model behavior.
-- **§8.7, §4.2 — an error never satisfies an expectation (L43).** A crashed expected check
-  was `passed=False`, therefore *fired*: the showpiece trap passed on a crash.
-  `EvalResult.errored` replaces the magic `detail="check_error"`.
-- **§6.4, §8.4 — consistency checks compare against the source span, not the model's quote
-  (L35).** A Tier 3 quote could smuggle a swapped drug or a flipped "denies" under a yellow
-  badge. `claim.text` vs `raw_text[source_span]`.
-- **§7, §8.4 — the same-drug allergy was invisible (L30).** Allergens were matched as named
-  against a class-keyed table: "allergic to amoxicillin" + amoxicillin passed. Allergens now
-  normalize like drugs, and the check resolves drug → class → R1.
-- **§8.4 — the contraindication survives the model dropping the drug (L51).** Drugs are read
-  from the note ∪ `new_prescriptions(raw)`; a raw-only finding goes to the banner.
-
-**WARNING**
-- **§2, §4.2, §8.7, §17 — four metrics, never one (L3).** Detection recall, control
-  specificity, model fidelity, fidelity caught. `pass_rate` is kept and never quoted alone.
-- **§5.3 — never omit safety-critical facts (L50); D7's Assessment definition (L20).**
-- **§5.4, §9.4 — the orchestrator boundary (L12, L13, L14).** The `try` wraps
-  `model_validate` only; usage is summed across attempts, with `validation_attempts`;
-  truncation on an input the route already accepted is `OutputTruncatedError` → 502, not 422.
-- **§4.1 — D6 is enforced, not promised (L6).** Frozen `ClinicalClaim` / `SOAPNote`; flags
-  and claims are tuples.
-- **§4.2, §8.2, §9.5 — judge tokens have a write path (L7):** `EvalReport.judge_usage`.
-- **§0, §13, CLAUDE.md inv. 1 — domain vs edge (L17).** The orchestrator and the judge
-  client are edge adapters; evals call a `Judge` protocol, never the vendor format.
-- **§6.2 — the index map survives Unicode (L26);** µ/μ folded. **§6.3 — Tier 3 runs in
-  normalized space (L27).**
-- **§7 — negation has a scope rule (L31),** and finding cues are split from
-  medication-status cues. **`new_prescriptions` (L41)** powers live
-  `new_prescription_preserved` (WARNING) and L51.
-- **§8.4 — polarity in the reference checks (L36);** contraindication findings carry the
-  allergy claim's id (L37).
-- **§8.7 — tri-state `case_verdict` with not-applicable cases (L44); `checks_version` +
-  `git_dirty` (L45); per-case catch parity and recorded all-failed runs (L46).**
-- **§8.5 — Assessment fixtures (L23):** invented-A trap, hedged-A and empty-A controls.
-- **§9.4, §9.8 — PHI-safe logs and error bodies (L53); LLM timeouts → 504 (L54); the spend
-  cap reserves before spending (L56).**
-- **§8.4, §10 — an empty note from clinical input is not green (L55).**
-- **§9.5 — production lineage parity (L57).**
-- **§5.2, §10 — `max_validation_retries` (L5).** Validation retries are ours; transport
-  retries are the SDK's. Two loops, two names.
-- **§14 — phase 2 split into 2a / 2b / 2c (L59); CI from phase 1 (L60); every phase has exit
-  criteria (L61).**
-
-**INFO**
-- L1 §1 v1 is a review surface · L2 §1 unsourced market figure cut · L4 §3 principle 6
-  named · L8 §4.1 `grounding_score` kept on near-misses · L9/L10 §4.2 explicit `species`,
-  typed `must_not_add` · L11 §4.2 every `RunMetadata` field has a producer · L15 §5.4
-  `PROMPT_VERSION` hashes the full call config · L16 §5.2 derived `max_output_tokens`
-  validated at boot · L19 §5.5 the client is a `Protocol` · L24 §9.10 empty A renders ·
-  L25 §4.1 quote stripped at the boundary · L29 §0 diagram fixed · L33 §7 parsed doses,
-  multi-valued extractors · L38 §8.7 downgrade-only severity enforced · L40 §8.2 judge
-  batched · L49 §8.6/§8.7 orphan tier entry removed, judge is a parameter · L58
-  §9.8/§9.10 proxy headers, new UI states, edge-shape sanction · L62 §11 property tests
-  restated · L63 §16 "Arc" vs "Phase" · L64 §17 DoD contradiction fixed.
-
-**Found while drafting v1.3**
-- **L65 (INFO) §7, §13:** `extract.py` necessarily imports `lexicons.py`; v1.2 said it
-  "imports nothing." Now: `extract.py` imports only `lexicons.py`, and `lexicons.py`
-  imports nothing — severities are stored as strings, so `clinical/` never imports the spine.
-- **L66 (INFO) §8.5:** `detect_vital_drift` expected no eval check — it tests grounding's
-  numeric guard. Moved to `tests/test_grounding.py`.
-- **L67 (INFO) §7:** `ALLERGY_CLASSES` (class → members) and `DRUG_CLASSES` (member → class)
-  were two encodings of one relation, free to disagree. One map: `DRUG_CLASS`.
-
----
-
-## v1.2 changelog (second adversarial review deltas)
-
-Severity uses the project's own triage enum. Each delta names the section it lands in.
-Theme of this pass: **v1.1 fixed the scoring; v1.2 fixes what the checks can see.**
-
-**CRITICAL**
-- **§8.4, §8.5 — the reference-based checks now exist.** `must_preserve` /
-  `must_not_add` had no consumer; the registry's `requires_reference` bit had zero
-  members; omission — "the most dangerous error" — had no check. `check_must_preserve`
-  and `check_must_not_add` specified. `must_preserve` entries are now typed
-  (`PreserveItem`, DECISION D4) so a dropped allergy is CRITICAL and a dropped dose is
-  WARNING.
-- **§6, §7, §8.4 — the text-vs-quote gap closed.** Grounding proved the *quote* exists,
-  not that the claim's *text* follows from it: `text="start amoxicillin"` /
-  `quote="start antibiotics"` grounded clean at Tier 1. Same hole hosted negation flip
-  and dose mismatch (listed in §8.6, never specified). New family of **claim-local
-  consistency checks** — drugs, doses, and negated terms in `claim.text` must appear
-  with the same value/polarity in `claim.source_quote`. The §7 primitives now operate
-  on plain strings so one function serves text, quote, and raw source alike.
-- **§6.3 — the empty quote no longer grounds clean.** `"abc".find("") == 0`: an empty
-  `source_quote` earned span `(0, 0)` and no flag. The §6.5 guard now sits *before*
-  Tier 1 in the code, and `ClaimDraft.source_quote` carries `min_length=1` so the
-  tool schema itself rejects it.
-- **§6.3 — fuzzy tier stops trusting numbers.** `"BP 130/110"` vs `"BP 190/110"`
-  scored ≥ 85 → a PARAPHRASED span on the wrong vital, yellow instead of red. Tier 3
-  now requires every digit token in the quote to appear verbatim in the aligned span,
-  else demotes to Tier 4.
-- **§7 — allergy-context exclusion.** "Allergic to penicillin" contains a drug name;
-  naive `extract_drugs` fed it to the contraindication check, which then fired on every
-  penicillin-allergic patient. Lexicon gains allergy-context cues as an exclusion class
-  beside negation cues. The clean control that catches this regression is in the corpus.
-- **§8.2, §8.7, §9.1 — the judge no longer breaks the engine.** `run_checks` was sync,
-  §9.2 called evals "CPU-bound, inline," and D2 put a model call inside evals.
-  `run_checks` is async; `Check` carries `severity` and `needs_client`; judge tokens
-  land in `RunMetadata`.
-- **§8.7 — fail closed on crashes.** One `OrchestratorError` aborted a whole corpus run
-  with no record; an empty corpus divided by zero; a check that raised 500'd a
-  production request. Per-case and per-check `try` boundaries; a crashed check is a
-  `passed=False` result (invariant 12, applied to exceptions).
-
-**WARNING**
-- **§4.1, §4.2, §7, §9.7 — findings can anchor to claims.** Grounding stamps
-  `ClinicalClaim.id`; `EvalResult.claim_ids`; extractors return mentions with their
-  claim id. The two UI render channels are now derivable from the contract.
-  DECISION D6: evals write to the *report*, never to `ClinicalClaim.flags`.
-- **§8.7 — one name per check.** `EvalResult.check` and `fn.__name__` disagreed.
-  `@register_check(name=, severity=)` stamps results; registry is a dict that rejects
-  duplicates; the corpus loader validates every `expected_flags` entry against it.
-- **§4.2, §5.4, §5.5, §8.7 — lineage can't lie.** `prompt_version` is a hash of the
-  system prompt + tool schema; `corpus_version` a hash of the cases dir; model id is a
-  dated snapshot; `CorpusRunRecord` gains `git_sha`, `judge_enabled`, token totals.
-  DECISION D5: the jsonl is committed from local runs; CI dispatch uploads an artifact.
-- **§8.7 — WARNING false positives are visible.** `CaseResult.unexpected_fired` (all
-  severities) added as a diagnostic; the verdict stays CRITICAL-scoped and now says so.
-- **§5.4 — retry policy made consistent.** Missing `tool_use` block now fails fast
-  (identical retry at `temperature=0` is the same wasted spend as `max_tokens`).
-  `max_tokens` coupled to `max_input_chars` in config (output copies input quotes).
-- **§5.4, §9.4 — honest HTTP codes.** `OrchestratorError` split: `InputTooLongError`
-  → 422, `ModelOutputError` → 502; upstream 429 → 503.
-- **§9.1, §9.6 — persistence plumbing.** `persist` opens its own session (FastAPI
-  ≥ 0.106 closes `yield` dependencies before background tasks run). Note `id` is
-  generated in the route and returned in the response.
-- **§9.8 — deployed-demo realities.** Rate limit + daily spend cap on `/summarize`;
-  PHI banner + `persist_enabled` flag; the live demo is not a PHI sink.
-- **§8.4 — allergy omission runs live.** `check_allergy_preserved` is reference-free:
-  `allergies(raw) − allergies(note)` is a high-trust derivation by §8.1's own rule.
-  `PENICILLIN_CLASS` → `ALLERGY_CLASSES` + `CROSS_REACTIVITY` with per-pair severity.
-- **§9.10 (new), §15 — frontend contract + product drift.** Span rendering rule,
-  UI states, `openapi-typescript`. Edit + sign-off persistence named in the backlog.
-
-**INFO**
-- **§6.3, §5.2 — magic numbers in spec code are `settings.*`.** Stated once, applied.
-- **§8.4 — contraindication check reports all violations,** not the first.
-- **§7 — lexicon classes are generic-only** post brand→generic normalization.
-- **§8.5, §17 — corpus format (YAML per case), N set, per-species floor, coverage test.**
-- **§8.7 — `score_corpus` runs cases concurrently** (`gather` + semaphore).
-- **§11 — property-based round-trip on the index map; tool-schema snapshot test.**
-- **§5.3 — prompt gaps closed** (contiguous span, shortest span, one fact per claim,
-  negation/NKDA verbatim). **§4.1 — `grounding_score`** on PARAPHRASED claims.
-- **§15 — prompt caching** added to the backlog. `timezone` import fixed.
-
----
-
-## v1.1 changelog (adversarial review deltas)
-
-Severity uses the project's own triage enum. Each delta names the section it lands in.
-
-**CRITICAL**
-- **§8.7 — corpus scoring semantics fixed.** `score_corpus` scored detection-style traps
-  backwards: a fired CRITICAL flag (the pipeline *catching* the trap) counted as a case
-  failure. New per-case verdict `case_passed()` consumes `expected_flags` — the answer
-  key is now load-bearing, and clean controls get first-class false-positive accounting.
-- **§5.4 — retry loop API contract fixed.** The correction message after a failed
-  validation is now a `tool_result` block (`is_error=True`, referencing the
-  `tool_use_id`). The prior plain-text user message violated the API's tool_use →
-  tool_result pairing and would 400 on the first retry.
-- **§4.2 — `all_critical_passed` vacuous-truth guard.** `all()` over zero CRITICAL
-  results returned `True`; an unexamined note read as a safe note. Now requires at least
-  one CRITICAL result to report green.
-- **§8.4 — `EvalResult` instantiation fixed.** Pydantic models take keyword args only;
-  the positional example crashed as written.
-- **§5.4 — truncation + missing-tool-block handled.** `stop_reason == "max_tokens"` now
-  raises immediately (at `temperature=0`, retrying identical input reproduces identical
-  truncation — retries are wasted spend); an absent tool_use block retries instead of
-  raising `StopIteration`.
-
-**WARNING**
-- **§4.1 — spine flattened.** `section` was double-encoded (a field on every claim AND
-  four section-named lists — two encodings of one fact can disagree). Single encoding
-  now: flat `claims` list; the `section` field is the sole source of truth; display
-  groups via `by_section()`.
-- **§8.7 — corpus runs are now persisted** (`evals/runs/corpus_runs.jsonl`, one
-  `CorpusRunRecord` per run). The regression thesis has a queryable history for CI runs,
-  not just production notes.
-- **§3, §5.2 — determinism claim made honest.** `temperature=0` *minimizes variance*;
-  it does not guarantee bit-identical outputs from a served API. The eval design already
-  tolerates residual nondeterminism (pass-rates over a corpus, not golden-output diffs) —
-  the spec now claims exactly that, no more.
-- **§4.2, §5.4 — token usage captured.** `RunMetadata` carries
-  `input_tokens`/`output_tokens` from `resp.usage`; the model-choice story gains a
-  measured cost axis.
-- **§7, §8.6 — dose extraction scoped in** (DECISION D1, vetoable). The dose-mismatch
-  WARNING check had no extraction primitive; `extract_doses()` added as a
-  regex/deterministic primitive.
-- **§8.2, §14 — LLM-as-judge scoped** (DECISION D2, vetoable). One judge check
-  (`check_assessment_support_judge`, WARNING tier, config-gated) ships in build phase 2.
-- **§8.7 — check registry defined.** `evals/registry.py`: frozen `Check` dataclass +
-  `@register_check` decorator. Adding a safety check is a documented one-step operation.
-
-**INFO**
-- **§9.1, §9.6 — persist is a literal sink** via FastAPI `BackgroundTasks`.
-- **§9.5 — column renamed** `critical_passed` → `production_critical_passed` (per-note
-  production verdict ≠ CI corpus rate; the name now says which one it is).
-- **§9.8 — added:** CORS middleware, input max-length guard, logging/observability
-  paragraph, migrations decision (DECISION D3: `create_all` phases 1–2 → Alembic in
-  phase 3).
-- **§6.2 — normalizer now delivers the §6.5 promise** (smart quotes / en-dashes mapped
-  before comparison).
-- **§11, §13, §14, §17 — CI made real:** GitHub Actions workflow, badge in the DoD,
-  `pyproject.toml`/`uv.lock` shown in the tree (uv owns the env).
-- **§4.1 — `Field(default_factory=list)`** convention for mutable defaults.
+**Versioning.** A *patch* (v1.3.x) may fill a detail this spec leaves unspecified, or
+resolve a conflict between two of its statements, citing both and naming which wins. A
+*minor* revision (v1.x) is anything else: a changed decision, a new section, a new phase's
+design. Every change lands with a changelog entry under the next `L#`.
 
 ---
 
@@ -400,7 +158,9 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 Section = Literal["S", "O", "A", "P"]
-Quote = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+NonBlankStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+                                    # v1.3.2 (L86): whitespace is empty at this boundary —
+                                    #   for the claim's text as for its quote (L25)
 
 # --- what the LLM emits: the tool contract -----------------------------------
 class ClaimDraft(BaseModel):
@@ -408,9 +168,9 @@ class ClaimDraft(BaseModel):
                                                 #   field is a ValidationError → the §5.4
                                                 #   retry; additionalProperties:false tells
                                                 #   the model up front.
-    text: str = Field(min_length=1, description="One clinical fact.")
+    text: NonBlankStr = Field(description="One clinical fact.")
     section: Section                  # the SINGLE encoding of section membership
-    source_quote: Quote = Field(description="Verbatim; one contiguous span of the input.")
+    source_quote: NonBlankStr = Field(description="Verbatim; one contiguous span of the input.")
                                       # the LLM emits THIS, NOT an offset (models can't
                                       # count chars). v1.3 (L25): stripped at the boundary,
                                       # so "" AND "   " fail validation → retry.
@@ -503,8 +263,9 @@ class Severity(str, Enum):
     INFO     = "info"
 
 class TokenUsage(BaseModel):                # v1.3: one shape for every cost number
-    input_tokens: int = 0
-    output_tokens: int = 0
+    model_config = ConfigDict(frozen=True)  # v1.3.2 (L89): `usage += …` rebinds via __add__
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
 
     def __add__(self, other: "TokenUsage") -> "TokenUsage":
         return TokenUsage(input_tokens=self.input_tokens + other.input_tokens,
@@ -597,10 +358,10 @@ class EvalCase(BaseModel):                  # a synthetic fixture (zero real PHI
         return self
 
 class RunMetadata(BaseModel):               # threaded out of the orchestrator
-    model: str                              # a DATED snapshot id, never an alias (§5.5)
+    model: str                              # a PINNED model id, never an alias (§5.5, L84)
     prompt_version: str                     # hash of the full call config (§5.4)
     usage: TokenUsage                       # v1.3 (L13): summed across ALL validation
-    validation_attempts: int                #   attempts — a model that needs three tries
+    validation_attempts: int = Field(ge=1)  #   attempts — a model that needs three tries
                                             #   must not look as cheap as one that needs one
     # v1.3 (L11): corpus_version and judge_* are gone from here. A per-run fact (the corpus)
     # lives on CorpusRunRecord; the judge's usage lives on EvalReport. Every field on this
@@ -671,8 +432,8 @@ trailing commas) → assistant prefill → **tool use (function calling)**. With
 tool's input schema *is* our draft schema, and we force the call:
 
 ```python
-SUMMARY_TOOL = {
-    "name": "emit_soap_note",
+SUMMARY_TOOL: ToolParam = {                              # v1.3.2 (L83): typed, so mypy checks
+    "name": "emit_soap_note",                            #   it against the Protocol (§5.5)
     "description": "Return the structured SOAP summary of the encounter.",
     "input_schema": SOAPNoteDraft.model_json_schema(),   # the spine becomes the contract
 }
@@ -681,14 +442,23 @@ SUMMARY_TOOL = {
 ### 5.2 The call (async, low-variance, forced)
 
 ```python
-CALL_CONFIG = {                                          # v1.3 (L15): everything that shapes
-    "temperature": 0,                                    #   the output, in one place — hashed
-    "tool_choice": {"type": "tool", "name": "emit_soap_note"},   # into PROMPT_VERSION (§5.4)
-    "max_tokens": settings.max_output_tokens,
+class SamplingBody(TypedDict):                           # v1.3.2 (L82): wire fields the SDK
+    temperature: float                                   #   no longer types — typed on OUR side
+
+class CallConfig(TypedDict):                             # v1.3.2 (L83): `**CALL_CONFIG` is
+    tool_choice: ToolChoiceToolParam                     #   checked key-by-key against the
+    max_tokens: int                                      #   Protocol; a dict[str, object]
+    extra_body: SamplingBody                             #   unpacks as `object` everywhere
+
+CALL_CONFIG: CallConfig = {                              # v1.3 (L15): everything that shapes
+    "tool_choice": {"type": "tool", "name": "emit_soap_note",    # the output, in one place —
+                    "disable_parallel_tool_use": True},          # hashed into PROMPT_VERSION
+    "max_tokens": settings.max_output_tokens,                    # (§5.4). L75: one block.
+    "extra_body": {"temperature": 0},                            # L82: invariant 3, on the wire
 }
 
 resp = await client.messages.create(
-    model=settings.model,                                # dated snapshot id (§5.5)
+    model=settings.model,                                # pinned model id (§5.5, L84)
     system=SYSTEM_PROMPT,
     tools=[SUMMARY_TOOL],
     messages=messages,
@@ -698,8 +468,26 @@ resp = await client.messages.create(
 
 - **`temperature=0`** minimizes variance so the eval suite sees stable-enough outputs; the
   corpus design (§8.7) — now with repeats (D11) — absorbs what variance remains.
+  **It travels in `extra_body` (v1.3.2, L82).** The Python SDK's 1.0 release removed the
+  typed `temperature` / `top_p` / `top_k` parameters — passing `temperature=` is a
+  `TypeError` — while the API still accepts the field on the models this call shape targets.
+  `extra_body` merges it into the request JSON as a top-level field, so invariant 3 holds on
+  the wire. The SDK types `extra_body` as `object`, so `SamplingBody` restores the typing on
+  our side and a test pins the value. It stays inside `CALL_CONFIG`, so it stays inside
+  `PROMPT_VERSION`. The judge client (§8.2) sends it the same way. The tempting "fix" when
+  the SDK rejects the kwarg — deleting it — silently breaks invariant 3; never do it.
+  *Test:* the fake client records `extra_body == {"temperature": 0}` on every `create`
+  call, validation retries included.
 - **forced `tool_choice`** means the model must populate the structure; it can't wander
   into prose.
+- **Parallel tool use is off (L75).** §5.4's API contract: every `tool_use` block in an
+  assistant turn must be answered by a `tool_result` for the same id in the next user
+  message — and §5.4's loop answers only the first block. Forcing the tool does not cap the
+  block count, so a two-block response would make the validation retry 400, which §9.4
+  reports as our 500. The unanswerable state is prevented, not handled. The flag lives in
+  `CALL_CONFIG`, so it is inside `PROMPT_VERSION` automatically (invariant 15).
+  *Test:* the fake client records the kwargs of every `create` call; `tool_choice` carries
+  the flag on every attempt, validation retries included.
 - **async** (`AsyncAnthropic`): the LLM call is the one genuinely I/O-bound, seconds-long
   step in the system. (The route in §9 awaits this.)
 - **`max_output_tokens` is derived from `max_input_chars`.** The output is mostly *copies of
@@ -707,15 +495,33 @@ resp = await client.messages.create(
   size; `config.py` derives one from the other (`≈ max_input_chars / 2`, tunable). Two knobs
   that must move together are one knob. **v1.3 (L16):** the derived value is validated
   against the model's output ceiling *at boot* — raising `max_input_chars` past what the
-  model can emit fails at startup, not per request.
+  model can emit fails at startup, not per request. The ceiling is
+  `settings.model_max_output_tokens`, declared directly beside `model` — the two change
+  together (L72). The Models API does report the ceiling (`models.retrieve(id).max_tokens`),
+  but reading it at boot is a network call, and CI runs offline (§10); so it is declared,
+  and the phase-1 smoke run verifies the declaration against the API (v1.3.2, L85, §14).
+  *Test:* settings whose derived `max_output_tokens` exceeds the ceiling raise at
+  construction.
 - **Timeouts and transport retries are explicit (v1.3, L54, L5).** The client is built once
-  as `AsyncAnthropic(timeout=settings.llm_timeout_s,
-  max_retries=settings.sdk_transport_retries)`. The SDK's default timeout is measured in
+  as `AsyncAnthropic(api_key=settings.anthropic_api_key.get_secret_value(),
+  timeout=settings.llm_timeout_s, max_retries=settings.sdk_transport_retries)`. The SDK's default timeout is measured in
   minutes — a hung upstream call would hold a worker that long; a timeout now maps to 504
   (§9.4). The SDK's `max_retries` retries *transport* failures (429, 5xx) with backoff, and
   an identical request is correct there: the failure is about load, not content. That is a
   different loop from §5.4's *validation* retries, and v1.3 gives the two different names
   so nobody "enforces" invariant 16 by zeroing the wrong one.
+- **"Built once" means once per process (L78).** `get_client` is the FastAPI dependency
+  that supplies the client (§9.1), and FastAPI calls dependencies per request — so
+  `get_client` is decorated `@functools.cache`: one `AsyncAnthropic`, one connection pool,
+  constructed on first use. Without the cache, every request builds and abandons an httpx
+  pool. Route tests override it via `dependency_overrides`; the override key is the cached
+  function object, which is what `Depends` holds. *Test:* `get_client() is get_client()`
+  (construction makes no network call; the conftest dummy key suffices, §10).
+- **The key is passed, never ambient (L77).** pydantic-settings reads `.env` into
+  `Settings` but never exports it to `os.environ`, the only place the SDK looks. An
+  implicit key works in a shell that happens to export it and 401s everywhere else — which
+  §9.4 would report as our 500. `anthropic_api_key` is a required `SecretStr` (§10), kept
+  out of `repr` and logs.
 
 ### 5.3 The system prompt — where the moat first appears in code
 
@@ -819,10 +625,15 @@ class ModelOutputError(OrchestratorError):
     code = "model_output_invalid"
 
 class OutputTruncatedError(ModelOutputError):
-    """stop_reason == "max_tokens" on an input the route ALREADY accepted (§9.1). v1.3 (L14):
+    """stop_reason in TRUNCATION_STOPS on an input the route ALREADY accepted (§9.1). v1.3 (L14):
     v1.2 called this InputTooLongError → 422, blaming the client for an input that passed
     our own guard. The fault is the output/input ratio in config, or model verbosity → 502."""
     code = "output_truncated"
+
+TRUNCATION_STOPS = frozenset({"max_tokens", "model_context_window_exceeded"})
+# v1.3.2 (L88): both cut the output mid-emission. A context-window stop with a partial tool
+# block would otherwise fail validation and "retry" with a LARGER context — invariant 16's
+# identical-failure spend, made worse. Unreachable at sane max_input_chars; closed anyway.
 
 CORRECTION_TEMPLATE = (
     "Validation failed: {errors}. "
@@ -839,7 +650,7 @@ PROMPT_VERSION = hashlib.sha256(json.dumps({
 }, sort_keys=True).encode()).hexdigest()[:12]
 
 async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
-    messages: list[dict] = [{"role": "user", "content": raw_text}]
+    messages: list[MessageParam] = [{"role": "user", "content": raw_text}]   # L83
     usage = TokenUsage()
     last_error: ValidationError | None = None
 
@@ -851,9 +662,9 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
         usage += TokenUsage(input_tokens=resp.usage.input_tokens,      # v1.3 (L13): every
                             output_tokens=resp.usage.output_tokens)    #   attempt is paid for
 
-        if resp.stop_reason == "max_tokens":
+        if resp.stop_reason in TRUNCATION_STOPS:
             # Identical request at temperature=0 → near-identical truncation. Fail fast.
-            raise OutputTruncatedError("output truncated at max_tokens", usage=usage)
+            raise OutputTruncatedError("output truncated", usage=usage)
 
         tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
         if tool_block is None:
@@ -912,10 +723,21 @@ request changed → retry. (Transport retries are the SDK's — §5.2, a differe
 
 ### 5.5 Seam & model choice
 
-- **`client` is injected, and typed (v1.3, L19).** `LLMClient` is a `typing.Protocol`
-  exposing `messages.create(**kwargs)`; the real `AsyncAnthropic` and the test fake both
-  satisfy it, so mypy checks the seam every test depends on. Tests pass a fake returning a
-  canned tool-use block: no network, no key, fast, deterministic.
+- **`client` is injected, and typed (v1.3, L19; L74).** `LLMClient` is a `typing.Protocol`;
+  the real `AsyncAnthropic` and the test fake both satisfy it, so mypy checks the seam every
+  test depends on. Its `create` declares exactly the keywords the orchestrator passes —
+  `model`, `system`, `tools`, `messages`, `tool_choice`, `max_tokens`, `extra_body` (L82) —
+  typed with the SDK's own param types so contravariance can't bite (allowed: the
+  orchestrator is EDGE, §0). The SDK types `extra_body` as `object`; `CallConfig` (§5.2)
+  carries the precise type on our side. No loose signature checks anything: `**kwargs: Any` alone
+  rejects `AsyncAnthropic`, and `*args: Any, **kwargs: Any` is treated as `...`.
+  `messages` is a read-only `@property` on the Protocol, not a bare attribute: a bare
+  protocol attribute is settable, and the SDK's `messages` is a cached property. Tests pass
+  a fake returning a canned tool-use block, built from real `anthropic.types.Message`
+  objects so the fake can't drift from the wire format: no network, no real key, fast,
+  deterministic. *Test:* mypy over `backend/` and `tests/`, forced by binding sites on both
+  sides — `get_client() -> LLMClient` returns `AsyncAnthropic(...)`, and the fake in
+  `tests/` is bound to an `LLMClient`-typed name. Without both, mypy checks half the seam.
 - **The orchestrator is an edge adapter (v1.3, L17).** It is one of two modules allowed to
   speak Anthropic's message format (the other is `judge_client.py`, §8.2). Everything it
   hands inward is a spine type.
@@ -925,9 +747,14 @@ request changed → retry. (Transport retries are the SDK's — §5.2, a differe
   (L13) and the judge's usage kept separately (L7), the claim is *"Haiku holds the safety
   metrics at a measured fraction of Sonnet's cost per note — including the retries it
   needed."*
-- **`settings.model` is a dated snapshot id, never an alias.** An alias can resolve to
-  different weights next month with no diff in the repo — every `CorpusRunRecord.model`
-  would say the same thing while meaning different things. Upgrading the model is a
+- **`settings.model` is a pinned model id, never an alias (v1.3.2, L84).** An alias can
+  resolve to different weights next month with no diff in the repo — every
+  `CorpusRunRecord.model` would say the same thing while meaning different things. v1.3.1
+  said "dated": true of the ids before the Claude 4.6 generation (use
+  `claude-haiku-4-5-20251001`, never its alias `claude-haiku-4-5`), false from 4.6 on, where
+  the dateless id *is* the pinned snapshot. The test for pinned is Anthropic's model-ids
+  page at the time of the change, never a date-suffix regex — that would reject every
+  current-generation id. Upgrading the model is a
   deliberate config change that shows up in `git log`, next to the corpus run that
   justified it.
 
@@ -1414,8 +1241,9 @@ class Judge(Protocol):
 
 — and `judge_client.py` (edge) implements it over the Anthropic API: one batched call
 carrying every `(text, span)` pair and returning one verdict per pair (L40 — a 20-claim note
-is one call, not twenty), `temperature=0`, its own `settings.judge_timeout_s`, shorter than
-the summarize timeout (L54). A judge is constructed per request (and per corpus case), so
+is one call, not twenty), `temperature=0` (via `extra_body`, as §5.2, L82), its own
+`settings.judge_timeout_s`, shorter than the summarize timeout (L54). A judge is constructed per request
+(and per corpus case), so
 its `usage` belongs to exactly one report and lands in `EvalReport.judge_usage` (L7).
 Whether the judge runs is a *parameter* — `run_checks(..., judge=None)` skips it — not a
 global read inside the domain (L49); `settings.judge_enabled` is read only at the edge that
@@ -1706,7 +1534,7 @@ from typing import Awaitable, Callable, Literal
 @dataclass(frozen=True)
 class Finding:                        # what a check RETURNS: the facts of one violation.
     detail: str                       # Check-internal: never crosses a layer boundary, so it
-    claim_ids: tuple[int, ...] = ()   #   lives here, not in schemas.py (sanctioned, CLAUDE.md)
+    claim_ids: tuple[int, ...] = ()   #   lives here, not in schemas.py (sanctioned, §13)
     severity: Severity | None = None  # optional DOWNGRADE — enforced at stamping (v1.3, L38)
 
 @dataclass(frozen=True)
@@ -1973,10 +1801,16 @@ doing load-bearing work.
 
 ```python
 class SummarizeRequest(BaseModel):          # HTTP-boundary shape; lives in api.py (EDGE —
-    raw_text: str = Field(                  #   sanctioned outside schemas.py, CLAUDE.md)
-        min_length=settings.min_input_chars,    # degenerate-input guard (§10)
+    raw_text: str = Field(                  #   sanctioned outside schemas.py, §13)
         max_length=settings.max_input_chars,    # an oversized paste fails honestly at
     )                                           # validation (422). Chunking stays v2.
+
+    @field_validator("raw_text")                # v1.3.2 (L87): the degenerate-input guard
+    @classmethod                                #   (§10) counts CONTENT, and never mutates:
+    def _enough_content(cls, v: str) -> str:    #   from phase 2a every span is an offset into
+        if len(v.strip()) < settings.min_input_chars:   # the exact paste. Stripping here
+            raise ValueError("too short")       #   would shift every highlight.
+        return v
 
 class SummarizeResponse(BaseModel):
     note_id: UUID                            # minted HERE, before persist runs
@@ -2008,9 +1842,21 @@ inward." `persist` rides a `BackgroundTask`, so "the sink runs after the respons
 framework's execution order, not a promise the route keeps (§9.6). The id is minted in the
 route because the response must carry it and the response is built before the row exists.
 
-**Phase 1 is smaller, and says so (v1.3).** No grounding, no report: the phase-1 route
+**Phase 1 is smaller, and says so (v1.3; L76).** No grounding, no report: the phase-1 route
 returns `{draft: SOAPNoteDraft, metadata: RunMetadata}`. The type name tells the reader the
-content is unverified (§4.1) — honest by construction.
+content is unverified (§4.1) — honest by construction. The wire shape is its own edge type in
+`api.py`; the route never uses `SummarizationResult` as its `response_model`:
+
+```python
+class SummarizeResponse(BaseModel):          # phase 1; becomes the shape above in phase 2a
+    draft: SOAPNoteDraft
+    metadata: RunMetadata
+```
+
+The domain return type and the wire contract are different jobs: in phase 2a the edge shape
+becomes `note_id` + `note` + `report` + `metadata`, and nothing in `schemas.py` changes.
+*Test:* the happy-path route test asserts the body's top-level keys are exactly
+`{"draft", "metadata"}`.
 
 ### 9.2 Async, justified (amended v1.2)
 
@@ -2037,8 +1883,11 @@ OutputTruncatedError                   → 502  output_truncated       config ra
 ModelOutputError                       → 502  model_output_invalid   the MODEL is the problem
 anthropic.RateLimitError               → 503  upstream_busy          + Retry-After if exposed
 anthropic.APITimeoutError              → 504  upstream_timeout       v1.3 (L54)
-anthropic.APIError (other)             → 502  upstream_error         not my bug
-unexpected Exception                   → 500  internal_error         logged in full, internally
+anthropic.APIStatusError 529           → 503  upstream_busy          overloaded = busy (L71)
+anthropic.APIStatusError 5xx (other)   → 502  upstream_error         not my bug (L71)
+anthropic.APIStatusError 4xx (not 429) → 500  internal_error         OUR request or config (L71)
+anthropic.APIError (other)             → 502  upstream_error         incl. non-timeout connection failures
+unexpected Exception                   → 500  internal_error         logged by structure, never message (L69)
 ```
 
 Every body has one shape — `{"error": <code>, "request_id": <id>}` — and **never** the
@@ -2051,7 +1900,7 @@ subclasses (`OutputTruncatedError`, `APITimeoutError`) win over their parents.
 @app.exception_handler(ModelOutputError)          # OutputTruncatedError inherits → its own code
 async def handle_model_output_error(request: Request, exc: ModelOutputError):
     rid = request.state.request_id
-    logger.warning("model output failure", extra={"code": exc.code, "request_id": rid})
+    logger.warning("model_output_failure code=%s request_id=%s", exc.code, rid)   # L79
     return JSONResponse(status_code=502, content={"error": exc.code, "request_id": rid})
 ```
 
@@ -2061,6 +1910,64 @@ that returned garbage three times wasn't reported as the client's malformed requ
 (L14) finishes the job — truncation on an input the route already accepted isn't the
 client's fault either. And 429 is reserved for *our* rate limit: passing upstream throttling
 through as 429 would tell the client *they* sent too many requests.
+
+**Boundary details (L69–L71, L73, L79, L80).** Each fills or reconciles a line above, and
+each names its test.
+
+- **The 500 path logs structure, never messages (L69).** L53's PHI rule beats the table's
+  former "logged in full" cell. The 500 path logs `code="internal_error"`, `request_id`,
+  `exc_type=type(exc).__name__`, and frames as `file:line:function` from
+  `traceback.extract_tb` — never `exc_info`, `str(exc)`, or a chained cause. Frames carry
+  no PHI; messages can (a chained `ValidationError` carries `input_value`). It is a
+  catch-all **middleware** running inside the request-id middleware, not
+  `@app.exception_handler(Exception)`: Starlette's `ServerErrorMiddleware` calls that
+  handler and then re-raises for the server to log, so uvicorn prints the full traceback
+  anyway. The specific handlers (`ModelOutputError`, the SDK errors) stay
+  `exception_handler`s. *Test:* a route raising an exception whose message is a sentinel →
+  500 `{error, request_id}`; the sentinel is in no `caplog` record and not in the body.
+  With the default `TestClient`, the wrong implementation fails this test by re-raising.
+- **The default 422 handler is replaced (L70).** FastAPI's default returns `exc.errors()`,
+  whose `input` is the entire paste. A `RequestValidationError` handler returns 422
+  `{"error": "input_invalid", "request_id": ...}` and logs by code only. *Test:* an
+  oversized paste, an undersized paste, and a whitespace-padded paste longer than
+  `min_input_chars` whose content is shorter (L87), each containing a sentinel → 422 with
+  the correct body; the sentinel is in neither the body nor the logs.
+- **Upstream failures are attributed by status (L71).** A single `APIError` row calling
+  every upstream failure "not my bug" contradicted this section's own rule: a 401 from a
+  bad key is our config, not upstream's bug. One `APIStatusError` handler branches on
+  status — 4xx except 429 → 500, logged with `upstream_status` (our schema, key, access,
+  model id, or size); 5xx except 529 → 502; 529 → 503, the same meaning as
+  `RateLimitError`, whose own handler wins for 429 by MRO. A connection failure that is not
+  a timeout (`APIConnectionError`, not `APITimeoutError`) takes the residual `APIError`
+  row. *Test:* one per mapping, with the fake client raising each status.
+  `APIConnectionError` gets its own test: it reaches 502 through a different MRO branch
+  than a 5xx, and `APITimeoutError` subclasses it, so the pair pins the 504 handler
+  winning.
+- **Phase-1 reach (L73).** Reachable in phase 1: 422 `input_invalid` · 502
+  `output_truncated` · 502 `model_output_invalid` · 503 `upstream_busy` · 504
+  `upstream_timeout` · 502 `upstream_error` · 500 `internal_error`. Not until phase 3: 429
+  `rate_limited`, 503 `budget_exhausted`. The HTTP test module lists both sets at the top.
+  `request_id` is minted per request by middleware (`uuid4().hex` on
+  `request.state.request_id`); every error body and log line carries it. *Test:* 502
+  `model_output_invalid` is reached twice — a response with no tool block, and
+  `stop_reason="refusal"` with no tool block — so the refusal path is pinned behavior, not
+  an accident of the missing-block branch.
+- **Log fields render in the message (L79).** With no custom formatter, `extra=` attaches
+  attributes to the `LogRecord` that no handler prints: a `caplog` test asserting on record
+  attributes passes while the terminal shows neither field. Log calls put their fields in
+  the message as `key=value` pairs via %-style args, as in the sample above. `api.py`
+  configures the root logger once at app construction (§9.8). *Test:* logging assertions
+  read `record.getMessage()`, never record attributes; each handler's test asserts its
+  `code` and `request_id` appear in the rendered message.
+- **Framework default error bodies are replaced (L80).** Outside `RequestValidationError`,
+  FastAPI's default `HTTPException` handler returns `{"detail": ...}` for unmatched routes
+  and methods, breaking "every body has one shape." A handler registered on
+  `starlette.exceptions.HTTPException` (FastAPI's subclasses it, and the router raises the
+  Starlette one) returns `{"error": <code>, "request_id": ...}` with the original status:
+  404 `not_found`, 405 `method_not_allowed`, anything else `http_error`. These are routing
+  codes, not rows of the table above, and not part of the phase-1 reach list. *Test:*
+  `GET /nope` → 404 `{"error": "not_found", ...}`; `GET /summarize` → 405
+  `{"error": "method_not_allowed", ...}`.
 
 ### 9.5 Persistence: hybrid relational-envelope + JSONB
 
@@ -2158,11 +2065,13 @@ channels and shipped a contract that could only express the first).
   with a mystery evening. One middleware registration, specced now so future-me doesn't
   debug it at midnight.
 - **Logging / observability (v1.1; PHI-scoped v1.3).** stdlib `logging` configured once in
-  `api.py`: per-request id, model, latency, token counts, error *codes*. v1.3 (L53) makes one
+  `api.py` — plain text with timestamp, level, and logger name; fields rendered in the
+  message as `key=value` (L79): per-request id, model, latency, token counts, error *codes*. v1.3 (L53) makes one
   rule absolute: **raw text, note content, and exception messages that may carry them never
   reach a log line or an HTTP body.** Concretely: `OrchestratorError` is logged by `code`
   without `exc_info`; checks log by check *name*; any stringified validation error uses
-  `errors(include_input=False)`; error bodies are `{error, request_id}` (§9.4).
+  `errors(include_input=False)`; error bodies are `{error, request_id}` (§9.4); the 500
+  path logs exception type and frames, never the message or `exc_info` (L69).
   `persist_enabled=false` keeps the demo out of the database; this rule keeps it out of the
   hosting platform's log retention, which v1.2's "not a PHI sink" had forgotten.
   Structured/JSON logging → v2.
@@ -2221,9 +2130,9 @@ tests get me trusted.
 source-of-truth") with nothing backing it. The contract, minimally:
 
 - **Types are generated, not typed.** `openapi-typescript` runs against FastAPI's
-  `/openapi.json` and emits `frontend/src/api.d.ts`. `SOAPNote`, `EvalReport`,
-  `SummarizeResponse` exist exactly once, in `schemas.py`; the TypeScript is a build
-  artifact. That's what makes the §12 receipt's last line true rather than aspirational.
+  `/openapi.json` and emits `frontend/src/api.d.ts`. `SOAPNote` and `EvalReport`
+  exist exactly once, in `schemas.py`, and `SummarizeResponse` once, in `api.py` (§13,
+  L76); the TypeScript is a build artifact. That's what makes the §12 receipt's last line true rather than aspirational.
 - **One highlight at a time.** Spans can overlap (two claims from one sentence) and
   coincide (the duplicate-quote case, §6.5). The UI never paints all spans onto the
   source at once — it highlights the span of the claim under the cursor (or the one
@@ -2250,12 +2159,28 @@ source-of-truth") with nothing backing it. The contract, minimally:
   here is what makes it a decision instead of an omission.
 - **The PHI banner** (§9.8) is above the paste box, always, not a dismissible toast.
 
+**Before the contract: the phase-1 display (L68).** §14's "minimal display" is a static
+page, not an early `frontend/`. `GET /` in `api.py` serves `backend/static/index.html`:
+textarea → `fetch("/summarize")` → `draft.claims` grouped by `section` client-side. All four
+sections always render; an empty one shows "none stated" (D7). Output is labeled "DRAFT —
+unverified" (invariant 12: nothing unchecked reads as checked). A one-line PHI warning sits
+above the textarea (the full banner is phase 3). Same-origin, so no CORS in phase 1. No
+`by_section`, no `SOAPNote`: the phase-1 `schemas.py` fence holds (§14). Claims render via
+`textContent`, never `innerHTML` — every `source_quote` copies the paste verbatim, so markup
+in the paste would execute. `backend/static/` is deleted when `frontend/` replaces it in
+phase 3. On a non-2xx the page renders the body's `error` code and `request_id` in place
+of the result (v1.3.2, L92) — never a blank result area, or the L81 smoke run can fail
+without saying so. *Test:* `GET /` → 200, `text/html`; the served file contains no
+`innerHTML`.
+
 ---
 
 ## 10. Cross-cutting concerns
 
 - **`config.py` (pydantic-settings):** every operational knob (invariant 10) — `model`
-  (dated id); `max_input_chars` → derived `max_output_tokens` (validated against the model's
+  (pinned id, L84) and, directly beside it, `model_max_output_tokens` (its output ceiling; the
+  two change together, L72); `anthropic_api_key` (`SecretStr`, required, L77);
+  `max_input_chars` → derived `max_output_tokens` (validated against the model's
   ceiling at boot, L16); `max_validation_retries` (L5); `sdk_transport_retries`;
   `llm_timeout_s`, `judge_timeout_s` (L54); `fuzzy_score_cutoff`; `min_input_chars`;
   `min_quote_content_tokens` (D15); `judge_enabled`; `persist_enabled`;
@@ -2263,8 +2188,17 @@ source-of-truth") with nothing backing it. The contract, minimally:
   (L56); `rate_limit`; `forwarded_allow_ips` (L58); `runs_path`; CORS origins. Clinical
   knowledge — including `NEGATION_WINDOW` — lives in `clinical/lexicons.py`. The literal
   numbers in this spec's code samples are `settings.*` in the repo.
-- **Degenerate input (v1.3, L55, L58) — three paths, not one.** A paste shorter than
-  `min_input_chars` → 422 at the route (v1.2's example, "hello," never reached the pipeline;
+- **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
+  `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
+  `min_input_chars` `ge=1`, and a validator rejects `min_input_chars >= max_input_chars`. A
+  negative `max_validation_retries` would make §5.4's loop run zero times and report a model
+  failure the model never had the chance to cause. `tests/conftest.py` sets a dummy
+  `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret, because no test
+  reaches the network. *Test:* a missing key, a negative retry count, and
+  `min_input_chars >= max_input_chars` each raise at `Settings()` construction.
+- **Degenerate input (v1.3, L55, L58) — three paths, not one.** A paste whose content
+  (stripped length, L87) is shorter than `min_input_chars` → 422 at the route
+  (v1.2's example, "hello," never reached the pipeline;
   this is where it was rejected). A long non-clinical paste → a valid empty `SOAPNote`
   (`claims=()`) → "no clinical content found." A *clinical* paste that comes back with zero
   claims → the `empty_note_on_clinical_input` WARNING (§8.4): total omission must not read
@@ -2311,11 +2245,16 @@ in the push workflow — it spends real money.
 - **Tool-schema snapshot** — `SUMMARY_TOOL["input_schema"]` against a committed JSON; any
   change to `ClaimDraft` is a reviewed diff *and* a new `PROMPT_VERSION`.
 - **Orchestrator boundary (phase 1)** — fake client: happy path; a validation retry with a
-  correctly shaped `tool_result` (`tool_use_id`, `is_error=True`); `max_tokens` fails fast;
-  a missing block fails fast; retries exhausted; usage summed across attempts; a
+  correctly shaped `tool_result` (`tool_use_id`, `is_error=True`); `max_tokens` and
+  `model_context_window_exceeded` each fail fast as `OutputTruncatedError` (L88);
+  `extra_body` carries `temperature=0` on every attempt (L82); a missing block fails fast;
+  retries exhausted; usage summed across attempts; a
   `RunMetadata` construction error is NOT fed back to the model (L12).
-- **HTTP mapping (phase 1)** — every §9.4 row reachable in phase 1, including 504 on a client
-  timeout, and no body ever containing exception text (L53).
+- **HTTP mapping (phase 1)** — every §9.4 row reachable in phase 1 (L73's list), including
+  504 on a client timeout, and no body ever containing exception text (L53).
+- **Phase-1 boundary decisions** — each names its test where it is specified: §9.4 (L69,
+  L70, L71, L73, L79, L80), §5.2 (L72, L75, L78), §10 (L77), §5.5 (L74), §9.1 (L76),
+  §9.10 (L68).
 - **Grounding** — Tiers 0–4; the numeric guard (`"BP 190/110"` vs a `130/110` source →
   `UNSUPPORTED` with its score kept); the rapidfuzz coordinate pin (L27); v1.2's
   `detect_vital_drift`, moved here (L66).
@@ -2369,7 +2308,11 @@ persistence, the API, and the docs all become mechanical.
 
 ```
 notepilot/
-├── pyproject.toml          ← uv project; runtime deps under [project], dev under groups
+├── CLAUDE.md               ← Claude Code's instructions; must be at the root to auto-load (L93)
+├── PROJECT_01_NOTEPILOT.md ← this spec — the header carries the version, never the filename
+├── PROJECT_01_NOTEPILOT_CHANGELOG.md ← its history; every L# / D# cited here resolves there
+├── pyproject.toml          ← uv project; runtime deps under [project], dev under groups ·
+│                              anthropic>=1.9,<2 (L82) · [tool.mypy] strict = true (L91)
 ├── uv.lock                 ← the environment's source of truth
 ├── .github/
 │   └── workflows/ci.yml    ← ruff + mypy + pytest on push, FROM PHASE 1 (model corpus: manual, $)
@@ -2391,6 +2334,7 @@ notepilot/
 │   │   ├── cases/          ← one YAML per case: model cases AND injected cases (§8.5)
 │   │   └── runs/           ← corpus_runs.jsonl — committed from local runs (D5)
 │   ├── api.py              ← EDGE. routes (composition root) · handlers · logging · rate limit · budget
+│   ├── static/index.html   ← phase 1 only: the static display (§9.10, L68); frontend/ replaces it
 │   └── db.py               ← EDGE (phase 3). SessionLocal, NoteRecord, persist()
 ├── frontend/               ← React (phase 3): paste → SOAP view → hover-highlight + safety banner
 │   └── src/api.d.ts        ← GENERATED by openapi-typescript (§9.10); never hand-edited
@@ -2403,10 +2347,20 @@ notepilot/
 └── README.md               ← product layer + four-metric scorecard (n, k) + cost line + CI badge
 ```
 
+**The three documents live at the root, together (v1.3.2, L93).** CLAUDE.md names the other
+two by bare filename, so co-location is what makes those references resolve; a spec change
+that touches an invariant lands with CLAUDE.md's update in one commit (CLAUDE.md, "The spec
+and this file move together").
+
 **The law made visible:** dependencies point *inward* toward `schemas.py`, and the
 DOMAIN / EDGE labels say where a vendor's format may appear (§0). `rag/` does not exist until
 phase 4 — an empty module in the tree is a promise the code hasn't made. `alembic/` joins in
 phase 3 (D3). Each module lands in the phase whose exit criteria need it (§14), not before.
+
+**Shapes outside `schemas.py` — two sanctioned exceptions, nothing else.** New pipeline data
+shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`) live
+in `api.py`. Check-internal shapes (`Finding`, `Check`) live in `evals/registry.py` and never
+cross a layer boundary. Anything else outside `schemas.py` is drift.
 
 ---
 
@@ -2429,22 +2383,43 @@ paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No groundin
 *(Closest to done — the authenticated Anthropic call exists from the APIs arc.)*
 
 ```
-□ paste → route → summarize → SOAPNoteDraft + RunMetadata → minimal display grouped by section
-□ schemas.py holds ONLY: ClaimDraft (extra="forbid", stripped non-empty quote, structural
-  descriptions) · SOAPNoteDraft · TokenUsage · RunMetadata (every field produced, L11) ·
-  SummarizationResult
+□ paste → route → summarize → SOAPNoteDraft + RunMetadata → static-page display grouped by
+  section (§9.10, L68) · SummarizeResponse is exactly {draft, metadata} (L76)
+□ schemas.py holds ONLY: ClaimDraft (extra="forbid", stripped non-blank text and quote
+  (L86), structural descriptions) · SOAPNoteDraft · TokenUsage · RunMetadata (every field
+  produced, L11; domains, L89) · SummarizationResult — plus the Section and NonBlankStr
+  aliases they use (L90)
 □ orchestrator: one-line try (L12) · usage summed + validation_attempts (L13) ·
   OutputTruncatedError → 502 (L14) · PROMPT_VERSION over the full call config (L15) ·
   errors carry usage (L49)
 □ prompt: D7 Assessment rule + certainty (L20) · never omit safety-critical facts (L50)
-□ config.py: dated model id · max_validation_retries + sdk_transport_retries (L5) ·
-  llm_timeout_s (L54) · derived max_output_tokens validated at boot (L16)
-□ LLMClient Protocol (L19) · orchestrator and api are EDGE (L17)
-□ PHI-safe errors and logs: {error, request_id} bodies, codes not messages (L53)
+□ config.py: pinned model id (L84) · max_validation_retries + sdk_transport_retries (L5) ·
+  llm_timeout_s (L54) · derived max_output_tokens validated at boot against
+  model_max_output_tokens (L16, L72) · required SecretStr key, every knob's domain (L77)
+□ LLMClient Protocol with explicit kwargs (L19, L74) · typed CallConfig, temperature via
+  extra_body (L82, L83) · client built once (L78) · parallel tool use off (L75) ·
+  orchestrator and api are EDGE (L17)
+□ PHI-safe errors and logs: {error, request_id} bodies, codes not messages (L53) · 500
+  logs structure only (L69) · 422 and framework bodies replaced (L70, L80) · fields in
+  the message (L79) · upstream attributed by status (L71)
 □ tests: the orchestrator boundary list (§11) · tool-schema snapshot · every §9.4 row
-  reachable in phase 1, incl. 504
-□ CI on push: ruff + mypy + pytest (L60)
+  reachable in phase 1, incl. 504 (L73) · each boundary decision's named test (§11)
+□ CI on push: ruff + mypy (strict, L91) + pytest (L60)
+□ one live smoke run, recorded in the annotated tag (L81)
 ```
+
+**Phase 1 closes with one live smoke run (L81).** Every test uses the fake client, so CI
+can go green on a request the real API rejects: the tool schema's `$defs`, L75's flag, the
+pinned model id, L82's `extra_body` field, and L77's key wiring are checked by mypy against
+the SDK's types at best, never by the API. Before tagging `v0.1-spine`, run the app locally
+and summarize one synthetic encounter (zero PHI, the same rule as `evals/cases/`) through
+`GET /`. Record `model`, `prompt_version`, `validation_attempts`, and `usage` from the
+response in the annotated tag message, plus `anthropic.__version__` (the SDK shapes the
+wire, L82) and `models.retrieve(settings.model).max_tokens` beside
+`settings.model_max_output_tokens` — the two must match (L85). One call,
+cents, confirmed by Cal before it runs — a smoke run, not
+a corpus run. Repeat at any later phase close that changes the request shape. No automated
+test, by design: the annotated tag is the record, audited alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
@@ -2481,7 +2456,7 @@ paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No groundin
 □ score_corpus: concurrency · per-case catch parity + all-failed runs recorded (L46) ·
   k repeats + flaky_cases (D11) · failed-attempt usage counted (L49)
 □ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · CorpusMetrics (L3)
-□ one baseline run on the chosen dated model, committed with its change (D5)
+□ one baseline run on the chosen pinned model, committed with its change (D5)
 □ README scorecard sentence (§2) drafted from real numbers, with n and k
 ```
 
@@ -2604,7 +2579,7 @@ The whole project. Per-phase exit criteria live in §14.
       usage, and a per-(case, repeat) breakdown; survives failing cases; records all-failed
       runs; committed per D5; rerun on every prompt / model / check change
 - [ ] `prompt_version`, `corpus_version`, `checks_version` are derived hashes;
-      `settings.model` is a dated snapshot id
+      `settings.model` is a pinned model id, never an alias (L84)
 - [ ] `all_critical_passed` guards vacuous truth; `run_checks` fails closed with `errored`
 - [ ] Whole-note safety extraction (never trusts the section)
 - [ ] Token usage captured per note — summed across validation attempts, judge separate —
