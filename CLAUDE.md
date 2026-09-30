@@ -144,10 +144,6 @@ Anything else outside `schemas.py`: flag it.
 
 ## Decisions beyond spec v1.3 (implementation-level, not spec amendments)
 
-Recorded here so the design room (claude.ai Project) and the build room agree.
-
-## Decisions beyond spec v1.3 (implementation-level, not spec amendments)
-
 Recorded here so the design room (claude.ai Project) and the build room agree. Each entry
 cites the spec it touches and names the test that enforces it. The next spec revision
 absorbs these, and this section empties again. Deferred amendments that are NOT active in
