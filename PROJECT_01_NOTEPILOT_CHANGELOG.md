@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,37 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.3 — Phase 1 build fills (patch)
+
+Theme: three details the Phase 1 build would otherwise have decided silently, found while
+sequencing the build. All three are fills; no statement changes and no invariant moves.
+CLAUDE.md's CI sentence is updated in the same commit (L96); nothing else in it changes.
+
+**WARNING**
+- **L94 §5.2, §10, §14 — the output/input ratio is a knob, and the derived value is not.**
+  Fill: §5.2 derived `max_output_tokens` as `≈ max_input_chars / 2`, "tunable," while
+  invariant 10 bans magic numbers and §10 named no knob for the ratio — `config.py` could
+  only hardcode the 2 or invent an unnamed knob. Now `output_tokens_per_input_char`
+  (`gt=0`, default `0.5`, so behavior is unchanged) and
+  `max_output_tokens = math.ceil(max_input_chars * ratio)`, a read-only property: as a field
+  it could be set from the environment on its own, reopening "two knobs that must move
+  together." Tests: a non-positive ratio raises at construction; the derived value is not
+  in `Settings.model_fields`. (Rejected: a module constant — "tunable" makes it operational,
+  and operational knobs live in `config.py`.)
+
+**INFO**
+- **L95 §5.2, §13, §14 — `get_client` lives in `orchestrator.py`.** Fill: §5.2 and §5.5
+  specified its behavior and no module. It sits beside the `LLMClient` Protocol it returns,
+  as a plain cached factory with no FastAPI import; `api.py` applies `Depends`. The module
+  that owns the vendor format constructs the vendor client, and the orchestrator stays
+  framework-free.
+- **L96 §11, §13, §14; CLAUDE.md CI — CI runs the format check.** Fill: the spec's workflow
+  said "ruff," CLAUDE.md's commands ran both `ruff check` and `ruff format --check`, and
+  nothing said which one CI enforces. Both run in CI; a commit that is clean locally is
+  clean on push.
 
 ---
 

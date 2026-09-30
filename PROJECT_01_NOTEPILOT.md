@@ -2,8 +2,8 @@
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
-**Spec version: v1.3.2** (patch — Phase 1 pre-build pass, September 2026).
-Supersedes v1.3.1.
+**Spec version: v1.3.3** (patch — Phase 1 build fills, September 2026).
+Supersedes v1.3.2.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -492,16 +492,25 @@ resp = await client.messages.create(
   step in the system. (The route in §9 awaits this.)
 - **`max_output_tokens` is derived from `max_input_chars`.** The output is mostly *copies of
   the input* (every `source_quote` is a verbatim span), so output size scales with input
-  size; `config.py` derives one from the other (`≈ max_input_chars / 2`, tunable). Two knobs
-  that must move together are one knob. **v1.3 (L16):** the derived value is validated
-  against the model's output ceiling *at boot* — raising `max_input_chars` past what the
-  model can emit fails at startup, not per request. The ceiling is
+  size; `config.py` derives one from the other. Two knobs that must move together are one
+  knob. **v1.3.3 (L94):** the ratio is itself a knob, `output_tokens_per_input_char` (`gt=0`,
+  default `0.5` — v1.3.2's `≈ max_input_chars / 2`), and
+  `max_output_tokens = math.ceil(max_input_chars * output_tokens_per_input_char)` is a
+  read-only property on `Settings`, never a field: a field could be set from the environment
+  independently of `max_input_chars`, which is two knobs again. The unit crosses from
+  characters to tokens on purpose — the ratio absorbs chars-per-token *and* the output's
+  overhead beyond the copied quotes (claim text, JSON structure), so it is tuned empirically,
+  not derived. It feeds `CALL_CONFIG`, so tuning it changes `PROMPT_VERSION` (invariant 15).
+  **v1.3 (L16):** the derived value is validated against the model's output ceiling *at
+  boot* — raising `max_input_chars` (or the ratio) past what the model can emit fails at
+  startup, not per request. The ceiling is
   `settings.model_max_output_tokens`, declared directly beside `model` — the two change
   together (L72). The Models API does report the ceiling (`models.retrieve(id).max_tokens`),
   but reading it at boot is a network call, and CI runs offline (§10); so it is declared,
   and the phase-1 smoke run verifies the declaration against the API (v1.3.2, L85, §14).
   *Test:* settings whose derived `max_output_tokens` exceeds the ceiling raise at
-  construction.
+  construction; a non-positive `output_tokens_per_input_char` raises at construction;
+  `"max_output_tokens" not in Settings.model_fields` (L94).
 - **Timeouts and transport retries are explicit (v1.3, L54, L5).** The client is built once
   as `AsyncAnthropic(api_key=settings.anthropic_api_key.get_secret_value(),
   timeout=settings.llm_timeout_s, max_retries=settings.sdk_transport_retries)`. The SDK's default timeout is measured in
@@ -511,8 +520,12 @@ resp = await client.messages.create(
   different loop from §5.4's *validation* retries, and v1.3 gives the two different names
   so nobody "enforces" invariant 16 by zeroing the wrong one.
 - **"Built once" means once per process (L78).** `get_client` is the FastAPI dependency
-  that supplies the client (§9.1), and FastAPI calls dependencies per request — so
-  `get_client` is decorated `@functools.cache`: one `AsyncAnthropic`, one connection pool,
+  that supplies the client (§9.1). **It lives in `orchestrator.py`, beside the `LLMClient`
+  Protocol it returns (v1.3.3, L95):** the module that owns the vendor's format is the one
+  that constructs the vendor's client. It is a plain cached factory that imports nothing
+  from FastAPI — `api.py` applies `Depends(get_client)` at the route, so the orchestrator
+  stays framework-free and `api.py` never constructs a client. FastAPI calls dependencies
+  per request — so `get_client` is decorated `@functools.cache`: one `AsyncAnthropic`, one connection pool,
   constructed on first use. Without the cache, every request builds and abandons an httpx
   pool. Route tests override it via `dependency_overrides`; the override key is the cached
   function object, which is what `Depends` holds. *Test:* `get_client() is get_client()`
@@ -2180,8 +2193,9 @@ without saying so. *Test:* `GET /` → 200, `text/html`; the served file contain
 - **`config.py` (pydantic-settings):** every operational knob (invariant 10) — `model`
   (pinned id, L84) and, directly beside it, `model_max_output_tokens` (its output ceiling; the
   two change together, L72); `anthropic_api_key` (`SecretStr`, required, L77);
-  `max_input_chars` → derived `max_output_tokens` (validated against the model's
-  ceiling at boot, L16); `max_validation_retries` (L5); `sdk_transport_retries`;
+  `max_input_chars` and `output_tokens_per_input_char` → derived `max_output_tokens` (a
+  read-only property, validated against the model's ceiling at boot, L16, L94);
+  `max_validation_retries` (L5); `sdk_transport_retries`;
   `llm_timeout_s`, `judge_timeout_s` (L54); `fuzzy_score_cutoff`; `min_input_chars`;
   `min_quote_content_tokens` (D15); `judge_enabled`; `persist_enabled`;
   `corpus_concurrency`; `corpus_repeats` (D11); `daily_token_budget`, `max_request_tokens`
@@ -2226,7 +2240,8 @@ kind* of CI than unit tests. And the cheap tiers verify the expensive one: `case
 unit-tested, and the injected corpus proves every check the model corpus relies on.
 
 **The workflow file:** the free tiers run in **GitHub Actions** (`.github/workflows/ci.yml`:
-`uv sync` → `ruff` → `mypy` → `pytest`) on every push **from phase 1** (v1.3, L60 — v1.2
+`uv sync` → `ruff check` + `ruff format --check` → `mypy` → `pytest`; v1.3.3, L96) on
+every push **from phase 1** (v1.3, L60 — v1.2
 scheduled CI in phase 3 while CLAUDE.md said it ran on push; a green badge from the first
 commit is the cheapest credibility signal in the repo). The model corpus is deliberately not
 in the push workflow — it spends real money.
@@ -2315,11 +2330,13 @@ notepilot/
 │                              anthropic>=1.9,<2 (L82) · [tool.mypy] strict = true (L91)
 ├── uv.lock                 ← the environment's source of truth
 ├── .github/
-│   └── workflows/ci.yml    ← ruff + mypy + pytest on push, FROM PHASE 1 (model corpus: manual, $)
+│   └── workflows/ci.yml    ← ruff check + format, mypy, pytest on push, FROM PHASE 1 (L96)
+│                              (model corpus: manual, $)
 ├── backend/
 │   ├── schemas.py          ← DOMAIN. the spine. imports nothing; imported by everything.
 │   ├── config.py           ← operational knobs (pydantic-settings)
-│   ├── orchestrator.py     ← EDGE. raw text → SummarizationResult; the LLMClient protocol
+│   ├── orchestrator.py     ← EDGE. raw text → SummarizationResult; the LLMClient protocol ·
+│   │                          get_client (L95)
 │   ├── judge_client.py     ← EDGE (phase 2c). implements evals' Judge protocol over the API
 │   ├── grounding.py        ← DOMAIN. SOAPNoteDraft → SOAPNote (pure, the ladder)
 │   ├── clinical/           ← DOMAIN. imports nothing from the spine (L65)
@@ -2394,17 +2411,18 @@ paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No groundin
   errors carry usage (L49)
 □ prompt: D7 Assessment rule + certainty (L20) · never omit safety-critical facts (L50)
 □ config.py: pinned model id (L84) · max_validation_retries + sdk_transport_retries (L5) ·
-  llm_timeout_s (L54) · derived max_output_tokens validated at boot against
-  model_max_output_tokens (L16, L72) · required SecretStr key, every knob's domain (L77)
+  llm_timeout_s (L54) · max_output_tokens derived via output_tokens_per_input_char, a
+  property not a field (L94), validated at boot against model_max_output_tokens (L16, L72) ·
+  required SecretStr key, every knob's domain (L77)
 □ LLMClient Protocol with explicit kwargs (L19, L74) · typed CallConfig, temperature via
-  extra_body (L82, L83) · client built once (L78) · parallel tool use off (L75) ·
-  orchestrator and api are EDGE (L17)
+  extra_body (L82, L83) · client built once, in orchestrator.py (L78, L95) · parallel
+  tool use off (L75) · orchestrator and api are EDGE (L17)
 □ PHI-safe errors and logs: {error, request_id} bodies, codes not messages (L53) · 500
   logs structure only (L69) · 422 and framework bodies replaced (L70, L80) · fields in
   the message (L79) · upstream attributed by status (L71)
 □ tests: the orchestrator boundary list (§11) · tool-schema snapshot · every §9.4 row
   reachable in phase 1, incl. 504 (L73) · each boundary decision's named test (§11)
-□ CI on push: ruff + mypy (strict, L91) + pytest (L60)
+□ CI on push: ruff check + ruff format --check (L96) + mypy (strict, L91) + pytest (L60)
 □ one live smoke run, recorded in the annotated tag (L81)
 ```
 

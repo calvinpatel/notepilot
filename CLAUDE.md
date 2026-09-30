@@ -208,9 +208,10 @@ uv run python -m backend.evals.runner   # ⚠️ score_corpus: REAL API calls, c
                                         # evals/runs/corpus_runs.jsonl (lineage, D5).
 ```
 
-CI: GitHub Actions (`.github/workflows/ci.yml`) runs ruff + mypy (`backend/` and `tests/`)
-+ pytest on every push **from phase 1**. The model corpus is deliberately excluded from the
-push workflow (it costs money) — manual dispatch / pre-deploy only.
+CI: GitHub Actions (`.github/workflows/ci.yml`) runs `ruff check` + `ruff format --check`
++ mypy (`backend/` and `tests/`) + pytest on every push **from phase 1** (spec §11, L96).
+The model corpus is deliberately excluded from the push workflow (it costs money) — manual
+dispatch / pre-deploy only.
 
 Tests never hit the network: orchestrator tests use an injected fake client (canned
 tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests use
