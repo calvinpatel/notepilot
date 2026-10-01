@@ -1,0 +1,24 @@
+# The free tiers (spec §11): lint, format, types, deterministic tests on every push.
+# The model corpus is NOT here — it spends real money; manual dispatch only.
+name: ci
+
+on: [push]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      # uv reads .python-version and installs that interpreter itself. --locked fails
+      # the job if uv.lock is stale instead of silently re-resolving.
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy backend/ tests/
+      - run: uv run pytest
