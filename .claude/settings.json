@@ -20,7 +20,8 @@
     },
     "credentials": {
       "files": [{ "path": "./.env", "mode": "deny" }]
-    }
+    },
+    "filesystem": { "allowWrite": ["~/.cache/uv"] }
   },
   "autoMemoryEnabled": false,
   "skillOverrides": {
