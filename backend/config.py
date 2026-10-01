@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: SecretStr
     model: str = "claude-haiku-4-5-20251001"
-    mode_max_output_tokens: int = 64000
+    model_max_output_tokens: int = 64000
 
 
 settings = Settings()
