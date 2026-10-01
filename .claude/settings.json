@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "deny": [
+      "Read(./.env)",
+      "mcp__pycharm"
+    ],
+    "ask": [
+      "Edit(/PROJECT_01_NOTEPILOT.md)",
+      "Edit(/PROJECT_01_NOTEPILOT_CHANGELOG.md)",
+      "Edit(/CLAUDE.md)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowedDomains": ["pypi.org", "files.pythonhosted.org"],
+      "deniedDomains": ["api.anthropic.com"]
+    },
+    "credentials": {
+      "files": [{ "path": "./.env", "mode": "deny" }]
+    }
+  },
+  "autoMemoryEnabled": false,
+  "skillOverrides": {
+    "run": "off",
+    "verify": "off",
+    "run-skill-generator": "off"
+  }
+}
