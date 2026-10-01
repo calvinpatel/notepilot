@@ -15,4 +15,3 @@ New pipeline data shapes go here. The only shapes defined elsewhere are HTTP
 edge shapes in api.py and check-internal shapes in evals/registry.py
 (spec §13).
 """
-

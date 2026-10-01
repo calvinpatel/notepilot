@@ -22,4 +22,3 @@ of them changes it; it is never bumped by hand.
 Exception messages can carry model-emitted clinical text, so callers log these
 errors by .code only (spec §9.4, §9.8).
 """
-

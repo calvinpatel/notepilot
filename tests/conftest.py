@@ -1,4 +1,7 @@
-"""Env setup that must run before any test imports backend: Settings is built at import time (spec §10)."""
+"""Env setup that must run before any test imports backend.
+
+Settings is built at import time (spec §10).
+"""
 
 import os
 
