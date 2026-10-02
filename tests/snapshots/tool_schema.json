@@ -1,0 +1,53 @@
+{
+  "$defs": {
+    "ClaimDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "section": {
+          "enum": [
+            "S",
+            "O",
+            "A",
+            "P"
+          ],
+          "title": "Section",
+          "type": "string"
+        },
+        "source_quote": {
+          "description": "Verbatim; one contiguous span of the input.",
+          "minLength": 1,
+          "title": "Source Quote",
+          "type": "string"
+        },
+        "text": {
+          "description": "One clinical fact.",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "section",
+        "source_quote"
+      ],
+      "title": "ClaimDraft",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/ClaimDraft"
+      },
+      "title": "Claims",
+      "type": "array"
+    }
+  },
+  "required": [
+    "claims"
+  ],
+  "title": "SOAPNoteDraft",
+  "type": "object"
+}
