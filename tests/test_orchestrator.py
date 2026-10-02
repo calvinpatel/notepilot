@@ -2,9 +2,9 @@ r"""Pins the orchestrator's call shape and its derived lineage (spec §5.1-§5.4
 
 Settings-at-import rule: CALL_CONFIG and PROMPT_VERSION are computed once, at import,
 from the frozen settings. Patching backend.config.settings reaches nothing in
-orchestrator.py. Patching backend.orchestrator.settings reaches only call-time reads
-(summarize), never these two constants. Prefer scripting the fake client over
-patching settings.
+orchestrator.py. Patching backend.orchestrator.settings reaches only call-time reads:
+get_client's first call (then cached for the process) and, from 3c, summarize — never
+these two constants. Prefer scripting the fake client over patching settings.
 
 No test pins PROMPT_VERSION's value or the prompt's text: a prompt edit is allowed and
 versions itself (invariant 15); spec fidelity is checked at review.
@@ -22,12 +22,15 @@ change to ClaimDraft or SOAPNoteDraft, with exactly:
 import json
 import re
 import string
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from anthropic import AsyncAnthropic
+from anthropic.types import Message, MessageParam
+from pydantic import SecretStr
 
-from backend.config import settings
+from backend.config import Settings, settings
 from backend.orchestrator import (
     CALL_CONFIG,
     CORRECTION_TEMPLATE,
@@ -35,9 +38,12 @@ from backend.orchestrator import (
     SUMMARY_TOOL,
     SYSTEM_PROMPT,
     CallConfig,
+    LLMClient,
     _derive_prompt_version,
+    get_client,
 )
 from backend.schemas import SOAPNoteDraft
+from tests.fakes import FakeLLMClient, tool_use_message
 
 _SNAPSHOT = Path(__file__).parent / "snapshots" / "tool_schema.json"
 
@@ -169,3 +175,80 @@ def test_prompt_version_ignores_key_order() -> None:
         )
         == _baseline()
     )
+
+
+# --- the seam (§5.2, §5.5; L74, L77, L78) ---------------------------------------------
+
+
+@pytest.fixture
+def fresh_client_cache() -> Iterator[None]:
+    # Only the two get_client tests use this: the cache is process-wide (L78), so a client
+    # built under one test's settings must never be the one another test observes.
+    get_client.cache_clear()
+    yield
+    get_client.cache_clear()
+
+
+@pytest.mark.usefixtures("fresh_client_cache")
+def test_get_client_is_cached() -> None:
+    client = get_client()
+    assert client is get_client()  # L78
+    assert isinstance(client, AsyncAnthropic)  # also narrows: attribute access needs no cast
+
+
+@pytest.mark.usefixtures("fresh_client_cache")
+def test_get_client_wires_settings_not_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Non-defaults on purpose: at defaults the conftest key equals the ambient key and
+    # sdk_transport_retries equals the SDK's own default of 2, so dropping api_key= or
+    # max_retries= would change nothing observable. setenv last: Settings() reads the env.
+    patched = Settings(
+        anthropic_api_key=SecretStr("settings-key"), llm_timeout_s=17.0, sdk_transport_retries=5
+    )
+    monkeypatch.setattr("backend.orchestrator.settings", patched)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ambient-key")
+    client = get_client()
+    assert isinstance(client, AsyncAnthropic)
+    assert client.api_key == "settings-key"  # L77
+    assert client.timeout == 17.0  # L54
+    assert client.max_retries == 5  # L5
+
+
+async def _create(client: LLMClient, msgs: list[MessageParam]) -> Message:
+    # The first place mypy checks CallConfig's value types against the Protocol (L83);
+    # until summarize lands in 3c, this call IS that check.
+    return await client.messages.create(
+        model=settings.model,
+        system=SYSTEM_PROMPT,
+        tools=[SUMMARY_TOOL],
+        messages=msgs,
+        **CALL_CONFIG,
+    )
+
+
+@pytest.mark.anyio
+async def test_fake_binds_to_the_seam_and_records_a_copy() -> None:
+    scripted = tool_use_message({"claims": []})
+    fake = FakeLLMClient([scripted])
+    client: LLMClient = fake
+    msgs: list[MessageParam] = [{"role": "user", "content": "synthetic encounter text"}]
+    result = await _create(client, msgs)
+    msgs.append({"role": "assistant", "content": "appended after the call"})
+    msgs[0]["content"] = "mutated after the call"
+    (call,) = fake.messages.calls
+    assert len(call.messages) == 1  # a copy of the list, not the caller's list
+    assert call.messages[0]["content"] == "synthetic encounter text"  # a deep copy, not shallow
+    assert call.extra_body == {"temperature": 0}  # L82, invariant 3
+    assert call.tool_choice == CALL_CONFIG["tool_choice"]
+    assert call.max_tokens == CALL_CONFIG["max_tokens"]
+    assert result is scripted
+
+
+@pytest.mark.anyio
+async def test_fake_exhausted_script_raises_and_still_records() -> None:
+    fake = FakeLLMClient([tool_use_message({"claims": []})])
+    client: LLMClient = fake
+    msgs: list[MessageParam] = [{"role": "user", "content": "synthetic encounter text"}]
+    await _create(client, msgs)
+    with pytest.raises(AssertionError, match="unscripted"):
+        await _create(client, msgs)
+    assert len(fake.messages.calls) == 2

@@ -23,11 +23,23 @@ Exception messages can carry model-emitted clinical text, so callers log these
 errors by .code only (spec §9.4, §9.8).
 """
 
+import functools
 import hashlib
 import json
-from typing import Final, TypedDict
+from collections.abc import Iterable
+from typing import Final, Protocol, TypedDict
 
-from anthropic.types import ToolChoiceToolParam, ToolParam
+from anthropic import AsyncAnthropic
+from anthropic.types import (
+    Message,
+    MessageParam,
+    ModelParam,
+    TextBlockParam,
+    ToolChoiceParam,
+    ToolChoiceToolParam,
+    ToolParam,
+    ToolUnionParam,
+)
 
 from backend.config import settings
 from backend.schemas import SOAPNoteDraft
@@ -122,3 +134,56 @@ PROMPT_VERSION: Final[str] = _derive_prompt_version(
     correction=CORRECTION_TEMPLATE,
     call=CALL_CONFIG,
 )
+
+
+# --- the seam (§5.5; L19, L74) -------------------------------------------------------
+
+
+class _AsyncMessages(Protocol):
+    """The one SDK method the orchestrator calls, as the SDK types it.
+
+    Exactly the keywords the orchestrator passes, all required (L74): a fake that drops or
+    renames one stops binding. Types come from the SDK's `create` overload for
+    `stream: Literal[False]`. `extra_body` is `object` because the SDK's `Body` is `object`
+    (private anthropic._types); CallConfig (§5.2, L82) carries the precise type on our side.
+    Never `dict[str, object]`: a TypedDict is not a dict subtype, and `**CALL_CONFIG` would
+    stop type-checking.
+    """
+
+    async def create(
+        self,
+        *,
+        model: ModelParam,
+        system: str | Iterable[TextBlockParam],
+        tools: Iterable[ToolUnionParam],
+        messages: Iterable[MessageParam],
+        tool_choice: ToolChoiceParam,
+        max_tokens: int,
+        extra_body: object,
+    ) -> Message: ...
+
+
+class LLMClient(Protocol):
+    """What AsyncAnthropic and the test fake both satisfy; mypy checks both sides (§5.5).
+
+    `messages` is a read-only property, not a bare attribute: a bare Protocol attribute is
+    settable, and the SDK's `messages` is a cached_property. Not @runtime_checkable: an
+    isinstance would check that attributes exist, not their signatures.
+    """
+
+    @property
+    def messages(self) -> _AsyncMessages: ...
+
+
+@functools.cache
+def get_client() -> LLMClient:
+    """One AsyncAnthropic per process (L78); key passed, never ambient (L77); no FastAPI (L95).
+
+    For api.py's Depends(get_client) (§9.1): the cached function object is the override key.
+    Settings are read here, on first call. Construction makes no network call.
+    """
+    return AsyncAnthropic(
+        api_key=settings.anthropic_api_key.get_secret_value(),
+        timeout=settings.llm_timeout_s,
+        max_retries=settings.sdk_transport_retries,
+    )
