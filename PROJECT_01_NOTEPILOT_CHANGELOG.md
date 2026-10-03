@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,23 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.5 — framework error headers (patch)
+
+Theme: one fill found while designing step 4b's handler. No invariant moves; CLAUDE.md is
+unchanged.
+
+**INFO**
+- **L98 §9.4, §11, §14 — framework errors keep their headers.** Fill: L80 named the status
+  the replacement handler keeps and was silent on headers, while FastAPI's default handler
+  forwards `exc.headers`. A literal reading drops them and sends a 405 without `Allow`,
+  which RFC 9110 requires. The handler forwards the exception's headers, as §9.4 already
+  does for `Retry-After`. L80's test gains `Allow: POST` on the 405 and a 400 `http_error`
+  case (a JSON body that is not valid UTF-8, which FastAPI raises as an `HTTPException`),
+  so each of the handler's three branches has a test. "Routing codes" becomes "framework
+  codes," since the 400 is not a routing error.
 
 ---
 

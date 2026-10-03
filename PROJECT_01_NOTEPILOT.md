@@ -2,8 +2,8 @@
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
-**Spec version: v1.3.4** (patch — Phase 1 build fill, October 2026).
-Supersedes v1.3.3.
+**Spec version: v1.3.5** (patch — Phase 1 build fill, October 2026).
+Supersedes v1.3.4.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1941,7 +1941,7 @@ that returned garbage three times wasn't reported as the client's malformed requ
 client's fault either. And 429 is reserved for *our* rate limit: passing upstream throttling
 through as 429 would tell the client *they* sent too many requests.
 
-**Boundary details (L69–L71, L73, L79, L80).** Each fills or reconciles a line above, and
+**Boundary details (L69–L71, L73, L79, L80, L98).** Each fills or reconciles a line above, and
 each names its test.
 
 - **The 500 path logs structure, never messages (L69).** L53's PHI rule beats the table's
@@ -1989,15 +1989,19 @@ each names its test.
   configures the root logger once at app construction (§9.8). *Test:* logging assertions
   read `record.getMessage()`, never record attributes; each handler's test asserts its
   `code` and `request_id` appear in the rendered message.
-- **Framework default error bodies are replaced (L80).** Outside `RequestValidationError`,
-  FastAPI's default `HTTPException` handler returns `{"detail": ...}` for unmatched routes
-  and methods, breaking "every body has one shape." A handler registered on
-  `starlette.exceptions.HTTPException` (FastAPI's subclasses it, and the router raises the
-  Starlette one) returns `{"error": <code>, "request_id": ...}` with the original status:
-  404 `not_found`, 405 `method_not_allowed`, anything else `http_error`. These are routing
-  codes, not rows of the table above, and not part of the phase-1 reach list. *Test:*
-  `GET /nope` → 404 `{"error": "not_found", ...}`; `GET /summarize` → 405
-  `{"error": "method_not_allowed", ...}`.
+- **Framework default error bodies are replaced (L80, L98).** Outside
+  `RequestValidationError`, FastAPI's default `HTTPException` handler returns
+  `{"detail": ...}` for unmatched routes and methods, breaking "every body has one shape."
+  A handler registered on `starlette.exceptions.HTTPException` (FastAPI's subclasses it,
+  and the router raises the Starlette one) returns `{"error": <code>, "request_id": ...}`
+  with the original status and the exception's headers: 404 `not_found`, 405
+  `method_not_allowed`, anything else `http_error`. The headers are protocol, not content:
+  the router's 405 carries `Allow`, which RFC 9110 requires on every 405, the courtesy the
+  table above extends to `Retry-After` (L98). These are framework codes, not rows of the
+  table above, and not part of the phase-1 reach list. *Test:* `GET /nope` → 404
+  `{"error": "not_found", ...}`; `GET /summarize` → 405
+  `{"error": "method_not_allowed", ...}` with `Allow: POST`; a `POST /summarize` whose JSON
+  body is not valid UTF-8 → 400 `{"error": "http_error", ...}`.
 
 ### 9.5 Persistence: hybrid relational-envelope + JSONB
 
@@ -2286,7 +2290,7 @@ in the push workflow — it spends real money.
 - **HTTP mapping (phase 1)** — every §9.4 row reachable in phase 1 (L73's list), including
   504 on a client timeout, and no body ever containing exception text (L53).
 - **Phase-1 boundary decisions** — each names its test where it is specified: §9.4 (L69,
-  L70, L71, L73, L79, L80), §5.2 (L72, L75, L78), §10 (L77), §5.5 (L74), §9.1 (L76),
+  L70, L71, L73, L79, L80, L98), §5.2 (L72, L75, L78), §10 (L77), §5.5 (L74), §9.1 (L76),
   §9.10 (L68).
 - **Grounding** — Tiers 0–4; the numeric guard (`"BP 190/110"` vs a `130/110` source →
   `UNSUPPORTED` with its score kept); the rapidfuzz coordinate pin (L27); v1.2's
@@ -2436,7 +2440,7 @@ paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No groundin
   extra_body (L82, L83) · client built once, in orchestrator.py (L78, L95) · parallel
   tool use off (L75) · orchestrator and api are EDGE (L17)
 □ PHI-safe errors and logs: {error, request_id} bodies, codes not messages (L53) · 500
-  logs structure only (L69) · 422 and framework bodies replaced (L70, L80) · fields in
+  logs structure only (L69) · 422 and framework bodies replaced (L70, L80, L98) · fields in
   the message (L79) · upstream attributed by status (L71)
 □ tests: the orchestrator boundary list (§11) · tool-schema snapshot · every §9.4 row
   reachable in phase 1, incl. 504 (L73) · each boundary decision's named test (§11)

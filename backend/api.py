@@ -14,6 +14,12 @@ logged by code only (L70). FastAPI's default handler echoes the paste as `input`
 the body parses; this one never reads exc.errors(), str(exc), or the body (L53,
 invariant 19).
 
+Framework errors take the same shape (L80, L98). A handler on
+starlette.exceptions.HTTPException, the class the router raises, returns {"error": <code>,
+"request_id": ...} with the original status and the exception's headers, so a 405 keeps the
+Allow header RFC 9110 requires: 404 not_found, 405 method_not_allowed, anything else
+http_error. It is logged by code and status, never exc.detail.
+
 request_id is minted per request by RequestIdMiddleware (L73), a pure ASGI middleware, on
 request.state. The root logger is configured once here (§9.8): plain text with timestamp,
 level, and logger name; fields render in the message as key=value pairs via %-style args,
@@ -31,6 +37,7 @@ logs the full traceback, message and chained cause included.
 
 import logging
 import traceback
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Final
 from uuid import uuid4
@@ -39,6 +46,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.config import settings
@@ -211,3 +219,27 @@ async def handle_request_validation_error(
     code = "input_invalid"
     logger.warning("input_rejected code=%s request_id=%s", code, rid)
     return JSONResponse(status_code=422, content={"error": code, "request_id": rid})
+
+
+# Framework codes (L80): not rows of §9.4's table, and not part of the phase-1 reach list.
+_FRAMEWORK_CODES: Final[Mapping[int, str]] = {404: "not_found", 405: "method_not_allowed"}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Framework errors, §9.4's one shape (L80, L98): not_found, method_not_allowed, or http_error.
+
+    Registered on Starlette's class, not FastAPI's: the router raises the Starlette one, and
+    handlers resolve by MRO, so a FastAPI-class registration would never see a 404 or 405.
+    The headers are protocol, not content: the router's 405 carries Allow, which RFC 9110
+    requires (L98). Never reads exc.detail, the path, or the body (invariant 19). No branch
+    for bodiless statuses (204, 304, 1xx): nothing here raises one.
+    """
+    rid: str = request.state.request_id
+    code = _FRAMEWORK_CODES.get(exc.status_code, "http_error")
+    logger.warning("framework_error code=%s status=%d request_id=%s", code, exc.status_code, rid)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": code, "request_id": rid},
+        headers=exc.headers,
+    )

@@ -1,5 +1,5 @@
-"""Pins the /summarize input boundary and its error paths (spec §9.1, §9.4, §9.8;
-L53, L69, L70, L73, L76, L79, L87).
+"""Pins the /summarize input boundary, the 500 path, and framework errors (spec §9.1, §9.4, §9.8;
+L53, L69, L70, L73, L76, L79, L80, L87, L98).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -359,6 +360,59 @@ async def test_catch_all_passes_non_http_scopes_through() -> None:
     sent, escaped = await _drive(CatchAllMiddleware(raises), {"type": "lifespan"})
     assert escaped is exc  # untouched: the object itself, not handled, not wrapped
     assert sent == []
+
+
+# --- framework errors in the one shape (§9.4; L73, L79, L80, L98) -----------------------
+
+
+@dataclass(frozen=True)
+class _FrameworkCase:
+    send: Callable[[TestClient], httpx2.Response]
+    status: int
+    code: str
+    allow: str | None  # the exception's Allow header, which RFC 9110 requires on a 405 (L98)
+
+
+_FRAMEWORK: Final[dict[str, _FrameworkCase]] = {
+    "not-found": _FrameworkCase(lambda c: c.get("/nope"), 404, "not_found", None),
+    "method-not-allowed": _FrameworkCase(
+        lambda c: c.get("/summarize"), 405, "method_not_allowed", "POST"
+    ),
+    # A JSON body that is not valid UTF-8. FastAPI raises it as an HTTPException(400), not a
+    # RequestValidationError: json.loads fails with UnicodeDecodeError, not JSONDecodeError,
+    # so the body never reaches validation. The handler's default branch.
+    "unparseable-body": _FrameworkCase(
+        lambda c: c.post(
+            "/summarize",
+            content=b'{"raw_text": "\xff"}',
+            headers={"content-type": "application/json"},
+        ),
+        400,
+        "http_error",
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(_FRAMEWORK))
+def test_framework_error_has_the_one_shape(
+    case: str, client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    fake = install_fake([_decoy()])
+    expected = _FRAMEWORK[case]
+    response = expected.send(client)
+    assert response.status_code == expected.status
+    body = response.json()
+    rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
+    assert body == {"error": expected.code, "request_id": rid}  # §9.4: one shape, never detail
+    assert RID_RE.fullmatch(rid)  # L73
+    assert response.headers.get("allow") == expected.allow  # L98: the exception's headers
+    assert fake.messages.calls == []  # rejected before any spend
+    message = f"framework_error code={expected.code} status={expected.status} request_id={rid}"
+    ours = [r for r in caplog.records if r.name == "backend.api" and r.getMessage() == message]
+    assert len(ours) == 1  # L79: the whole line, so an extra field fails here
+    assert ours[0].levelno == logging.WARNING
 
 
 # --- logging configuration (§9.8, L79) ---------------------------------------------------
