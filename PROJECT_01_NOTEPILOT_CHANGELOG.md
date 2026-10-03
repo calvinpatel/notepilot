@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,21 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.7 — the static page has no blank outcome (patch)
+
+Theme: one fill found while designing step 5's page. No invariant moves; CLAUDE.md is
+unchanged.
+
+**INFO**
+- **L100 §9.10 — the static page has no blank outcome.** Fill: L92 covered a non-2xx whose
+  body carries `error` and `request_id`. Two outcomes had no state: a fetch that rejects,
+  which has no status and no body, and a response whose body lacks those fields. Anything
+  but a result now renders its HTTP status, plus the code and request id when the body has
+  both; a fetch with no response renders a fixed line that names no code, so it can't be
+  read as one of §9.4's. §9.10's phase-1 paragraph cites ledger ids, not versions.
 
 ---
 

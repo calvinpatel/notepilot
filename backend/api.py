@@ -1,9 +1,14 @@
-"""The HTTP edge: the app, its routes, and the input boundary (spec §9.1, §9.4, §9.8).
+"""The HTTP edge: the app, its routes, and the input boundary (spec §9.1, §9.4, §9.8, §9.10).
 
-EDGE adapter (spec §0): FastAPI's types appear here and nowhere inward. The route is a
-composition root with no logic (§9.1): it awaits summarize() and returns the wire shape.
+EDGE adapter (spec §0): FastAPI's types appear here and nowhere inward. The /summarize route
+is a composition root with no logic (§9.1): it awaits summarize() and returns the wire shape.
 SummarizeRequest and SummarizeResponse are the HTTP edge shapes §13 sanctions outside
 schemas.py; SummarizationResult never goes on the wire (L76).
+
+GET / serves backend/static/index.html, the phase-1 page (§9.10, L68), by a path derived
+from this file, never from the cwd. The page renders the model's claims, and a source_quote
+copies the paste, so markup in a paste would execute through a string-to-HTML sink. The
+served page contains none of innerHTML, outerHTML, insertAdjacentHTML, or document.write.
 
 SummarizeRequest counts CONTENT (stripped length, L87) and never mutates raw_text: §6.2's
 source spans are offsets into the exact paste. An oversized paste fails honestly at
@@ -61,7 +66,7 @@ from uuid import uuid4
 from anthropic import APIError, APIStatusError, APITimeoutError, RateLimitError
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -181,6 +186,15 @@ app = FastAPI(title="NotePilot")
 # CatchAllMiddleware, which reads the id it minted.
 app.add_middleware(CatchAllMiddleware)
 app.add_middleware(RequestIdMiddleware)
+
+# Derived from this file, never the cwd (§9.10, L68).
+_INDEX_HTML: Final = Path(__file__).resolve().parent / "static" / "index.html"
+
+
+@app.get("/")
+async def index() -> FileResponse:
+    """The phase-1 page (§9.10, L68)."""
+    return FileResponse(_INDEX_HTML)
 
 
 @app.get("/health")

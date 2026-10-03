@@ -1,0 +1,103 @@
+<!doctype html>
+<!-- The phase-1 display: spec §9.10 (L68, L92, L100). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NotePilot</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
+  body { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
+  textarea { box-sizing: border-box; width: 100%; font: inherit; }
+  button { margin-top: 0.5rem; font: inherit; }
+  .phi, .label { font-weight: 600; }
+  .quote { display: block; }
+  .quote, .none, .meta { color: GrayText; }
+  .meta, .error { font-family: ui-monospace, monospace; }
+  .error { color: light-dark(#b3261e, #f2b8b5); }
+</style>
+</head>
+<body>
+<h1>NotePilot</h1>
+<p class="phi">Synthetic or de-identified text only — this is a demo, not a HIPAA environment.</p>
+<label for="paste">Encounter text</label>
+<textarea id="paste" rows="14"></textarea>
+<button id="summarize" type="button">Summarize</button>
+<section id="result" aria-live="polite"></section>
+<script type="module">
+const SECTIONS = [["S", "Subjective"], ["O", "Objective"], ["A", "Assessment"], ["P", "Plan"]];
+const paste = document.getElementById("paste");
+const button = document.getElementById("summarize");
+const result = document.getElementById("result");
+
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className !== undefined) node.className = className;
+  return node;
+}
+
+function show(...nodes) {
+  result.replaceChildren(...nodes);
+}
+
+function showResult({ draft, metadata }) {
+  const nodes = [el("p", "DRAFT — unverified", "label")];
+  for (const [section, heading] of SECTIONS) {
+    nodes.push(el("h2", heading));
+    const claims = draft.claims.filter((claim) => claim.section === section);
+    if (claims.length === 0) {
+      nodes.push(el("p", "none stated", "none"));
+      continue;
+    }
+    const list = el("ul");
+    for (const claim of claims) {
+      const item = el("li");
+      item.append(el("span", claim.text), el("q", claim.source_quote, "quote"));
+      list.append(item);
+    }
+    nodes.push(list);
+  }
+  const { usage } = metadata;
+  nodes.push(el("p", [
+    `model=${metadata.model}`,
+    `prompt_version=${metadata.prompt_version}`,
+    `validation_attempts=${metadata.validation_attempts}`,
+    `input_tokens=${usage.input_tokens}`,
+    `output_tokens=${usage.output_tokens}`,
+  ].join(" "), "meta"));
+  show(...nodes);
+}
+
+async function summarize() {
+  button.disabled = true;
+  show(el("p", "Summarizing…"));
+  try {
+    let response;
+    try {
+      response = await fetch("/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw_text: paste.value }),
+      });
+    } catch {
+      show(el("p", "No response from the server.", "error"));
+      return;
+    }
+    const body = await response.json().catch(() => null);
+    if (response.ok && body?.draft && body?.metadata) {
+      showResult(body);
+    } else if (typeof body?.error === "string" && typeof body?.request_id === "string") {
+      show(el("p", `status=${response.status} error=${body.error} request_id=${body.request_id}`, "error"));
+    } else {
+      show(el("p", `status=${response.status} unexpected response body`, "error"));
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+button.addEventListener("click", summarize);
+</script>
+</body>
+</html>

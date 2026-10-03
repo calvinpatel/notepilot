@@ -2,8 +2,8 @@
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
-**Spec version: v1.3.6** (patch — Phase 1 build fill, October 2026).
-Supersedes v1.3.5.
+**Spec version: v1.3.7** (patch — Phase 1 build fill, October 2026).
+Supersedes v1.3.6.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2209,10 +2209,11 @@ above the textarea (the full banner is phase 3). Same-origin, so no CORS in phas
 `by_section`, no `SOAPNote`: the phase-1 `schemas.py` fence holds (§14). Claims render via
 `textContent`, never `innerHTML` — every `source_quote` copies the paste verbatim, so markup
 in the paste would execute. `backend/static/` is deleted when `frontend/` replaces it in
-phase 3. On a non-2xx the page renders the body's `error` code and `request_id` in place
-of the result (v1.3.2, L92) — never a blank result area, or the L81 smoke run can fail
-without saying so. *Test:* `GET /` → 200, `text/html`; the served file contains no
-`innerHTML`.
+phase 3. Anything but a result renders in its place (L92, L100): a response renders its
+HTTP status, plus the body's `error` code and `request_id` when the body carries both; a
+fetch that gets no response renders a fixed line that names no code, since there is none.
+The result area is never blank, or the L81 smoke run can fail without saying so. *Test:*
+`GET /` → 200, `text/html`; the served file contains no `innerHTML`.
 
 ---
 
