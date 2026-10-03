@@ -14,6 +14,10 @@ Logging tests call caplog.set_level(logging.DEBUG): under pytest the root logger
 WARNING. Sentinel scans read caplog.text, every captured record as rendered, exc_info
 included (L53); positive checks filter "backend.api" records through getMessage() (L79).
 Sentinels go in values, never keys.
+
+PHASE_1_REACH and NOT_UNTIL_PHASE_3 list §9.4's outcomes by phase (L73).
+test_phase_1_reach_is_exactly_the_declared_outcomes checks the first against the outcomes
+the error tests declare.
 """
 
 import logging
@@ -24,7 +28,7 @@ import sys
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 import httpx2
 import pytest
@@ -53,13 +57,41 @@ from tests.fakes import FakeLLMClient, text_message, tool_use_message
 
 _REPO_ROOT: Final = Path(__file__).resolve().parent.parent
 
-# Planted inside raw_text as a VALUE (L53): the one string that must reach neither a body
-# nor a log line. Shorter than the content lengths the tests build around it.
+# Planted inside raw_text as a VALUE (L53): the paste, which must reach neither a body nor a
+# log line. Shorter than the content lengths the tests build around it.
 SENTINEL: Final = "sentinel-7f3a"
 VALID_INPUT: Final[dict[str, object]] = {
     "claims": [{"text": "fact-1", "section": "S", "source_quote": "quote-1"}]
 }
 RID_RE: Final = re.compile(r"[0-9a-f]{32}")  # uuid4().hex (L73)
+
+
+class _Outcome(NamedTuple):
+    """One §9.4 row as the client sees it: the status and the body's code."""
+
+    status: int
+    code: str
+
+
+# L73: the §9.4 rows phase 1 can reach, as (status, code) pairs because 503 alone names two
+# codes; and the two that wait for phase 3. Framework codes (L80) are in neither set.
+PHASE_1_REACH: Final[frozenset[_Outcome]] = frozenset(
+    {
+        _Outcome(422, "input_invalid"),
+        _Outcome(502, "output_truncated"),
+        _Outcome(502, "model_output_invalid"),
+        _Outcome(503, "upstream_busy"),
+        _Outcome(504, "upstream_timeout"),
+        _Outcome(502, "upstream_error"),
+        _Outcome(500, "internal_error"),
+    }
+)
+NOT_UNTIL_PHASE_3: Final[frozenset[_Outcome]] = frozenset(
+    {_Outcome(429, "rate_limited"), _Outcome(503, "budget_exhausted")}
+)
+# The outcomes the 422 test and the 500 tests assert, as constants those tests read.
+_INPUT_INVALID: Final = _Outcome(422, "input_invalid")
+_INTERNAL_ERROR: Final = _Outcome(500, "internal_error")
 
 Installer = Callable[[Sequence[Message | Exception]], FakeLLMClient]
 
@@ -166,11 +198,11 @@ def test_rejected_input_is_422_without_echo(
     caplog.set_level(logging.DEBUG)
     fake = install_fake([_decoy()])
     response = _REJECTED[case](client)
-    assert response.status_code == 422
+    assert response.status_code == _INPUT_INVALID.status
     assert SENTINEL not in response.text  # L53, L70: the paste never comes back
     body = response.json()
     rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
-    assert body == {"error": "input_invalid", "request_id": rid}  # §9.4: one shape
+    assert body == {"error": _INPUT_INVALID.code, "request_id": rid}  # §9.4: one shape
     assert RID_RE.fullmatch(rid)  # L73: uuid4().hex
     assert fake.messages.calls == []  # rejected before any spend
     assert SENTINEL not in caplog.text  # L53: rendered records, exc_info included
@@ -272,12 +304,12 @@ def test_unhandled_exception_is_500_logged_by_structure(
     caplog.set_level(logging.DEBUG)
     fake = install_fake([_chained_unexpected()])
     response = client.post("/summarize", json={"raw_text": "x" * (settings.min_input_chars + 10)})
-    assert response.status_code == 500
+    assert response.status_code == _INTERNAL_ERROR.status
     assert MESSAGE_SENTINEL not in response.text  # L53, L69: never the message
     assert CAUSE_SENTINEL not in response.text  # nor the chained cause
     body = response.json()
     rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
-    assert body == {"error": "internal_error", "request_id": rid}  # §9.4: one shape
+    assert body == {"error": _INTERNAL_ERROR.code, "request_id": rid}  # §9.4: one shape
     assert RID_RE.fullmatch(rid)  # L73
     assert len(fake.messages.calls) == 1  # recorded, then raised
     assert MESSAGE_SENTINEL not in caplog.text  # L69: no str(exc), no exc_info
@@ -736,11 +768,11 @@ def test_unclaimed_base_class_is_500_by_structure(
     expected = _UNCLAIMED[case]
     fake = install_fake([expected.build()])
     response = client.post("/summarize", json={"raw_text": "x" * (settings.min_input_chars + 10)})
-    assert response.status_code == 500
+    assert response.status_code == _INTERNAL_ERROR.status
     assert MESSAGE_SENTINEL not in response.text  # L53, L69: never the message
     body = response.json()
     rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
-    assert body == {"error": "internal_error", "request_id": rid}  # §9.4: one shape
+    assert body == {"error": _INTERNAL_ERROR.code, "request_id": rid}  # §9.4: one shape
     assert RID_RE.fullmatch(rid)  # L73
     assert len(fake.messages.calls) == 1  # recorded, then raised
     assert MESSAGE_SENTINEL not in caplog.text  # L69: no str(exc), no exc_info
@@ -756,6 +788,23 @@ def test_unclaimed_base_class_is_500_by_structure(
         rf"exc_type={expected.exc_type} frames=\S+",
         ours[0].getMessage(),
     )
+
+
+# --- the phase-1 reach list (§9.4, L73) ----------------------------------------------------
+
+
+def test_phase_1_reach_is_exactly_the_declared_outcomes() -> None:
+    """Every reachable §9.4 row is the declared outcome of an error test, and no more (L73).
+
+    Declared, not observed: the outcomes come from the case tables and the constants the
+    single-outcome tests read. Equality, not a superset: an outcome outside the list is a
+    later phase's code, built early.
+    """
+    declared = {_INPUT_INVALID, _INTERNAL_ERROR}
+    declared |= {_Outcome(c.status, c.code) for c in _MODEL_OUTPUT.values()}
+    declared |= {_Outcome(c.status, c.code) for c in _UPSTREAM.values()}
+    assert PHASE_1_REACH.isdisjoint(NOT_UNTIL_PHASE_3)
+    assert declared == PHASE_1_REACH
 
 
 # --- logging configuration (§9.8, L79) ---------------------------------------------------
