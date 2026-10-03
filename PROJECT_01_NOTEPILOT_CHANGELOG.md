@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,29 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.6 — the upstream status handler is total (patch)
+
+Theme: one fill found while designing step 4c's handlers. No invariant moves; CLAUDE.md is
+unchanged.
+
+**INFO**
+- **L99 §9.4, §11, §14 — the upstream status handler is total.** Fill: L71 mapped 4xx
+  except 429, 5xx except 529, and 529, leaving the `APIStatusError` handler undefined for a
+  429 that arrives as the base class and for any status outside 4xx/5xx. The SDK's factory
+  builds `RateLimitError` for every 429, but the handler still needs an answer for each
+  status it can receive. 429 joins 529 at 503 `upstream_busy`, checked first because 429 is
+  also a 4xx; anything outside 4xx/5xx → 502 `upstream_error`. The handler branches on the
+  status, never the subclass. Measured on SDK 1.9: the factory never builds
+  `ServiceUnavailableError` or `DeadlineExceededError`, so an upstream 503 or 504 arrives as
+  `InternalServerError` and maps to 502; 504 `upstream_timeout` stays our own client's
+  timeout (L54). The status handler forwards no headers: `Retry-After` stays on
+  `RateLimitError`'s row, the one behavior its handler does not share with the status
+  handler. L71's test gains a base-class 429, 399 and 600, the factory's 503 and 504, a
+  529 with `Retry-After` that the response drops, and a `RateLimitError` with and without
+  it.
 
 ---
 

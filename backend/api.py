@@ -25,6 +25,17 @@ reaches the same handler by MRO and reports output_truncated. It is logged by co
 never with exc_info or the message: a ValidationError chained as __cause__ carries
 model-emitted text (L53, invariant 19).
 
+Anthropic SDK failures are attributed by whose fault they are (L54, L71, L99), one handler
+per class, resolved by MRO. RateLimitError is 503 upstream_busy, with upstream's Retry-After
+when it sent one. APIStatusError is decided by its status, never its subclass, and totally:
+429 and 529 are 503 upstream_busy, any other 4xx is 500 internal_error at ERROR (our request
+or config), and any other status is 502 upstream_error. APITimeoutError, our own client's
+timeout, is 504 upstream_timeout; any other APIError, a non-timeout connection failure
+included, is 502 upstream_error. Each logs one upstream_failure line with the code and the
+request id, then upstream_status (the two status-error handlers) or exc_type (the other
+two). None reads the exception's message, its body, or its request, whose content is the
+whole paste; the one header read is RateLimitError's Retry-After.
+
 request_id is minted per request by RequestIdMiddleware (L73), a pure ASGI middleware, on
 request.state. The root logger is configured once here (§9.8): plain text with timestamp,
 level, and logger name; fields render in the message as key=value pairs via %-style args,
@@ -47,6 +58,7 @@ from pathlib import Path
 from typing import Annotated, Final
 from uuid import uuid4
 
+from anthropic import APIError, APIStatusError, APITimeoutError, RateLimitError
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -262,3 +274,84 @@ async def handle_model_output_error(request: Request, exc: ModelOutputError) -> 
     rid: str = request.state.request_id
     logger.warning("model_output_failure code=%s request_id=%s", exc.code, rid)  # L79
     return JSONResponse(status_code=502, content={"error": exc.code, "request_id": rid})
+
+
+@app.exception_handler(RateLimitError)
+async def handle_rate_limit_error(request: Request, exc: RateLimitError) -> JSONResponse:
+    """503 upstream_busy (§9.4): upstream throttled US; 429 is reserved for our own limit.
+
+    Retry-After is protocol, not content (L98): forwarded verbatim when upstream sent one,
+    never parsed, never tested for truthiness. Forwarding it is the one behavior this handler
+    does not share with the status handler's 429 branch (L99). Of the exception it reads only
+    the status code, for the log line, and the Retry-After header (invariant 19).
+    """
+    rid: str = request.state.request_id
+    code = "upstream_busy"
+    logger.warning(
+        "upstream_failure code=%s request_id=%s upstream_status=%d", code, rid, exc.status_code
+    )
+    retry_after = exc.response.headers.get("retry-after")
+    headers = None if retry_after is None else {"Retry-After": retry_after}
+    return JSONResponse(
+        status_code=503, content={"error": code, "request_id": rid}, headers=headers
+    )
+
+
+# L71, L99: overloaded and throttled mean the same thing to our client: upstream is busy.
+_BUSY_STATUSES: Final[frozenset[int]] = frozenset({429, 529})
+
+
+@app.exception_handler(APIStatusError)
+async def handle_api_status_error(request: Request, exc: APIStatusError) -> JSONResponse:
+    """Attributed by the status, never the subclass, and total over every int (§9.4; L71, L99).
+
+    RateLimitError's handler claims the SDK's 429s first by MRO, so a 429 here is the base
+    class; the busy check runs first because 429 is also a 4xx. ERROR only on the 500 branch:
+    a 4xx is OUR request or config. It forwards no headers (L99). Of the exception it reads
+    only the status code: never str(exc), exc.message, exc.body, exc.request, the response
+    body, or the cause (invariant 19).
+    """
+    rid: str = request.state.request_id
+    upstream = exc.status_code
+    if upstream in _BUSY_STATUSES:
+        status, code, level = 503, "upstream_busy", logging.WARNING
+    elif 400 <= upstream < 500:
+        status, code, level = 500, "internal_error", logging.ERROR
+    else:  # 5xx, and any status outside 4xx/5xx (L99)
+        status, code, level = 502, "upstream_error", logging.WARNING
+    logger.log(
+        level, "upstream_failure code=%s request_id=%s upstream_status=%d", code, rid, upstream
+    )
+    return JSONResponse(status_code=status, content={"error": code, "request_id": rid})
+
+
+@app.exception_handler(APITimeoutError)
+async def handle_api_timeout_error(request: Request, exc: APITimeoutError) -> JSONResponse:
+    """504 upstream_timeout (§9.4, L54): OUR client gave up waiting (llm_timeout_s).
+
+    An upstream 504 is a status, and takes the status handler as upstream's error (L99); this
+    is the client-side timeout only. Of the exception it reads nothing but its type name:
+    never str(exc), exc.message, exc.request, or the cause (invariant 19).
+    """
+    rid: str = request.state.request_id
+    code = "upstream_timeout"
+    logger.warning(
+        "upstream_failure code=%s request_id=%s exc_type=%s", code, rid, type(exc).__name__
+    )
+    return JSONResponse(status_code=504, content={"error": code, "request_id": rid})
+
+
+@app.exception_handler(APIError)
+async def handle_api_error(request: Request, exc: APIError) -> JSONResponse:
+    """502 upstream_error (§9.4, L71): any other API failure, non-timeout connection ones included.
+
+    Logs exc_type because with no status to branch on, the type is what tells these failures
+    apart. Of the exception it reads nothing but its type name: never str(exc), exc.message,
+    exc.body, exc.request, or the cause (invariant 19).
+    """
+    rid: str = request.state.request_id
+    code = "upstream_error"
+    logger.warning(
+        "upstream_failure code=%s request_id=%s exc_type=%s", code, rid, type(exc).__name__
+    )
+    return JSONResponse(status_code=502, content={"error": code, "request_id": rid})

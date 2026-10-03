@@ -1,5 +1,5 @@
 """Pins the /summarize HTTP boundary: its input, its error bodies, and its log lines (spec
-§9.1, §9.4, §9.8; L14, L53, L69, L70, L73, L76, L79, L80, L87, L98).
+§9.1, §9.4, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -28,6 +28,17 @@ from typing import Final
 
 import httpx2
 import pytest
+from anthropic import (
+    AnthropicError,
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    InternalServerError,
+    OverloadedError,
+    RateLimitError,
+)
 from anthropic.types import Message
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -499,6 +510,204 @@ def test_model_output_failure_is_502_by_code(
     assert ours[0].levelno == logging.WARNING
 
 
+# --- upstream failures, attributed by status (§9.4; L54, L71, L99) -----------------------
+
+# The SDK builds a status error's message from the body, so the body is how upstream text
+# would reach str(exc). Planted in the body; distinct from every other sentinel.
+BODY_SENTINEL: Final = "sentinel-body-5d1c"
+# One sentinel per surface the builders below plant text in (L53): the paste in the request,
+# upstream's text in the message and the body, the transport's in the chained cause.
+_SDK_SENTINELS: Final = (SENTINEL, MESSAGE_SENTINEL, BODY_SENTINEL, CAUSE_SENTINEL)
+_MESSAGES_URL: Final = "https://api.anthropic.com/v1/messages"
+
+
+def _sdk_request() -> httpx2.Request:
+    """The request an SDK error carries: its content is the whole paste."""
+    return httpx2.Request(
+        "POST", _MESSAGES_URL, json={"messages": [{"role": "user", "content": SENTINEL}]}
+    )
+
+
+def _status_error[E: APIStatusError](
+    cls: type[E], status: int, *, retry_after: str | None = None
+) -> E:
+    """A FRESH `cls` built with the SDK's own constructor over a real response with `status`.
+
+    The sentinels sit in the message, the body, the response content, and the request content:
+    where a real one carries upstream text and the paste.
+    """
+    body = {"type": "error", "error": {"type": "api_error", "message": BODY_SENTINEL}}
+    headers = {} if retry_after is None else {"retry-after": retry_after}
+    response = httpx2.Response(status, headers=headers, json=body, request=_sdk_request())
+    return cls(MESSAGE_SENTINEL, response=response, body=body)
+
+
+def _timeout_error() -> APITimeoutError:
+    """OUR client's timeout, chained to the transport's exception as the SDK chains it."""
+    exc = APITimeoutError(request=_sdk_request())
+    exc.__cause__ = httpx2.ReadTimeout(CAUSE_SENTINEL)
+    return exc
+
+
+def _connection_error() -> APIConnectionError:
+    """A connection failure that is not a timeout, chained as the SDK chains it."""
+    exc = APIConnectionError(message=MESSAGE_SENTINEL, request=_sdk_request())
+    exc.__cause__ = httpx2.ConnectError(CAUSE_SENTINEL)
+    return exc
+
+
+@dataclass(frozen=True)
+class _UpstreamCase:
+    build: Callable[[], Exception]
+    status: int
+    code: str
+    level: int
+    field: str  # the log line's last field: upstream_status=N or exc_type=Name
+    retry_after: str | None = None  # the header the response must carry, or None for absent
+
+
+_UPSTREAM: Final[dict[str, _UpstreamCase]] = {
+    # RateLimitError's own handler, with Retry-After both ways.
+    "rate-limit-retry-after": _UpstreamCase(
+        lambda: _status_error(RateLimitError, 429, retry_after="17"),
+        503,
+        "upstream_busy",
+        logging.WARNING,
+        "upstream_status=429",
+        "17",
+    ),
+    "rate-limit": _UpstreamCase(
+        lambda: _status_error(RateLimitError, 429),
+        503,
+        "upstream_busy",
+        logging.WARNING,
+        "upstream_status=429",
+    ),
+    # The status handler's rows use the class the SDK's factory builds for each status, except
+    # the base-class 429, which it never builds (L99: the handler is total).
+    "status-429": _UpstreamCase(
+        lambda: _status_error(APIStatusError, 429),
+        503,
+        "upstream_busy",
+        logging.WARNING,
+        "upstream_status=429",
+    ),
+    "overloaded-529": _UpstreamCase(
+        lambda: _status_error(OverloadedError, 529),
+        503,
+        "upstream_busy",
+        logging.WARNING,
+        "upstream_status=529",
+    ),
+    # L99: Retry-After stays on RateLimitError's row; the status handler forwards no headers.
+    "overloaded-529-retry-after": _UpstreamCase(
+        lambda: _status_error(OverloadedError, 529, retry_after="17"),
+        503,
+        "upstream_busy",
+        logging.WARNING,
+        "upstream_status=529",
+        None,
+    ),
+    "status-399": _UpstreamCase(
+        lambda: _status_error(APIStatusError, 399),
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "upstream_status=399",
+    ),
+    "bad-request-400": _UpstreamCase(
+        lambda: _status_error(BadRequestError, 400),
+        500,
+        "internal_error",
+        logging.ERROR,
+        "upstream_status=400",
+    ),
+    "authentication-401": _UpstreamCase(
+        lambda: _status_error(AuthenticationError, 401),
+        500,
+        "internal_error",
+        logging.ERROR,
+        "upstream_status=401",
+    ),
+    "status-499": _UpstreamCase(
+        lambda: _status_error(APIStatusError, 499),
+        500,
+        "internal_error",
+        logging.ERROR,
+        "upstream_status=499",
+    ),
+    "internal-500": _UpstreamCase(
+        lambda: _status_error(InternalServerError, 500),
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "upstream_status=500",
+    ),
+    "internal-503": _UpstreamCase(
+        lambda: _status_error(InternalServerError, 503),
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "upstream_status=503",
+    ),
+    # L99: an upstream 504 is upstream's error, never our client's timeout.
+    "internal-504": _UpstreamCase(
+        lambda: _status_error(InternalServerError, 504),
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "upstream_status=504",
+    ),
+    "internal-600": _UpstreamCase(
+        lambda: _status_error(InternalServerError, 600),
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "upstream_status=600",
+    ),
+    # L71: APITimeoutError subclasses APIConnectionError, so the pair pins the 504 handler.
+    "timeout": _UpstreamCase(
+        _timeout_error,
+        504,
+        "upstream_timeout",
+        logging.WARNING,
+        "exc_type=APITimeoutError",
+    ),
+    "connection": _UpstreamCase(
+        _connection_error,
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "exc_type=APIConnectionError",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(_UPSTREAM))
+def test_upstream_failure_is_attributed(
+    case: str, client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    expected = _UPSTREAM[case]
+    fake = install_fake([expected.build()])
+    response = client.post("/summarize", json={"raw_text": _content(settings.min_input_chars + 10)})
+    assert response.status_code == expected.status
+    assert [s for s in _SDK_SENTINELS if s in response.text] == []  # L53: none of the four
+    body = response.json()
+    rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
+    assert body == {"error": expected.code, "request_id": rid}  # §9.4: one shape
+    assert RID_RE.fullmatch(rid)  # L73
+    assert response.headers.get("retry-after") == expected.retry_after  # L99: forwarded or absent
+    assert len(fake.messages.calls) == 1  # recorded, then raised; transport retries are the SDK's
+    assert [s for s in _SDK_SENTINELS if s in caplog.text] == []  # L53: rendered records
+    message = f"upstream_failure code={expected.code} request_id={rid} {expected.field}"
+    ours = [r for r in caplog.records if r.name == "backend.api" and r.getMessage() == message]
+    # The whole line: on its own it tells the status handler's 500 from the catch-all's 500,
+    # whose body is the same.
+    assert len(ours) == 1
+    assert ours[0].levelno == expected.level
+
+
 # --- unclaimed base classes fall to the catch-all (§9.4; L69) -----------------------------
 
 
@@ -515,6 +724,7 @@ _UNCLAIMED: Final[dict[str, _UnclaimedCase]] = {
     "orchestrator-error": _UnclaimedCase(
         lambda: OrchestratorError(MESSAGE_SENTINEL, usage=TokenUsage()), "OrchestratorError"
     ),
+    "anthropic-error": _UnclaimedCase(lambda: AnthropicError(MESSAGE_SENTINEL), "AnthropicError"),
 }
 
 

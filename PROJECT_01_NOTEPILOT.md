@@ -2,8 +2,8 @@
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
-**Spec version: v1.3.5** (patch — Phase 1 build fill, October 2026).
-Supersedes v1.3.4.
+**Spec version: v1.3.6** (patch — Phase 1 build fill, October 2026).
+Supersedes v1.3.5.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1913,9 +1913,9 @@ OutputTruncatedError                   → 502  output_truncated       config ra
 ModelOutputError                       → 502  model_output_invalid   the MODEL is the problem
 anthropic.RateLimitError               → 503  upstream_busy          + Retry-After if exposed
 anthropic.APITimeoutError              → 504  upstream_timeout       v1.3 (L54)
-anthropic.APIStatusError 529           → 503  upstream_busy          overloaded = busy (L71)
-anthropic.APIStatusError 5xx (other)   → 502  upstream_error         not my bug (L71)
+anthropic.APIStatusError 429, 529      → 503  upstream_busy          overloaded = busy (L71, L99)
 anthropic.APIStatusError 4xx (not 429) → 500  internal_error         OUR request or config (L71)
+anthropic.APIStatusError (any other)   → 502  upstream_error         not my bug (L71, L99)
 anthropic.APIError (other)             → 502  upstream_error         incl. non-timeout connection failures
 unexpected Exception                   → 500  internal_error         logged by structure, never message (L69)
 ```
@@ -1941,8 +1941,8 @@ that returned garbage three times wasn't reported as the client's malformed requ
 client's fault either. And 429 is reserved for *our* rate limit: passing upstream throttling
 through as 429 would tell the client *they* sent too many requests.
 
-**Boundary details (L69–L71, L73, L79, L80, L98).** Each fills or reconciles a line above, and
-each names its test.
+**Boundary details (L69–L71, L73, L79, L80, L98, L99).** Each fills or reconciles a line
+above, and each names its test.
 
 - **The 500 path logs structure, never messages (L69).** L53's PHI rule beats the table's
   former "logged in full" cell. The 500 path logs `code="internal_error"`, `request_id`,
@@ -1962,17 +1962,24 @@ each names its test.
   oversized paste, an undersized paste, and a whitespace-padded paste longer than
   `min_input_chars` whose content is shorter (L87), each containing a sentinel → 422 with
   the correct body; the sentinel is in neither the body nor the logs.
-- **Upstream failures are attributed by status (L71).** A single `APIError` row calling
-  every upstream failure "not my bug" contradicted this section's own rule: a 401 from a
-  bad key is our config, not upstream's bug. One `APIStatusError` handler branches on
-  status — 4xx except 429 → 500, logged with `upstream_status` (our schema, key, access,
-  model id, or size); 5xx except 529 → 502; 529 → 503, the same meaning as
-  `RateLimitError`, whose own handler wins for 429 by MRO. A connection failure that is not
-  a timeout (`APIConnectionError`, not `APITimeoutError`) takes the residual `APIError`
-  row. *Test:* one per mapping, with the fake client raising each status.
-  `APIConnectionError` gets its own test: it reaches 502 through a different MRO branch
-  than a 5xx, and `APITimeoutError` subclasses it, so the pair pins the 504 handler
-  winning.
+- **Upstream failures are attributed by status (L71, L99).** A single `APIError` row
+  calling every upstream failure "not my bug" contradicted this section's own rule: a 401
+  from a bad key is our config, not upstream's bug. One `APIStatusError` handler branches
+  on status — 4xx except 429 → 500, logged with `upstream_status` (our schema, key,
+  access, model id, or size); 5xx except 529 → 502; 529 → 503, the same meaning as
+  `RateLimitError`, whose own handler wins for 429 by MRO. The handler is total (L99): 429
+  and 529 → 503, checked first because 429 is also a 4xx, so a 429 that arrives as the base
+  class still means busy; any status outside 4xx/5xx → 502. It branches on the status,
+  never the subclass: an upstream 503 or 504 → 502, whatever class carries it, and 504
+  `upstream_timeout` is only our own client's timeout (L54). It forwards no headers:
+  `Retry-After` stays on `RateLimitError`'s row. A connection failure that is not a timeout
+  (`APIConnectionError`, not `APITimeoutError`) takes the residual `APIError` row. *Test:*
+  one per mapping, with the fake client raising each status as the class the SDK builds for
+  it, plus a base-class 429, a status on each side of 4xx/5xx, and a 529 carrying
+  `Retry-After`, which the response drops; a `RateLimitError` with and without
+  `Retry-After`. `APIConnectionError` gets its own test: it reaches 502 through a different
+  MRO branch than a 5xx, and `APITimeoutError` subclasses it, so the pair pins the 504
+  handler winning.
 - **Phase-1 reach (L73).** Reachable in phase 1: 422 `input_invalid` · 502
   `output_truncated` · 502 `model_output_invalid` · 503 `upstream_busy` · 504
   `upstream_timeout` · 502 `upstream_error` · 500 `internal_error`. Not until phase 3: 429
@@ -2290,8 +2297,8 @@ in the push workflow — it spends real money.
 - **HTTP mapping (phase 1)** — every §9.4 row reachable in phase 1 (L73's list), including
   504 on a client timeout, and no body ever containing exception text (L53).
 - **Phase-1 boundary decisions** — each names its test where it is specified: §9.4 (L69,
-  L70, L71, L73, L79, L80, L98), §5.2 (L72, L75, L78), §10 (L77), §5.5 (L74), §9.1 (L76),
-  §9.10 (L68).
+  L70, L71, L73, L79, L80, L98, L99), §5.2 (L72, L75, L78), §10 (L77), §5.5 (L74),
+  §9.1 (L76), §9.10 (L68).
 - **Grounding** — Tiers 0–4; the numeric guard (`"BP 190/110"` vs a `130/110` source →
   `UNSUPPORTED` with its score kept); the rapidfuzz coordinate pin (L27); v1.2's
   `detect_vital_drift`, moved here (L66).
@@ -2441,7 +2448,7 @@ paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No groundin
   tool use off (L75) · orchestrator and api are EDGE (L17)
 □ PHI-safe errors and logs: {error, request_id} bodies, codes not messages (L53) · 500
   logs structure only (L69) · 422 and framework bodies replaced (L70, L80, L98) · fields in
-  the message (L79) · upstream attributed by status (L71)
+  the message (L79) · upstream attributed by status, the handler total (L71, L99)
 □ tests: the orchestrator boundary list (§11) · tool-schema snapshot · every §9.4 row
   reachable in phase 1, incl. 504 (L73) · each boundary decision's named test (§11)
 □ CI on push: ruff check + ruff format --check (L96) + mypy (strict, L91) + pytest (L60)
