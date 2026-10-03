@@ -1,5 +1,5 @@
-"""Pins the /summarize input boundary, the 500 path, and framework errors (spec §9.1, §9.4, §9.8;
-L53, L69, L70, L73, L76, L79, L80, L87, L98).
+"""Pins the /summarize HTTP boundary: its input, its error bodies, and its log lines (spec
+§9.1, §9.4, §9.8; L14, L53, L69, L70, L73, L76, L79, L80, L87, L98).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -36,8 +36,9 @@ from starlette.types import Message as ASGIMessage
 
 from backend.api import CatchAllMiddleware, RequestIdMiddleware, SummarizeResponse, app
 from backend.config import Settings, settings
-from backend.orchestrator import PROMPT_VERSION, get_client
-from tests.fakes import FakeLLMClient, tool_use_message
+from backend.orchestrator import PROMPT_VERSION, OrchestratorError, get_client
+from backend.schemas import TokenUsage
+from tests.fakes import FakeLLMClient, text_message, tool_use_message
 
 _REPO_ROOT: Final = Path(__file__).resolve().parent.parent
 
@@ -413,6 +414,138 @@ def test_framework_error_has_the_one_shape(
     ours = [r for r in caplog.records if r.name == "backend.api" and r.getMessage() == message]
     assert len(ours) == 1  # L79: the whole line, so an extra field fails here
     assert ours[0].levelno == logging.WARNING
+
+
+# --- 502 model output failures (§9.4; L14, L53, L73, L79) --------------------------------
+
+# Planted in the model's output as a VALUE (L53): beside the paste, the string the 502 path
+# must keep out of the body and every log record. Distinct from every other sentinel, so a
+# failing assertion names which leak it caught.
+MODEL_SENTINEL: Final = "sentinel-model-3b8e"
+# VALID_INPUT's claim plus a stray key whose VALUE is the sentinel. The schema forbids extra
+# keys, so the ValidationError chained to the final ModelOutputError carries it as input_value.
+_INVALID_INPUT: Final[dict[str, object]] = {
+    "claims": [
+        {"text": "fact-1", "section": "S", "source_quote": "quote-1", "stray": MODEL_SENTINEL}
+    ]
+}
+
+
+def _retries_exhausted() -> list[Message]:
+    """Every attempt invalid, max_validation_retries + 1 of them, with distinct tool_use_ids."""
+    attempts = settings.max_validation_retries + 1
+    invalid = [
+        tool_use_message(_INVALID_INPUT, tool_use_id=f"toolu_fake_{i}")
+        for i in range(1, attempts + 1)
+    ]
+    return [*invalid, _decoy()]
+
+
+@dataclass(frozen=True)
+class _ModelOutputCase:
+    script: Callable[[], list[Message]]
+    calls: int  # create calls the orchestrator makes before it gives up
+    status: int
+    code: str
+
+
+# Every script ends in a decoy: an orchestrator that kept going returns 200 and dies at the
+# status assertion, not at the fake's unscripted-call guard.
+# L73: model_output_invalid is reached twice (no tool block; a refusal with no tool block), so
+# the refusal path is pinned behavior, not an accident of the missing-block branch.
+_MODEL_OUTPUT: Final[dict[str, _ModelOutputCase]] = {
+    "truncated": _ModelOutputCase(
+        lambda: [tool_use_message(VALID_INPUT, stop_reason="max_tokens"), _decoy()],
+        1,
+        502,
+        "output_truncated",
+    ),
+    "no-tool-block": _ModelOutputCase(
+        lambda: [text_message("no tool call"), _decoy()], 1, 502, "model_output_invalid"
+    ),
+    "refusal-no-tool-block": _ModelOutputCase(
+        lambda: [text_message("refused", stop_reason="refusal"), _decoy()],
+        1,
+        502,
+        "model_output_invalid",
+    ),
+    "retries-exhausted": _ModelOutputCase(
+        _retries_exhausted, settings.max_validation_retries + 1, 502, "model_output_invalid"
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(_MODEL_OUTPUT))
+def test_model_output_failure_is_502_by_code(
+    case: str, client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    expected = _MODEL_OUTPUT[case]
+    fake = install_fake(expected.script())
+    response = client.post("/summarize", json={"raw_text": _content(settings.min_input_chars + 10)})
+    assert response.status_code == expected.status
+    assert SENTINEL not in response.text  # L53: the paste never comes back
+    assert MODEL_SENTINEL not in response.text  # L53: nor the model's output, via the cause
+    body = response.json()
+    rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
+    assert body == {"error": expected.code, "request_id": rid}  # §9.4: the exception's own code
+    assert RID_RE.fullmatch(rid)  # L73
+    assert len(fake.messages.calls) == expected.calls  # 1 when it fails fast; else retries + 1
+    assert SENTINEL not in caplog.text  # L53: rendered records, exc_info included
+    assert MODEL_SENTINEL not in caplog.text  # L53: a chained ValidationError never renders
+    message = f"model_output_failure code={expected.code} request_id={rid}"
+    ours = [r for r in caplog.records if r.name == "backend.api" and r.getMessage() == message]
+    assert len(ours) == 1  # L79: the whole line, so an extra field fails here
+    assert ours[0].levelno == logging.WARNING
+
+
+# --- unclaimed base classes fall to the catch-all (§9.4; L69) -----------------------------
+
+
+@dataclass(frozen=True)
+class _UnclaimedCase:
+    build: Callable[[], Exception]
+    exc_type: str  # what the 500 line's exc_type field must say
+
+
+# Each row is the class just above a handler's registration. Nothing raises it today, so a
+# registration widened to it would change no other test; §9.4's last row decides it: 500,
+# logged by structure.
+_UNCLAIMED: Final[dict[str, _UnclaimedCase]] = {
+    "orchestrator-error": _UnclaimedCase(
+        lambda: OrchestratorError(MESSAGE_SENTINEL, usage=TokenUsage()), "OrchestratorError"
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(_UNCLAIMED))
+def test_unclaimed_base_class_is_500_by_structure(
+    case: str, client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    expected = _UNCLAIMED[case]
+    fake = install_fake([expected.build()])
+    response = client.post("/summarize", json={"raw_text": "x" * (settings.min_input_chars + 10)})
+    assert response.status_code == 500
+    assert MESSAGE_SENTINEL not in response.text  # L53, L69: never the message
+    body = response.json()
+    rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
+    assert body == {"error": "internal_error", "request_id": rid}  # §9.4: one shape
+    assert RID_RE.fullmatch(rid)  # L73
+    assert len(fake.messages.calls) == 1  # recorded, then raised
+    assert MESSAGE_SENTINEL not in caplog.text  # L69: no str(exc), no exc_info
+    ours = [
+        r
+        for r in caplog.records
+        if r.name == "backend.api" and r.getMessage().startswith("unhandled_exception ")
+    ]
+    assert len(ours) == 1  # L69: the catch-all's one line
+    assert ours[0].levelno == logging.ERROR
+    assert re.fullmatch(
+        rf"unhandled_exception code=internal_error request_id={rid} "
+        rf"exc_type={expected.exc_type} frames=\S+",
+        ours[0].getMessage(),
+    )
 
 
 # --- logging configuration (§9.8, L79) ---------------------------------------------------

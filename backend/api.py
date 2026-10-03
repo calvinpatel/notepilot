@@ -20,6 +20,11 @@ starlette.exceptions.HTTPException, the class the router raises, returns {"error
 Allow header RFC 9110 requires: 404 not_found, 405 method_not_allowed, anything else
 http_error. It is logged by code and status, never exc.detail.
 
+A ModelOutputError becomes 502 with the exception's own code (L14, L73): OutputTruncatedError
+reaches the same handler by MRO and reports output_truncated. It is logged by code only,
+never with exc_info or the message: a ValidationError chained as __cause__ carries
+model-emitted text (L53, invariant 19).
+
 request_id is minted per request by RequestIdMiddleware (L73), a pure ASGI middleware, on
 request.state. The root logger is configured once here (§9.8): plain text with timestamp,
 level, and logger name; fields render in the message as key=value pairs via %-style args,
@@ -50,7 +55,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.config import settings
-from backend.orchestrator import LLMClient, get_client, summarize
+from backend.orchestrator import LLMClient, ModelOutputError, get_client, summarize
 from backend.schemas import RunMetadata, SOAPNoteDraft
 
 # §9.8 (L79): configured once, at app construction. Every field a log call carries goes in
@@ -243,3 +248,17 @@ async def handle_http_exception(request: Request, exc: StarletteHTTPException) -
         content={"error": code, "request_id": rid},
         headers=exc.headers,
     )
+
+
+@app.exception_handler(ModelOutputError)
+async def handle_model_output_error(request: Request, exc: ModelOutputError) -> JSONResponse:
+    """502 with the exception's own code (§9.4; L14, L73): the MODEL is the problem.
+
+    exc.code, never a literal: OutputTruncatedError subclasses ModelOutputError, reaches this
+    handler by MRO, and reports output_truncated. It never reads str(exc), the chained cause,
+    or exc.usage, and never logs with exc_info: the cause can be a ValidationError carrying
+    model-emitted text as input_value (L53, invariant 19).
+    """
+    rid: str = request.state.request_id
+    logger.warning("model_output_failure code=%s request_id=%s", exc.code, rid)  # L79
+    return JSONResponse(status_code=502, content={"error": exc.code, "request_id": rid})
