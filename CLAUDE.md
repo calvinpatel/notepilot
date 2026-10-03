@@ -155,8 +155,8 @@ staging area for decisions.
   deferred amendments." Never implement it ahead of the revision.
 - New spec text cites ledger ids (`L82`), not version numbers; the changelog maps ids to
   versions.
-- After any commit that touches the spec or changelog, tell Cal the design room's copies
-  in project knowledge need re-uploading.
+- When a proposed commit touches the spec, the changelog, or this file, say that the design
+  room's copies in project knowledge need re-uploading.
 
 ## Build sequence gate (the Volkswagen safeguard)
 
@@ -227,11 +227,94 @@ tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests u
   clinical-adjacent repo, zero tolerance.
 - Synthetic data only in `evals/cases/`. **Zero real PHI, ever, anywhere in the repo** —
   including in examples, tests, commit messages, and comments.
-- TDD where it fits (red → green → refactor); coverage is a flashlight, not a trophy.
+- TDD: red → green → refactor, as "Working a step" sets out; coverage is a flashlight, not
+  a trophy.
 - Every eval corpus needs clean controls alongside trap cases — a check that flags a
   perfect note is as broken as one that misses a fabrication.
 - One planted danger per trap (D16): no incidental entities that could trip the same
   check.
+
+## Working a step
+
+A request carries only its step; the standing rules are this section's. Text in a block
+labeled VERBATIM lands in the repo exactly as given; everything else in a request is
+instruction. If VERBATIM text can't land as given, stop and say why.
+
+The plan reports by exception: measurements, deviations from the request, adapted
+substitutions, judgment calls, and the exact form of any code the request doesn't give
+verbatim. It doesn't restate the request.
+
+### Measure, don't recall
+
+- SDK and framework shapes are measured against the installed packages: a scratch script,
+  its output quoted in the plan. If a measurement contradicts the request, stop and say so.
+- Scratch scripts live in the session scratchpad, never the repo, and run from the repo
+  root as `PYTHONPATH=. NOTEPILOT_IGNORE_DOTENV=1 ANTHROPIC_API_KEY=test-dummy-key uv run
+  python <script>`. The project has no `[build-system]`, so nothing installs `backend`;
+  the two variables give a scratch run the settings `tests/conftest.py` gives pytest.
+- Every pytest run sets `PYTHONPYCACHEPREFIX` to a fresh, empty directory. CPython trusts
+  bytecode whose recorded source mtime and size still match, so a same-length edit made and
+  restored within one second can run stale. The prefix also takes pytest's rewritten test
+  bytecode.
+- Reports state only numbers measured in this session: test counts, line numbers, hashes.
+- `gates` means the checks in `.github/workflows/ci.yml`, run locally with the same
+  commands.
+
+### Edits and commits
+
+- Repo files change through the Edit tool, so each change passes Cal's approval; Write only
+  creates a file that doesn't exist yet. Never `sed -i`, a shell redirect, or a script.
+  Mutation rows are the one exception, and the reverse: the driver writes them, never the
+  Edit tool.
+- Propose commits. Never commit, stage, or run a git command that changes the index or the
+  working tree. A proposal is the commit's path list and its full message; the body says
+  what the diff does, nothing it doesn't, and leaves nothing out.
+- When two of a step's commits touch the same file, stop at a stage gate after the first:
+  propose it, and make the next commit's edits only after Cal says it's committed.
+
+### Tests
+
+- A change in behavior starts with its tests: write them, run them, and show the red run's
+  output. A red run is shown, never inferred.
+- Objects a test constructs (SDK errors, messages) come from typed builder functions, as in
+  `tests/fakes.py`; never an untyped helper or a `cast`.
+- A wiring test, one that proves a value travels from where it's set to where it's used,
+  uses a value the code can't reach by default: a non-default setting, a test-local
+  exception class (never a builtin, which other code can raise).
+- Leak tests plant sentinels in values, never keys, and scan `caplog.text`: every record as
+  rendered, `exc_info` included. Every logging test calls `caplog.set_level(logging.DEBUG)`.
+- Every 500 test asserts its own log line: the catch-all turns any `Exception` into a 500,
+  so a 500 alone proves nothing.
+- mypy strict is the type gate. Never add `# type: ignore` to quiet the editor's pyright:
+  mypy reports an ignore it doesn't need, and CI fails.
+- Ruff enforces only the rules `pyproject.toml` selects; don't restyle code or add `# noqa`
+  for any other.
+
+### Mutation rows
+
+A row names a file, an exact pattern, its replacement, and the assertion meant to kill it.
+
+- One driver script in the scratchpad runs all of a step's rows, once, with its output
+  written to a file.
+- Each pattern matches exactly once, written against the ruff-formatted source. Report any
+  substitution you adapt.
+- Before each row the driver saves the file's bytes and sha256, writes the mutant inside
+  `try`, restores the saved bytes in `finally`, and checks the hash: the files are
+  uncommitted, so git can't restore them. The moment the driver exits, before anything else,
+  hash every file any row touched. A driver killed mid-row leaves its mutant in place, and
+  only this check catches it.
+- Each mutant dies at its targeted assertion; report the failing line for each row. A row
+  that edits the test file itself shifts its lines, so read the kill line from the mutant
+  text. If a row dies anywhere else, stop and say so; never reshape a test to fit.
+- A mutant no test can tell apart gets a distinguishing test, or is reported as equivalent,
+  with the reason.
+
+### What code, tests, and comments may say
+
+- Comments and docstrings claim only what's true and tested: no exhaustiveness ("every",
+  "only", "never") that a test doesn't assert.
+- No mutation-row ids or review pointers. No version numbers (cite ledger ids), and no
+  claims about code that doesn't exist yet.
 
 ## Definition of done
 
