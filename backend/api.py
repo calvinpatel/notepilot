@@ -18,17 +18,28 @@ request_id is minted per request by RequestIdMiddleware (L73), a pure ASGI middl
 request.state. The root logger is configured once here (§9.8): plain text with timestamp,
 level, and logger name; fields render in the message as key=value pairs via %-style args,
 never extra= (L79).
+
+Any exception no handler claims is caught by CatchAllMiddleware (L69), a pure ASGI
+middleware inside RequestIdMiddleware and outside Starlette's ExceptionMiddleware. It logs
+ONE ERROR line: the code, the request id, the exception's type name, and the traceback's
+frames as file:line:function. It never logs the message, the chained cause, or exc_info:
+each can carry the paste or model-emitted text (L53, invariant 19). If the response has not
+started it sends 500 {"error": "internal_error", "request_id": ...}; if it has, it returns.
+It never re-raises: past it, ServerErrorMiddleware re-raises for the server, and uvicorn
+logs the full traceback, message and chained cause included.
 """
 
 import logging
-from typing import Annotated
+import traceback
+from pathlib import Path
+from typing import Annotated, Final
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.config import settings
 from backend.orchestrator import LLMClient, get_client, summarize
@@ -58,7 +69,92 @@ class RequestIdMiddleware:
         await self.app(scope, receive, send)
 
 
+# Frames render repo files relative to this root (L69). Derived from this file, never from
+# sys.path or the cwd: under uvicorn sys.path[0] is '', under pytest the absolute repo root,
+# so a sys.path-relative file would render differently in tests than in production.
+_REPO_ROOT: Final = Path(__file__).resolve().parents[1]
+
+
+def _display_path(filename: str) -> str:
+    """A frame's file, shortened: after site-packages, relative to the repo, or a basename.
+
+    site-packages is checked first: .venv sits inside the repo root, so the repo-relative
+    form of an installed module would start with .venv/lib/.../site-packages/.
+    """
+    path = Path(filename)
+    parts = path.parts
+    if "site-packages" in parts:
+        return "/".join(parts[parts.index("site-packages") + 1 :])
+    if path.is_relative_to(_REPO_ROOT):
+        return path.relative_to(_REPO_ROOT).as_posix()
+    return path.name
+
+
+def _frames(exc: Exception) -> str:
+    """The traceback as file:line:function entries, outermost first, joined by '>' (L69).
+
+    Frames carry no PHI; the message and the chained cause can (a ValidationError carries
+    input_value), so frames and the type name are all the 500 path records about it.
+    """
+    return ">".join(
+        f"{_display_path(frame.filename)}:{frame.lineno}:{frame.name}"
+        for frame in traceback.extract_tb(exc.__traceback__)
+    )
+
+
+class CatchAllMiddleware:
+    """Any Exception no handler claims becomes 500 internal_error, logged by structure (L69).
+
+    Pure ASGI, inside RequestIdMiddleware (it reads the id) and outside ExceptionMiddleware
+    (it sees only what no handler took). Not @app.exception_handler(Exception): Starlette's
+    ServerErrorMiddleware calls that handler and then re-raises, so the server logs the full
+    traceback anyway. Logs the code, the request id, the exception's type name, and its
+    frames; never str(exc), exc.args, the chained cause, or exc_info (L53, invariant 19).
+
+    If the response has already started it logs and returns: a 500 can't follow a started
+    response, and re-raising hands the exception to ServerErrorMiddleware and the server's
+    exc_info log. Non-http scopes pass through untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception as exc:
+            # minted by RequestIdMiddleware, which wraps this one (test_user_middleware_order)
+            rid: str = scope["state"]["request_id"]
+            code = "internal_error"
+            # frames last: a stray space in a file name can't corrupt the other fields
+            logger.error(
+                "unhandled_exception code=%s request_id=%s exc_type=%s frames=%s",
+                code,
+                rid,
+                type(exc).__name__,
+                _frames(exc),
+            )
+            if started:
+                return
+            response = JSONResponse(status_code=500, content={"error": code, "request_id": rid})
+            await response(scope, receive, send)
+
+
 app = FastAPI(title="NotePilot")
+# add_middleware inserts at index 0, so the last call is outermost: RequestIdMiddleware wraps
+# CatchAllMiddleware, which reads the id it minted.
+app.add_middleware(CatchAllMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
 

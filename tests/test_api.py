@@ -1,11 +1,14 @@
-"""Pins the /summarize input boundary and its first error path (spec §9.1, §9.4, §9.8;
-L53, L70, L73, L76, L79, L87).
+"""Pins the /summarize input boundary and its error paths (spec §9.1, §9.4, §9.8;
+L53, L69, L70, L73, L76, L79, L87).
 
-Every request goes through the default TestClient (raise_server_exceptions=True), so an
-exception inside the app reaches the test as an exception, never as a 500 it could pass on.
-An autouse fixture overrides get_client with an EMPTY-script FakeLLMClient; a test that
-reaches the model without installing its own script fails loudly on the fake's
-unscripted-call guard instead of building a real client.
+Every request goes through the default TestClient (raise_server_exceptions=True). The
+catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
+nothing: every 500 test asserts its own backend.api log line. An autouse fixture overrides
+get_client with an EMPTY-script FakeLLMClient; a test that reaches the model without
+installing its own script fails loudly on the fake's unscripted-call guard instead of
+building a real client. The guard fails through pytest.fail, a BaseException that
+`except Exception` can't swallow, so the catch-all can't turn a forgotten script into a
+500 a test could pass on.
 
 Logging tests call caplog.set_level(logging.DEBUG): under pytest the root logger sits at
 WARNING. Sentinel scans read caplog.text, every captured record as rendered, exc_info
@@ -27,8 +30,10 @@ import pytest
 from anthropic.types import Message
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import Message as ASGIMessage
 
-from backend.api import RequestIdMiddleware, SummarizeResponse, app
+from backend.api import CatchAllMiddleware, RequestIdMiddleware, SummarizeResponse, app
 from backend.config import Settings, settings
 from backend.orchestrator import PROMPT_VERSION, get_client
 from tests.fakes import FakeLLMClient, tool_use_message
@@ -43,7 +48,7 @@ VALID_INPUT: Final[dict[str, object]] = {
 }
 RID_RE: Final = re.compile(r"[0-9a-f]{32}")  # uuid4().hex (L73)
 
-Installer = Callable[[Sequence[Message]], FakeLLMClient]
+Installer = Callable[[Sequence[Message | Exception]], FakeLLMClient]
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +60,7 @@ def install_fake() -> Iterator[Installer]:
     """
     prior = dict(app.dependency_overrides)
 
-    def install(script: Sequence[Message]) -> FakeLLMClient:
+    def install(script: Sequence[Message | Exception]) -> FakeLLMClient:
         fake = FakeLLMClient(script)
         app.dependency_overrides[get_client] = lambda: fake
         return fake
@@ -214,9 +219,146 @@ def test_request_ids_differ_per_request(client: TestClient) -> None:
     assert first != second  # minted per request, not per process
 
 
-def test_request_id_middleware_is_the_only_user_middleware() -> None:
+def test_user_middleware_order() -> None:
+    # Outermost first. The order is invisible through any body: both middlewares share
+    # scope["state"], so a catch-all registered OUTSIDE the request-id middleware still finds
+    # the id by the time an exception reaches it. Only the stack itself can pin it.
     classes: list[object] = [m.cls for m in app.user_middleware]
-    assert classes == [RequestIdMiddleware]
+    assert classes == [RequestIdMiddleware, CatchAllMiddleware]
+
+
+# --- 500 internal_error: the catch-all (§9.4, §9.8; L53, L69, L73, L79) ----------------
+
+# Planted in an exception, not the paste: the message and the chained cause are the two
+# strings the 500 path must keep out of the body and every log record (L69). Distinct from
+# SENTINEL and from each other, so a failing assertion names which leak it caught.
+MESSAGE_SENTINEL: Final = "sentinel-msg-4c21"
+CAUSE_SENTINEL: Final = "sentinel-cause-9e07"
+# A fixed id for the ASGI-level tests, where no RequestIdMiddleware runs.
+_FIXED_RID: Final = "0123456789abcdef0123456789abcdef"
+_UNHANDLED_RE: Final = re.compile(
+    r"unhandled_exception code=internal_error request_id=(?P<rid>[0-9a-f]{32}) "
+    r"exc_type=_Unexpected frames=(?P<frames>\S+)"
+)
+
+
+class _Unexpected(Exception):
+    """Never a builtin: a hard-coded exc_type literal must not be able to match the name."""
+
+
+def _chained_unexpected() -> _Unexpected:
+    """A FRESH instance per call: raising writes __traceback__, so no instance is shared."""
+    exc = _Unexpected(MESSAGE_SENTINEL)
+    exc.__cause__ = ValueError(CAUSE_SENTINEL)
+    return exc
+
+
+def test_unhandled_exception_is_500_logged_by_structure(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    fake = install_fake([_chained_unexpected()])
+    response = client.post("/summarize", json={"raw_text": "x" * (settings.min_input_chars + 10)})
+    assert response.status_code == 500
+    assert MESSAGE_SENTINEL not in response.text  # L53, L69: never the message
+    assert CAUSE_SENTINEL not in response.text  # nor the chained cause
+    body = response.json()
+    rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
+    assert body == {"error": "internal_error", "request_id": rid}  # §9.4: one shape
+    assert RID_RE.fullmatch(rid)  # L73
+    assert len(fake.messages.calls) == 1  # recorded, then raised
+    assert MESSAGE_SENTINEL not in caplog.text  # L69: no str(exc), no exc_info
+    assert CAUSE_SENTINEL not in caplog.text  # L69: no chained cause
+    ours = [
+        r
+        for r in caplog.records
+        if r.name == "backend.api" and "code=internal_error" in r.getMessage()
+    ]
+    assert len(ours) == 1  # L79: logged by code, fields rendered in the message
+    assert ours[0].levelno == logging.ERROR
+    match = _UNHANDLED_RE.fullmatch(ours[0].getMessage())
+    assert match
+    assert match["rid"] == rid
+    frames = match["frames"].split(">")
+    # a repo frame (the route), an installed one (FastAPI's routing, after site-packages),
+    # and the fake's raise as the innermost entry
+    assert any(
+        f.startswith("backend/api.py:") and f.endswith(":summarize_endpoint") for f in frames
+    )
+    assert any(f.startswith("fastapi/routing.py:") for f in frames)  # after site-packages
+    assert re.fullmatch(r"tests/fakes\.py:\d+:create", frames[-1])  # innermost last
+
+
+def test_forgotten_script_fails_loudly(client: TestClient) -> None:
+    # The autouse EMPTY script. The guard fails through pytest.fail, a BaseException: the
+    # catch-all's `except Exception` can't turn a forgotten script into a 500 this test
+    # could pass on.
+    with pytest.raises(pytest.fail.Exception, match="unscripted create call #1"):
+        client.post("/summarize", json={"raw_text": "x" * (settings.min_input_chars + 10)})
+
+
+# The catch-all's other two branches, driven at the ASGI level: no route can raise after the
+# response has started, and nothing in the app raises during lifespan.
+
+
+async def _drive(middleware: ASGIApp, scope: Scope) -> tuple[list[ASGIMessage], Exception | None]:
+    """One ASGI call through `middleware`: what it sent, and the Exception that escaped.
+
+    Catches Exception only, so pytest.fail still propagates.
+    """
+    sent: list[ASGIMessage] = []
+
+    async def receive() -> ASGIMessage:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: ASGIMessage) -> None:
+        sent.append(message)
+
+    try:
+        await middleware(scope, receive, send)
+    except Exception as exc:
+        return sent, exc
+    return sent, None
+
+
+@pytest.mark.anyio
+async def test_catch_all_after_response_start_logs_and_returns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Past this middleware, ServerErrorMiddleware re-raises and the server logs exc_info,
+    # message and chained cause included: the only L69-safe move is to log and return.
+    caplog.set_level(logging.DEBUG)
+
+    async def starts_then_raises(scope: Scope, receive: Receive, send: Send) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        raise _chained_unexpected()
+
+    scope: Scope = {"type": "http", "state": {"request_id": _FIXED_RID}}
+    sent, escaped = await _drive(CatchAllMiddleware(starts_then_raises), scope)
+    assert escaped is None  # never re-raised
+    assert [m["type"] for m in sent] == ["http.response.start"]  # nothing sent after it
+    assert MESSAGE_SENTINEL not in caplog.text
+    assert CAUSE_SENTINEL not in caplog.text
+    ours = [
+        r
+        for r in caplog.records
+        if r.name == "backend.api"
+        and "code=internal_error" in r.getMessage()
+        and f"request_id={_FIXED_RID}" in r.getMessage()
+    ]
+    assert len(ours) == 1
+
+
+@pytest.mark.anyio
+async def test_catch_all_passes_non_http_scopes_through() -> None:
+    exc = _chained_unexpected()
+
+    async def raises(scope: Scope, receive: Receive, send: Send) -> None:
+        raise exc
+
+    sent, escaped = await _drive(CatchAllMiddleware(raises), {"type": "lifespan"})
+    assert escaped is exc  # untouched: the object itself, not handled, not wrapped
+    assert sent == []
 
 
 # --- logging configuration (§9.8, L79) ---------------------------------------------------
