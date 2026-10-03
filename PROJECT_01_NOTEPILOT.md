@@ -2,8 +2,8 @@
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
-**Spec version: v1.3.3** (patch — Phase 1 build fills, September 2026).
-Supersedes v1.3.2.
+**Spec version: v1.3.4** (patch — Phase 1 build fill, October 2026).
+Supersedes v1.3.3.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -679,6 +679,11 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
             # Identical request at temperature=0 → near-identical truncation. Fail fast.
             raise OutputTruncatedError("output truncated", usage=usage)
 
+        if resp.stop_reason == "refusal":
+            # L97: any block was cut off and is never validated → nothing in `messages`
+            # changes → an identical request. Fail fast.
+            raise ModelOutputError("refusal under forced tool_choice", usage=usage)
+
         tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
         if tool_block is None:
             # Nothing in `messages` changed → an identical non-answer. Fail fast.
@@ -721,6 +726,18 @@ construction of `SummarizationResult`/`RunMetadata`. If building the metadata ev
 the model it had made a mistake it didn't make, and pay to retry. Fault attribution is the
 whole point of this function; the `try` covers exactly the model's output.
 
+**A refusal fails fast before the block lookup (L97).** `stop_reason="refusal"`
+means the API's classifiers stopped the output mid-emission, so any tool block
+present is as cut off as a truncated one. Validated anyway, it is either returned as
+a success with claims missing — the clinician signs a note that looks complete — or
+it buys validation retries against a classifier that fires again on the same input.
+Gated before the lookup, the block is never validated, nothing in `messages`
+changes, and invariant 16 holds as written. Same exception and code as §9.4's
+no-block refusal (L73). `pause_turn` needs server tools and `stop_sequence` needs
+stop sequences, and this call sends neither; `end_turn` without a block takes the
+missing-block branch. A test pins every `StopReason` value to one of these paths, so
+an SDK that adds a stop reason fails CI instead of falling through.
+
 **The correction goes to the model, never to a log (v1.3, L53).** The model sees its own
 output echoed back in the validation errors — that's the point, and it's traffic to the
 same API that produced it. What must never carry that text is a log line or an HTTP body:
@@ -730,9 +747,9 @@ chain exists for tests and local debugging (§9.4, §9.8).
 The error-handling arc: EAFP at the boundary, an exception *hierarchy* that names the
 failure domain **and whose fault it is**, `raise … from` preserving the cause, and every
 failure carrying what it cost. The retry rule is one sentence: **retry only when the next
-request differs from the last one** (invariant 16). Truncation and a missing block don't
-change the request → fail fast. A validation error feeds the model its mistake → the
-request changed → retry. (Transport retries are the SDK's — §5.2, a different loop.)
+request differs from the last one** (invariant 16). Truncation, a refusal, and a missing
+block don't change the request → fail fast. A validation error feeds the model its mistake
+→ the request changed → retry. (Transport retries are the SDK's — §5.2, a different loop.)
 
 ### 5.5 Seam & model choice
 
@@ -2261,9 +2278,10 @@ in the push workflow — it spends real money.
   change to `ClaimDraft` is a reviewed diff *and* a new `PROMPT_VERSION`.
 - **Orchestrator boundary (phase 1)** — fake client: happy path; a validation retry with a
   correctly shaped `tool_result` (`tool_use_id`, `is_error=True`); `max_tokens` and
-  `model_context_window_exceeded` each fail fast as `OutputTruncatedError` (L88);
-  `extra_body` carries `temperature=0` on every attempt (L82); a missing block fails fast;
-  retries exhausted; usage summed across attempts; a
+  `model_context_window_exceeded` each fail fast as `OutputTruncatedError` (L88); a refusal
+  with a tool block fails fast as `ModelOutputError`, and every `StopReason` value has a
+  decided path (L97); `extra_body` carries `temperature=0` on every attempt (L82); a missing
+  block fails fast; retries exhausted; usage summed across attempts; a
   `RunMetadata` construction error is NOT fed back to the model (L12).
 - **HTTP mapping (phase 1)** — every §9.4 row reachable in phase 1 (L73's list), including
   504 on a client timeout, and no body ever containing exception text (L53).
@@ -2408,7 +2426,7 @@ paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No groundin
   aliases they use (L90)
 □ orchestrator: one-line try (L12) · usage summed + validation_attempts (L13) ·
   OutputTruncatedError → 502 (L14) · PROMPT_VERSION over the full call config (L15) ·
-  errors carry usage (L49)
+  errors carry usage (L49) · refusal fails fast (L97)
 □ prompt: D7 Assessment rule + certainty (L20) · never omit safety-critical facts (L50)
 □ config.py: pinned model id (L84) · max_validation_retries + sdk_transport_retries (L5) ·
   llm_timeout_s (L54) · max_output_tokens derived via output_tokens_per_input_char, a

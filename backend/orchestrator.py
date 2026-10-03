@@ -11,38 +11,41 @@ OrchestratorError subclass carrying the TokenUsage spent so far, failed
 attempts included. It never returns a partial draft.
 
 It retries only when the next request differs from the last (spec §5.4). A
-validation error goes back to the model as an is_error tool_result. Truncation
-or a missing tool block would reproduce itself, so both fail fast. Transport
-retries (429/5xx) belong to the SDK, not this loop.
+validation error goes back to the model as an is_error tool_result. Truncation,
+a refusal, or a missing tool block would reproduce itself, so all three fail
+fast. Transport retries (429/5xx) belong to the SDK, not this loop.
 
 PROMPT_VERSION is derived from everything the model is conditioned on: the
 system prompt, tool schema, correction template, and call config. Editing any
 of them changes it; it is never bumped by hand.
 
-Exception messages can carry model-emitted clinical text, so callers log these
-errors by .code only (spec §9.4, §9.8).
+Exception messages are static strings. The chained ValidationError (__cause__)
+carries model-emitted text, so callers log these errors by .code only, never
+with exc_info (spec §9.4, §9.8).
 """
 
 import functools
 import hashlib
 import json
 from collections.abc import Iterable
-from typing import Final, Protocol, TypedDict
+from typing import ClassVar, Final, Protocol, TypedDict
 
 from anthropic import AsyncAnthropic
 from anthropic.types import (
     Message,
     MessageParam,
     ModelParam,
+    StopReason,
     TextBlockParam,
     ToolChoiceParam,
     ToolChoiceToolParam,
     ToolParam,
     ToolUnionParam,
 )
+from pydantic import ValidationError
 
 from backend.config import settings
-from backend.schemas import SOAPNoteDraft
+from backend.schemas import RunMetadata, SOAPNoteDraft, SummarizationResult, TokenUsage
 
 # Verbatim from spec §5.3 (D7, L20, L50). The opening backslash keeps the value free of a
 # leading newline; the closing quotes sit on the last prompt line, so no trailing one.
@@ -136,6 +139,42 @@ PROMPT_VERSION: Final[str] = _derive_prompt_version(
 )
 
 
+# --- the failure domain (§5.4, §9.4; L14, L49, L88) ---------------------------------
+
+
+class OrchestratorError(Exception):
+    """Base: the orchestrator could not hand over a valid draft."""
+
+    code: ClassVar[str] = "orchestrator_error"
+
+    def __init__(self, msg: str, *, usage: TokenUsage) -> None:
+        super().__init__(msg)
+        self.usage = usage  # L49: failed calls cost money too
+
+
+class ModelOutputError(OrchestratorError):
+    """The model is the problem (no block, a refusal, or invalid after retries) -> 502."""
+
+    code = "model_output_invalid"
+
+
+class OutputTruncatedError(ModelOutputError):
+    """stop_reason in TRUNCATION_STOPS on an input the route already accepted (§9.1).
+
+    Not the client's fault (L14): the output/input ratio in config, or model verbosity -> 502.
+    """
+
+    code = "output_truncated"
+
+
+# L88: both cut the output mid-emission. A context-window stop with a partial tool block
+# would otherwise fail validation and "retry" with a LARGER context: invariant 16's
+# identical-failure spend, made worse. Unreachable at sane max_input_chars; closed anyway.
+TRUNCATION_STOPS: Final[frozenset[StopReason]] = frozenset(
+    {"max_tokens", "model_context_window_exceeded"}
+)
+
+
 # --- the seam (§5.5; L19, L74) -------------------------------------------------------
 
 
@@ -187,3 +226,87 @@ def get_client() -> LLMClient:
         timeout=settings.llm_timeout_s,
         max_retries=settings.sdk_transport_retries,
     )
+
+
+# --- the loop (§5.4; L12, L13, L53, L97) ---------------------------------------------
+
+
+async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
+    """One forced tool call, validated at the boundary; the model corrects its own errors (§5.4).
+
+    Returns a schema-valid draft with its RunMetadata, or raises an OrchestratorError subclass
+    carrying the usage spent, failed attempts included (L49). Retries only when the next
+    request differs from the last (invariant 16): a validation error goes back as an is_error
+    tool_result; truncation (L88), a refusal (L97), and a missing block fail fast.
+    """
+    messages: list[MessageParam] = [{"role": "user", "content": raw_text}]  # L83
+    usage = TokenUsage()
+    last_error: ValidationError | None = None
+
+    for attempt in range(1, settings.max_validation_retries + 2):
+        resp = await client.messages.create(
+            model=settings.model,
+            system=SYSTEM_PROMPT,
+            tools=[SUMMARY_TOOL],
+            messages=messages,
+            **CALL_CONFIG,
+        )
+        # L13: every attempt is paid for, so the sum lands before any gate can raise.
+        usage += TokenUsage(
+            input_tokens=resp.usage.input_tokens, output_tokens=resp.usage.output_tokens
+        )
+
+        if resp.stop_reason in TRUNCATION_STOPS:
+            # Identical request at temperature=0 -> near-identical truncation. Fail fast.
+            raise OutputTruncatedError("output truncated", usage=usage)
+
+        if resp.stop_reason == "refusal":
+            # L97: any block was cut off and is never validated -> nothing in `messages`
+            # changes -> an identical request. Fail fast.
+            raise ModelOutputError("refusal under forced tool_choice", usage=usage)
+
+        tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
+        if tool_block is None:
+            # Nothing in `messages` changed -> an identical non-answer. Fail fast.
+            raise ModelOutputError("no tool_use block under forced tool_choice", usage=usage)
+
+        try:  # L12: the try wraps model_validate and nothing else
+            draft = SOAPNoteDraft.model_validate(tool_block.input)
+        except ValidationError as e:
+            # NOT an identical retry: the model now sees its own error. Worth spending.
+            # L53: the correction carries the model's output back to the model, so the
+            # input stays in; include_input=False is for log lines, which never see this.
+            last_error = e
+            messages += [
+                {"role": "assistant", "content": resp.content},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_block.id,
+                            "is_error": True,
+                            "content": CORRECTION_TEMPLATE.format(
+                                errors=e.errors(include_url=False)
+                            ),
+                        }
+                    ],
+                },
+            ]
+            continue
+
+        # Outside the try (L12): a bug building metadata is OUR error, never fed back to the
+        # model as ITS mistake.
+        return SummarizationResult(
+            draft=draft,
+            metadata=RunMetadata(
+                model=settings.model,
+                prompt_version=PROMPT_VERSION,
+                usage=usage,
+                validation_attempts=attempt,
+            ),
+        )
+
+    raise ModelOutputError(
+        f"invalid after {settings.max_validation_retries + 1} attempts", usage=usage
+    ) from last_error

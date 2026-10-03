@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,28 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.4 — refusal stop reason (patch)
+
+Theme: one fill found while designing step 3c's loop. No statement changes, and no
+invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L97 §5.4, §11, §14 — a refusal fails fast before the block lookup.** Fill: §5.4 handled
+  both truncation stop reasons and a missing block, and §9.4 (L73) pinned a refusal with no
+  block. A refusal *with* a tool block was unspecified: the loop would validate output the
+  API had cut off, returning it as a success if it happened to validate, or buying
+  validation retries against a classifier that fires again on the same input. Gated first,
+  the block is never validated and the retry would be identical (invariant 16 as written).
+  Same exception and code as L73's case; §9.4 is unchanged. `pause_turn`, `stop_sequence`
+  and `end_turn` need no branch; a test pins every `StopReason` value to a decided path.
+
+**Housekeeping (no ledger id — no behavior changes)**
+- L49's v1.3 summary line names two of its three changes. It also covered §4.2 and §5.4:
+  `OrchestratorError` carries the `usage` spent, failed attempts included — the meaning
+  §4.2, §5.4, and §14 cite it for.
 
 ---
 

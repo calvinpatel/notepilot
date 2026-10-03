@@ -19,6 +19,7 @@ from anthropic.types import (
     MessageParam,
     ModelParam,
     StopReason,
+    TextBlock,
     TextBlockParam,
     ToolChoiceParam,
     ToolUnionParam,
@@ -117,6 +118,25 @@ def tool_use_message(
                 id=tool_use_id, input=tool_input, name=SUMMARY_TOOL["name"], type="tool_use"
             )
         ],
+        model="fake-model",
+        role="assistant",
+        stop_reason=stop_reason,
+        type="message",
+        usage=Usage(input_tokens=input_tokens, output_tokens=output_tokens),
+    )
+
+
+def text_message(
+    text: str,
+    *,
+    stop_reason: StopReason = "end_turn",
+    input_tokens: int = 10,
+    output_tokens: int = 20,
+) -> Message:
+    """A canned response with no tool_use block."""
+    return Message(
+        id="msg_fake_1",
+        content=[TextBlock(text=text, type="text")],
         model="fake-model",
         role="assistant",
         stop_reason=stop_reason,
