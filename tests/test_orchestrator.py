@@ -256,9 +256,25 @@ async def test_fake_exhausted_script_raises_and_still_records() -> None:
     client: LLMClient = fake
     msgs: list[MessageParam] = [{"role": "user", "content": "synthetic encounter text"}]
     await _create(client, msgs)
-    with pytest.raises(AssertionError, match="unscripted"):
+    with pytest.raises(pytest.fail.Exception, match="unscripted"):
         await _create(client, msgs)
     assert len(fake.messages.calls) == 2
+
+
+class _Scripted(Exception):
+    """A test-owned exception type: the fake must raise the scripted object itself."""
+
+
+@pytest.mark.anyio
+async def test_fake_raises_a_scripted_exception_and_records_the_call() -> None:
+    scripted = _Scripted("scripted failure")
+    fake = FakeLLMClient([scripted])
+    client: LLMClient = fake
+    msgs: list[MessageParam] = [{"role": "user", "content": "synthetic encounter text"}]
+    with pytest.raises(_Scripted) as info:
+        await _create(client, msgs)
+    assert info.value is scripted  # the object itself, not a copy or a wrapper
+    assert len(fake.messages.calls) == 1  # recorded before the raise
 
 
 # --- the summarize loop (§5.4; L12, L13, L14, L49, L53, L88, L97) --------------------

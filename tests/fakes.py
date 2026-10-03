@@ -1,8 +1,13 @@
 """The test side of the LLMClient seam (spec §5.5; L19, L74).
 
-FakeLLMClient satisfies LLMClient with a scripted sequence of real anthropic.types.Message
-objects, so the fake cannot drift from the wire format. Every create call is recorded as a
-RecordedCall, deep-copied at call time. Nothing here reaches the network.
+FakeLLMClient satisfies LLMClient with a script. Each item is a real anthropic.types.Message
+to return, so the fake cannot drift from the wire format, or an exception to raise, so tests
+can drive the client's failure paths. Every create call is recorded as a RecordedCall,
+deep-copied at call time. Nothing here reaches the network.
+
+A call past the end of the script fails through pytest.fail, never a plain exception: its
+Failed is a BaseException, so no `except Exception` in the code under test can turn a
+forgotten script into a response a test could pass on.
 
 mypy checks a Protocol only where something is bound to it. In backend/, get_client's return
 annotation is the only binding of the real client, and nothing binds the fake. _sdk_binds and
@@ -13,6 +18,7 @@ import copy
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+import pytest
 from anthropic import AsyncAnthropic
 from anthropic.types import (
     Message,
@@ -49,9 +55,9 @@ class RecordedCall:
 
 
 class FakeMessages:
-    """Records every call first, then returns the next scripted Message; never a default."""
+    """Records every call first, then returns or raises the next scripted item; never a default."""
 
-    def __init__(self, script: Sequence[Message]) -> None:
+    def __init__(self, script: Sequence[Message | Exception]) -> None:
         self._script = list(script)
         self.calls: list[RecordedCall] = []
 
@@ -81,14 +87,17 @@ class FakeMessages:
         )
         n = len(self.calls)
         if n > len(self._script):
-            raise AssertionError(f"unscripted create call #{n}")
-        return self._script[n - 1]
+            pytest.fail(f"unscripted create call #{n}")
+        item = self._script[n - 1]
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 class FakeLLMClient:
     """Satisfies LLMClient; `messages` is a property so tests can reach `.calls` on it."""
 
-    def __init__(self, script: Sequence[Message]) -> None:
+    def __init__(self, script: Sequence[Message | Exception]) -> None:
         self._messages = FakeMessages(script)
 
     @property
