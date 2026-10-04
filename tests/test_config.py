@@ -235,6 +235,19 @@ def test_api_key_rejects_empty() -> None:
     assert err["loc"] == ("anthropic_api_key",)
 
 
+def test_api_key_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Missing is not empty: min_length rejects an empty key; a missing one is rejected as
+    # missing because the field has no default (L77). Each field's upper-case env var is
+    # removed first, so a knob exported in upper case can't add an error.
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    with pytest.raises(ValidationError) as exc:
+        Settings()
+    (err,) = exc.value.errors()
+    assert err["type"] == "missing"
+    assert err["loc"] == ("anthropic_api_key",)
+
+
 # --- frozen: the boot checks cannot be bypassed after construction ---------------
 
 
