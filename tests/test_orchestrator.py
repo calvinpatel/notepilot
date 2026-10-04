@@ -449,7 +449,10 @@ async def test_missing_tool_block_fails_fast() -> None:
 @pytest.mark.anyio
 async def test_retries_exhausted() -> None:
     n = settings.max_validation_retries + 1  # attempts, not retries (§5.4)
-    script = [_invalid(tool_use_id=f"toolu_fake_{i}") for i in range(1, n + 1)]
+    script = [
+        _invalid(input_tokens=11, output_tokens=7, tool_use_id=f"toolu_fake_{i}")
+        for i in range(1, n + 1)
+    ]
     # a decoy: a loop that runs one attempt too many returns it as a success
     script.append(_valid(tool_use_id=f"toolu_fake_{n + 1}"))
     fake = FakeLLMClient(script)
@@ -460,6 +463,8 @@ async def test_retries_exhausted() -> None:
     assert SENTINEL not in str(exc.value)  # static message: model text stays in the cause (L53)
     assert str(exc.value) == f"invalid after {n} attempts"
     assert isinstance(exc.value.__cause__, ValidationError)  # the `from` chain (§5.4)
+    # L49: every attempt was paid for, and the error carries the sum
+    assert exc.value.usage == TokenUsage(input_tokens=11 * n, output_tokens=7 * n)
 
 
 @pytest.mark.anyio
