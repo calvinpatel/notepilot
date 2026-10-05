@@ -1,9 +1,10 @@
 # PROJECT 01 — NotePilot
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
-Flagship portfolio project. Status: **skeleton / pre-build (design locked).**
-**Spec version: v1.3.7** (patch — Phase 1 build fill, October 2026).
-Supersedes v1.3.6.
+Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
+CLAUDE.md's "Current phase" line (L101).
+**Spec version: v1.3.8** (patch — Phase 1 close, October 2026).
+Supersedes v1.3.7.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2427,7 +2428,6 @@ signature change across every caller later.
 ### Phase 1 — MVP spine · `v0.1-spine`
 
 paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display. No grounding, no DB, no evals.
-*(Closest to done — the authenticated Anthropic call exists from the APIs arc.)*
 
 ```
 □ paste → route → summarize → SOAPNoteDraft + RunMetadata → static-page display grouped by

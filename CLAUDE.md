@@ -155,8 +155,8 @@ staging area for decisions.
   deferred amendments." Never implement it ahead of the revision.
 - New spec text cites ledger ids (`L82`), not version numbers; the changelog maps ids to
   versions.
-- When a proposed commit touches the spec, the changelog, or this file, say that the design
-  room's copies in project knowledge need re-uploading.
+- When a proposed commit touches the spec, the changelog, or this file, say that the
+  design room's copies in project knowledge need re-uploading.
 
 ## Build sequence gate (the Volkswagen safeguard)
 
@@ -171,7 +171,8 @@ Build order is spec §14 and it is strictly sequential:
 5. **3 — full-stack real** — Postgres, React UI, deploy
 6. **4 — RAG deepening** — designed in spec v1.4 before any code
 
-**Current phase: 1 — MVP spine.** *(Update this line as phases complete.)*
+**Current phase: 2a — the safety layer, proven for free.** *(Update this line as phases
+complete.)*
 
 - **Closing a phase:** audit its §14 exit criteria line by line, CI green, update the line
   above, tag it (`v0.1-spine`, `v0.2a-safety`, `v0.2b-corpus`, `v0.2c-judge`,
@@ -188,7 +189,8 @@ Build order is spec §14 and it is strictly sequential:
 ```bash
 uv sync                          # install/sync env (uv owns .venv; never pip install)
 uv add <pkg> / uv add --dev <pkg>
-uv run pytest                    # unit + injected corpus + integration — deterministic, free
+uv run pytest                    # unit + injected corpus + integration —
+                                 #   deterministic, free
 uv run pytest tests/ -x -q       # fast fail during TDD loops
 uv run ruff check . && uv run ruff format --check .   # lint + format; clean before commit
 uv run mypy backend/ tests/      # strict (pyproject, L91). The spine AND the test
@@ -247,25 +249,26 @@ verbatim. It doesn't restate the request.
 ### Measure, don't recall
 
 - SDK and framework shapes are measured against the installed packages: a scratch script,
-  its output quoted in the plan. If a measurement contradicts the request, stop and say so.
+  its output quoted in the plan. If a measurement contradicts the request, stop and
+  say so.
 - Scratch scripts live in the session scratchpad, never the repo, and run from the repo
   root as `PYTHONPATH=. NOTEPILOT_IGNORE_DOTENV=1 ANTHROPIC_API_KEY=test-dummy-key uv run
   python <script>`. The project has no `[build-system]`, so nothing installs `backend`;
   the two variables give a scratch run the settings `tests/conftest.py` gives pytest.
 - Every pytest run sets `PYTHONPYCACHEPREFIX` to a fresh, empty directory. CPython trusts
-  bytecode whose recorded source mtime and size still match, so a same-length edit made and
-  restored within one second can run stale. The prefix also takes pytest's rewritten test
-  bytecode.
+  bytecode whose recorded source mtime and size still match, so a same-length edit made
+  and restored within one second can run stale. The prefix also takes pytest's rewritten
+  test bytecode.
 - Reports state only numbers measured in this session: test counts, line numbers, hashes.
 - `gates` means the checks in `.github/workflows/ci.yml`, run locally with the same
   commands.
 
 ### Edits and commits
 
-- Repo files change through the Edit tool, so each change passes Cal's approval; Write only
-  creates a file that doesn't exist yet. Never `sed -i`, a shell redirect, or a script.
-  Mutation rows are the one exception, and the reverse: the driver writes them, never the
-  Edit tool.
+- Repo files change through the Edit tool, so each change passes Cal's approval; Write
+  only creates a file that doesn't exist yet. Never `sed -i`, a shell redirect, or a
+  script. Mutation rows are the one exception, and the reverse: the driver writes them,
+  never the Edit tool.
 - Propose commits. Never commit, stage, or run a git command that changes the index or the
   working tree. A proposal is the commit's path list and its full message; the body says
   what the diff does, nothing it doesn't, and leaves nothing out.
@@ -276,19 +279,20 @@ verbatim. It doesn't restate the request.
 
 - A change in behavior starts with its tests: write them, run them, and show the red run's
   output. A red run is shown, never inferred.
-- Objects a test constructs (SDK errors, messages) come from typed builder functions, as in
-  `tests/fakes.py`; never an untyped helper or a `cast`.
+- Objects a test constructs (SDK errors, messages) come from typed builder functions, as
+  in `tests/fakes.py`; never an untyped helper or a `cast`.
 - A wiring test, one that proves a value travels from where it's set to where it's used,
   uses a value the code can't reach by default: a non-default setting, a test-local
   exception class (never a builtin, which other code can raise).
-- Leak tests plant sentinels in values, never keys, and scan `caplog.text`: every record as
-  rendered, `exc_info` included. Every logging test calls `caplog.set_level(logging.DEBUG)`.
+- Leak tests plant sentinels in values, never keys, and scan `caplog.text`: every record
+  as rendered, `exc_info` included. Every logging test calls
+  `caplog.set_level(logging.DEBUG)`.
 - Every 500 test asserts its own log line: the catch-all turns any `Exception` into a 500,
   so a 500 alone proves nothing.
 - mypy strict is the type gate. Never add `# type: ignore` to quiet the editor's pyright:
   mypy reports an ignore it doesn't need, and CI fails.
-- Ruff enforces only the rules `pyproject.toml` selects; don't restyle code or add `# noqa`
-  for any other.
+- Ruff enforces only the rules `pyproject.toml` selects; don't restyle code or add
+  `# noqa` for any other.
 
 ### Mutation rows
 
@@ -300,14 +304,14 @@ A row names a file, an exact pattern, its replacement, and the assertion meant t
   substitution you adapt.
 - Before each row the driver saves the file's bytes and sha256, writes the mutant inside
   `try`, restores the saved bytes in `finally`, and checks the hash: the files are
-  uncommitted, so git can't restore them. The moment the driver exits, before anything else,
-  hash every file any row touched. A driver killed mid-row leaves its mutant in place, and
-  only this check catches it.
+  uncommitted, so git can't restore them. The moment the driver exits, before anything
+  else, hash every file any row touched. A driver killed mid-row leaves its mutant in
+  place, and only this check catches it.
 - Each mutant dies at its targeted assertion; report the failing line for each row. A row
   that edits the test file itself shifts its lines, so read the kill line from the mutant
   text. If a row dies anywhere else, stop and say so; never reshape a test to fit.
-- A mutant no test can tell apart gets a distinguishing test, or is reported as equivalent,
-  with the reason.
+- A mutant no test can tell apart gets a distinguishing test, or is reported as
+  equivalent, with the reason.
 
 ### What code, tests, and comments may say
 
