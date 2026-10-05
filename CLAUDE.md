@@ -244,7 +244,8 @@ instruction. If VERBATIM text can't land as given, stop and say why.
 
 The plan reports by exception: measurements, deviations from the request, adapted
 substitutions, judgment calls, and the exact form of any code the request doesn't give
-verbatim. It doesn't restate the request.
+verbatim. It has no context section, and it names VERBATIM edits and commit messages
+rather than repeating them.
 
 ### Measure, don't recall
 
@@ -258,7 +259,10 @@ verbatim. It doesn't restate the request.
 - Every pytest run sets `PYTHONPYCACHEPREFIX` to a fresh, empty directory. CPython trusts
   bytecode whose recorded source mtime and size still match, so a same-length edit made
   and restored within one second can run stale. The prefix also takes pytest's rewritten
-  test bytecode.
+  test bytecode. Set it per invocation, as
+  `PYTHONPYCACHEPREFIX="$(mktemp -d "$TMPDIR/pyc.XXXXXX")" uv run pytest`: an exported
+  prefix outlives its run, and inside the sandbox `mktemp -d` without a `$TMPDIR`
+  template fails.
 - Reports state only numbers measured in this session: test counts, line numbers, hashes.
 - `gates` means the checks in `.github/workflows/ci.yml`, run locally with the same
   commands.
