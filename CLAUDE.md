@@ -39,13 +39,14 @@ asked.
   request. If something adjacent needs doing, flag it and let Cal decide.
 - **Clinical reasoning stays visible.** The moat is Cal's clinical judgment rendered as
   code, and it's his to manage — not a reason to withhold help. When writing clinical
-  logic (lexicon entries, drug-class membership, severity assignments, check
-  semantics), state the clinical rationale alongside the code so each call is an
-  explicit decision on the record, not a silent default.
-- **Clinical defaults need Cal's sign-off.** D9 (R1 side-chain rungs) and D14 (the
-  unspecified-penicillin rule) are evidence-based defaults drafted in the design room.
-  When authoring `clinical/lexicons.py`, write each entry with its rationale in a comment
-  and flag it for Cal's review. A spec default is not a clinical sign-off.
+  logic (severity assignments, check semantics), state the clinical rationale alongside
+  the code so each call is an explicit decision on the record, not a silent default.
+- **Clinical entries arrive VERBATIM.** Every entry in `clinical/lexicons.py`, D9's R1
+  rungs and D14's unspecified-penicillin rule included, is drafted in the design room and
+  signed off by Cal there. It lands from a VERBATIM block with its own rationale comment,
+  under a `# Clinical sign-off:` line that heads its table. Never author, reword, or
+  reorder an entry in a session; if code needs an entry the request doesn't carry, stop
+  and say which. A spec default is not a clinical sign-off.
 - **Standing order: nitpick everything.** Style, naming, edge cases, design smells.
   Cal explicitly wants this. Review with senior-engineer rigor, not politeness.
 
