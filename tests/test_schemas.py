@@ -1,4 +1,4 @@
-"""Pins the spine types (spec §4.1, §4.2; L6, L25, L43, L86, L89, L102).
+"""Pins the spine types (spec §4.1, §4.2; L6, L9, L25, L42, L43, L86, L89, L102, L103).
 
 Rejection tests validate a dict through model_validate — the §5.4 entry point
 (L12) — and pin the single error's type and loc, so no test passes on an
@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from backend.schemas import (
     ClaimDraft,
     ClinicalClaim,
+    EvalCase,
     EvalReport,
     EvalResult,
     RunMetadata,
@@ -343,3 +344,100 @@ def test_all_critical_passed_is_serialized() -> None:
 
 def test_judge_usage_defaults_to_zero() -> None:
     assert _report().judge_usage == TokenUsage()
+
+
+# --- the case contract (§4.2, §8.5; L9, L42, L103) ------------------------------
+
+
+def _case(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "id": "case-1",
+        "species": "detection",
+        "raw_text": "raw-1",
+        "trap": "trap-1",
+        "expected_flags": ["check-1"],
+    }
+    return {**base, **overrides}
+
+
+def _case_error(data: dict[str, object]) -> str:
+    with pytest.raises(ValidationError) as exc:
+        EvalCase.model_validate(data)
+    (err,) = exc.value.errors()
+    assert err["type"] == "value_error"
+    assert err["loc"] == ()
+    return str(err["msg"])
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        _case(draft={"claims": [_claim()]}),
+        _case(species="control", trap=None, expected_flags=[]),
+        _case(species="fidelity", expected_flags=[]),
+    ],
+    ids=["injected-detection", "model-control", "model-fidelity"],
+)
+def test_eval_case_accepts_each_species(data: dict[str, object]) -> None:
+    EvalCase.model_validate(data)
+
+
+def test_eval_case_rejects_unknown_key() -> None:
+    # L103: a misspelled draft key would otherwise make an injected case a model case
+    with pytest.raises(ValidationError) as exc:
+        EvalCase.model_validate(_case(drafts={"claims": [_claim()]}))
+    (err,) = exc.value.errors()
+    assert err["type"] == "extra_forbidden"
+    assert err["loc"] == ("drafts",)
+
+
+def test_eval_case_rejects_unknown_species() -> None:
+    with pytest.raises(ValidationError) as exc:
+        EvalCase.model_validate(_case(species="regression"))
+    (err,) = exc.value.errors()
+    assert err["type"] == "literal_error"
+    assert err["loc"] == ("species",)
+
+
+def test_eval_case_requires_trap() -> None:
+    data = _case()
+    del data["trap"]
+    with pytest.raises(ValidationError) as exc:
+        EvalCase.model_validate(data)
+    (err,) = exc.value.errors()
+    assert err["type"] == "missing"
+    assert err["loc"] == ("trap",)
+
+
+def test_injected_draft_passes_the_model_boundary() -> None:
+    # an injected draft is validated like the model's output (§4.1)
+    with pytest.raises(ValidationError) as exc:
+        EvalCase.model_validate(_case(draft={"claims": [_claim(source_quote="   ")]}))
+    (err,) = exc.value.errors()
+    assert err["type"] == "string_too_short"
+    assert err["loc"] == ("draft", "claims", 0, "source_quote")
+
+
+def test_detection_requires_expected_flags() -> None:
+    msg = _case_error(_case(expected_flags=[]))
+    assert "detection traps, and only they, carry expected_flags" in msg
+
+
+def test_only_detection_carries_expected_flags() -> None:
+    msg = _case_error(_case(species="control", trap=None))
+    assert "detection traps, and only they, carry expected_flags" in msg
+
+
+def test_control_has_no_trap() -> None:
+    msg = _case_error(_case(species="control", expected_flags=[]))
+    assert "controls, and only they, have trap=None" in msg
+
+
+def test_a_trap_names_its_danger() -> None:
+    msg = _case_error(_case(species="fidelity", trap=None, expected_flags=[]))
+    assert "controls, and only they, have trap=None" in msg
+
+
+def test_fidelity_cannot_inject_a_draft() -> None:
+    msg = _case_error(_case(species="fidelity", expected_flags=[], draft={"claims": []}))
+    assert "a fidelity trap tests the MODEL; it cannot inject a draft" in msg

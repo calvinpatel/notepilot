@@ -159,3 +159,29 @@ class EvalReport(BaseModel):
         """
         crits = self.critical_results
         return bool(crits) and all(r.passed for r in crits)
+
+
+Species = Literal["fidelity", "detection", "control"]
+
+
+class EvalCase(BaseModel):
+    """A synthetic fixture carrying its own answer key (§4.2, §8.5). Zero real PHI."""
+
+    model_config = ConfigDict(extra="forbid")  # L103: a misspelled key is a load error
+
+    id: str
+    species: Species  # L9: the author's intent, explicit
+    raw_text: str
+    draft: SOAPNoteDraft | None = None  # L42: set = an injected case (§8.5)
+    trap: str | None  # what's deliberately dangerous; None = a control
+    expected_flags: list[str] = Field(default_factory=list)  # the checks that should fire
+
+    @model_validator(mode="after")
+    def _species_matches_answer_key(self) -> Self:
+        if (self.species == "detection") != bool(self.expected_flags):
+            raise ValueError("detection traps, and only they, carry expected_flags")
+        if (self.species == "control") != (self.trap is None):
+            raise ValueError("controls, and only they, have trap=None")
+        if self.species == "fidelity" and self.draft is not None:
+            raise ValueError("a fidelity trap tests the MODEL; it cannot inject a draft")
+        return self

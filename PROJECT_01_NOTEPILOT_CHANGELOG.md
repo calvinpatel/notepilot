@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,22 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.10 — a misspelled case key is a load error (patch)
+
+Theme: one fill found while planning phase 2a. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L103 §4.2, §8.5 — the case contract forbids unknown keys.** Fill: §8.5 makes a
+  misspelled `expected_flags` entry a load error, but `EvalCase`, `PreserveItem`, and
+  `NotAddItem` declared no `extra` policy, and Pydantic ignores unknown keys by default. A
+  misspelled `draft:` left `draft=None`, silently turning an injected case into a model
+  case: skipped by the free tier, then billed by the corpus run. A misspelled
+  `must_preserve:` left a fidelity trap with nothing to check, a vacuous pass. All three
+  forbid extra keys, as `ClaimDraft` and `SOAPNoteDraft` already do. `PreserveItem` and
+  `NotAddItem` take it when they land, with the reference checks.
 
 ---
 

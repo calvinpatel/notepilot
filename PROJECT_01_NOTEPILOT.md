@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.9** (patch — the verdict is on the wire, October 2026).
-Supersedes v1.3.8.
+**Spec version: v1.3.10** (patch — a misspelled case key is a load error, October 2026).
+Supersedes v1.3.9.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -317,6 +317,7 @@ class EvalReport(BaseModel):
 PreserveKind = Literal["allergy", "medication", "dose", "finding", "diagnosis"]
 
 class PreserveItem(BaseModel):              # DECISION D4: a typed expectation.
+    model_config = ConfigDict(extra="forbid")   # L103, as on EvalCase
     text: str                               # the thing that must survive, e.g. "penicillin"
     kind: PreserveKind                      # severity follows kind (§8.6): dose → WARNING,
                                             #   everything else → CRITICAL
@@ -327,6 +328,7 @@ class PreserveItem(BaseModel):              # DECISION D4: a typed expectation.
 NotAddKind = Literal["medication", "finding", "diagnosis"]
 
 class NotAddItem(BaseModel):                # v1.3 (L10): typed, like its mirror
+    model_config = ConfigDict(extra="forbid")   # L103, as on EvalCase
     text: str
     kind: NotAddKind                        # routes to ONE extractor; findings match POSITIVE
                                             #   polarity only (L36) — a faithful "denies chest
@@ -335,6 +337,10 @@ class NotAddItem(BaseModel):                # v1.3 (L10): typed, like its mirror
 Species = Literal["fidelity", "detection", "control"]
 
 class EvalCase(BaseModel):                  # a synthetic fixture (zero real PHI)
+    model_config = ConfigDict(extra="forbid")   # L103: a misspelled key is a load error. A
+                                                #   typo'd `draft:` would otherwise leave
+                                                #   draft=None: an injected case, run as a
+                                                #   model case.
     id: str
     species: Species                        # v1.3 (L9): the author's intent, explicit
     raw_text: str
@@ -1488,7 +1494,10 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 - **One YAML file per case**, loaded with `EvalCase.model_validate`. Filename = `id`.
 - **The loader validates the answer key against the registry.** Every `expected_flags` entry
   must be a registered check name — a typo is a load error, not a case that fails forever
-  and gets rationalized as "the model's fault."
+  and gets rationalized as "the model's fault." So is a misspelled key (L103): `EvalCase`
+  and its item types forbid extra fields, so a typo'd `draft:` can't turn an injected case
+  into a paid model case, and a typo'd `must_preserve:` can't leave a fidelity trap with
+  nothing to check.
 - **`corpus_version` is derived** — a hash over the sorted contents of `evals/cases/`.
 - **Size:** ≥ 24 **model** cases, ≥ 6 per species; injected cases as many as the coverage
   rule demands (they're free).
