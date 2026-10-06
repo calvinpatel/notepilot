@@ -11,11 +11,16 @@ breaks the tool-schema snapshot on purpose. Descriptions state shape
 (verbatim, contiguous, one fact), never clinical rules; those live in the
 system prompt.
 
+ClinicalClaim and SOAPNote are what grounding builds from a draft (§4.1).
+Both are frozen and hold tuples, so a flag can't be assigned or appended after
+construction (D6, L6).
+
 New pipeline data shapes go here. The only shapes defined elsewhere are HTTP
 edge shapes in api.py and check-internal shapes in evals/registry.py
 (spec §13).
 """
 
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -41,6 +46,34 @@ class SOAPNoteDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     claims: list[ClaimDraft]
+
+
+# --- what grounding produces: the source of truth -----------------------------
+
+
+class SafetyFlag(str, Enum):  # noqa: UP042 — §4.1's form; StrEnum changes str()
+    UNSUPPORTED = "unsupported"  # the quote grounds nowhere: likely fabrication
+    PARAPHRASED = "paraphrased"  # matched only fuzzily: drifted, low confidence
+
+
+class ClinicalClaim(ClaimDraft):
+    # D6, enforced (L6): frozen blocks assignment, and tuples block in-place mutation.
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: int  # required: without grounding there is no enriched claim (§4.1)
+    source_span: tuple[int, int] | None = None  # half-open [start, end) into the raw text
+    grounding_score: float | None = None  # L8
+    flags: tuple[SafetyFlag, ...] = ()  # grounding's to write (D6)
+
+
+class SOAPNote(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    claims: tuple[ClinicalClaim, ...]
+
+    def by_section(self, section: Section) -> list[ClinicalClaim]:
+        """Display-time grouping. Section is a rendering concern, not a storage one."""
+        return [c for c in self.claims if c.section == section]
 
 
 # --- what the orchestrator threads out -----------------------------------------
