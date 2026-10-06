@@ -33,7 +33,7 @@ target-version = "py314"
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B", "UP", "RUF100"]
 
 [tool.mypy]
 strict = true
