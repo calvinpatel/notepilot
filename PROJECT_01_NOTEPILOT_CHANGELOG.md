@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,23 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.9 — the verdict is on the wire (patch)
+
+Theme: one fill found while planning phase 2a. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L102 §4.2, §9.3 — `all_critical_passed` is serialized.** Fill: §4.2 declared the
+  verdict a plain `@property`, which Pydantic does not serialize, so the response would
+  carry `results` without the verdict. Every consumer (the 2a page, the phase-3 UI, a
+  persisted report) would recompute it, and a recomputation is free to drop the
+  vacuous-truth guard that keeps an empty or warning-only report from reading as passed
+  (invariant 12). It is now a `computed_field`: in the body, and in the serialization
+  schema `openapi-typescript` reads. mypy rejects decorators stacked on `@property`, so
+  the line carries `# type: ignore[prop-decorator]`, the form Pydantic documents; strict
+  mode reports the ignore if mypy ever stops needing it.
 
 ---
 

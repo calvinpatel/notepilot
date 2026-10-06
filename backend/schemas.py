@@ -21,9 +21,16 @@ edge shapes in api.py and check-internal shapes in evals/registry.py
 """
 
 from enum import Enum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    model_validator,
+)
 
 Section = Literal["S", "O", "A", "P"]
 # whitespace is empty at this boundary, for text (L86) as for quote (L25)
@@ -102,3 +109,53 @@ class RunMetadata(BaseModel):
 class SummarizationResult(BaseModel):
     draft: SOAPNoteDraft
     metadata: RunMetadata
+
+
+# --- what evals produce (§4.2) ------------------------------------------------
+
+
+class Severity(str, Enum):  # noqa: UP042 — §4.2's form; StrEnum changes str()
+    CRITICAL = "critical"  # patient-harm potential
+    WARNING = "warning"
+    INFO = "info"
+
+
+class EvalResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    check: str  # the check's registered name (§8.7)
+    severity: Severity
+    passed: bool
+    errored: bool = False  # L43: the check crashed or timed out
+    detail: str = ""
+    claim_ids: tuple[int, ...] = ()  # the claims it's about; () = note-level (§9.7)
+
+    @model_validator(mode="after")
+    def _errored_never_passes(self) -> Self:
+        if self.errored and self.passed:
+            raise ValueError("an errored check cannot pass")
+        return self
+
+
+class EvalReport(BaseModel):
+    results: list[EvalResult]
+    checks_run: frozenset[str]  # L44: what was selected, so "didn't run" isn't "didn't fire"
+    checks_version: str  # L45
+    judge_usage: TokenUsage = Field(default_factory=TokenUsage)  # L7
+
+    @property
+    def critical_results(self) -> list[EvalResult]:
+        return [r for r in self.results if r.severity is Severity.CRITICAL]
+
+    # mypy rejects decorators stacked on @property; the ignore is pydantic's documented form
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def all_critical_passed(self) -> bool:
+        """The note's verdict, serialized with the results it summarizes (L102).
+
+        bool(crits) is the vacuous-truth guard: all() over no CRITICAL result is True, and
+        that must not read as safe (invariant 12). An errored CRITICAL has passed=False, so
+        a crash reads as a failure.
+        """
+        crits = self.critical_results
+        return bool(crits) and all(r.passed for r in crits)

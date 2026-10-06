@@ -1,4 +1,4 @@
-"""Pins the spine types (spec §4.1, §4.2; L6, L25, L86, L89).
+"""Pins the spine types (spec §4.1, §4.2; L6, L25, L43, L86, L89, L102).
 
 Rejection tests validate a dict through model_validate — the §5.4 entry point
 (L12) — and pin the single error's type and loc, so no test passes on an
@@ -11,8 +11,11 @@ from pydantic import ValidationError
 from backend.schemas import (
     ClaimDraft,
     ClinicalClaim,
+    EvalReport,
+    EvalResult,
     RunMetadata,
     SafetyFlag,
+    Severity,
     SOAPNote,
     SOAPNoteDraft,
     TokenUsage,
@@ -251,3 +254,92 @@ def test_by_section_keeps_note_order_within_a_section() -> None:
     assert [c.id for c in note.by_section("P")] == [0, 2]
     assert [c.id for c in note.by_section("S")] == [1]
     assert note.by_section("A") == []
+
+
+# --- eval results and the report (§4.2; L43, L102) ----------------------------
+
+
+def _result(severity: Severity, *, passed: bool, errored: bool = False) -> EvalResult:
+    return EvalResult(check="check-1", severity=severity, passed=passed, errored=errored)
+
+
+def _report(*results: EvalResult) -> EvalReport:
+    return EvalReport(
+        results=list(results), checks_run=frozenset({"check-1"}), checks_version="hash-1"
+    )
+
+
+def test_severity_wire_values() -> None:
+    assert [s.value for s in Severity] == ["critical", "warning", "info"]
+
+
+def test_eval_result_defaults() -> None:
+    result = EvalResult(check="check-1", severity=Severity.WARNING, passed=True)
+    assert result.errored is False
+    assert result.detail == ""
+    assert result.claim_ids == ()
+
+
+def test_eval_result_rejects_errored_and_passed() -> None:
+    with pytest.raises(ValidationError) as exc:
+        EvalResult.model_validate(
+            {"check": "check-1", "severity": Severity.CRITICAL, "passed": True, "errored": True}
+        )
+    (err,) = exc.value.errors()
+    assert err["type"] == "value_error"
+    assert err["loc"] == ()
+    assert "an errored check cannot pass" in err["msg"]
+
+
+def test_eval_result_rejects_attribute_assignment() -> None:
+    result = _result(Severity.WARNING, passed=True)
+    with pytest.raises(ValidationError) as exc:
+        result.passed = False  # type: ignore[misc]
+    (err,) = exc.value.errors()
+    assert err["type"] == "frozen_instance"
+    assert err["loc"] == ("passed",)
+
+
+def test_eval_result_claim_ids_are_a_tuple_even_from_a_list() -> None:
+    result = EvalResult.model_validate(
+        {"check": "check-1", "severity": Severity.CRITICAL, "passed": False, "claim_ids": [0, 2]}
+    )
+    assert type(result.claim_ids) is tuple
+    assert result.claim_ids == (0, 2)
+
+
+def test_all_critical_passed_is_false_with_no_results() -> None:
+    # invariant 12: a report with no CRITICAL result does not read as passed
+    assert _report().all_critical_passed is False
+
+
+def test_warnings_do_not_gate_the_verdict() -> None:
+    report = _report(
+        _result(Severity.CRITICAL, passed=True), _result(Severity.WARNING, passed=False)
+    )
+    assert report.all_critical_passed is True
+
+
+def test_one_failing_critical_fails_the_verdict() -> None:
+    report = _report(
+        _result(Severity.CRITICAL, passed=True), _result(Severity.CRITICAL, passed=False)
+    )
+    assert report.all_critical_passed is False
+
+
+def test_an_errored_critical_fails_the_verdict() -> None:
+    # L43: a crash is a valid result, and it reads as a failure
+    report = _report(_result(Severity.CRITICAL, passed=False, errored=True))
+    assert report.all_critical_passed is False
+
+
+def test_all_critical_passed_is_serialized() -> None:
+    # L102: the verdict crosses the wire, and the response schema declares it
+    report = _report(_result(Severity.CRITICAL, passed=False))
+    assert report.model_dump(mode="json")["all_critical_passed"] is False
+    schema = EvalReport.model_json_schema(mode="serialization")
+    assert schema["properties"]["all_critical_passed"]["type"] == "boolean"
+
+
+def test_judge_usage_defaults_to_zero() -> None:
+    assert _report().judge_usage == TokenUsage()

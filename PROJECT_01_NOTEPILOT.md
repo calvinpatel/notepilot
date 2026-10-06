@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.8** (patch — Phase 1 close, October 2026).
-Supersedes v1.3.7.
+**Spec version: v1.3.9** (patch — the verdict is on the wire, October 2026).
+Supersedes v1.3.8.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -256,7 +256,7 @@ system is a more senior thing to say than "one model, six jobs.")
 
 ```python
 from datetime import datetime
-from pydantic import model_validator
+from pydantic import computed_field, model_validator
 
 class Severity(str, Enum):
     CRITICAL = "critical"    # patient-harm potential
@@ -305,7 +305,8 @@ class EvalReport(BaseModel):
     def critical_results(self) -> list[EvalResult]:
         return [r for r in self.results if r.severity is Severity.CRITICAL]
 
-    @property
+    @computed_field                         # L102: serialized, so the verdict crosses the
+    @property                               #   wire with the results it summarizes (§9.3)
     def all_critical_passed(self) -> bool:
         crits = self.critical_results
         return bool(crits) and all(r.passed for r in crits)
@@ -1903,6 +1904,10 @@ D2 made half of that false and v1.2 says the true version.)
 
 `SOAPNote` + `EvalReport` are Pydantic models already written in §4 → FastAPI serializes
 them, validates the outgoing shape, and generates live OpenAPI docs **for free.**
+
+The verdict travels with them (L102). `all_critical_passed` is a computed field, so it is in
+the body and in the OpenAPI schema. A consumer that recomputed it from `results` could drop
+the vacuous-truth guard (invariant 12); the page and the phase-3 UI read it instead.
 
 ### 9.4 Error translation at the HTTP boundary
 
