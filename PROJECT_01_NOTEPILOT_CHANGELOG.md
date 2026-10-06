@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,24 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.11 — layer-internal shapes are sanctioned (patch)
+
+Theme: one conflict found while prototyping phase 2a's step 1. No invariant moves;
+CLAUDE.md is unchanged.
+
+**INFO**
+- **L104 §13, §6.2, §5.2 — layer-internal shapes are sanctioned.** Conflict: §13
+  sanctioned two kinds of shape outside `schemas.py`, HTTP edge shapes and check-internal
+  ones, and called anything else drift. §6.2 defines `NormalizedText` for the ladder and
+  §5.2 the orchestrator's `SamplingBody` and `CallConfig`, which `orchestrator.py` already
+  holds; none is either kind. §6.2 and §5.2 win. None of these shapes crosses a layer
+  boundary, and `NormalizedText` in `schemas.py` would put normalization, which decides a
+  claim's tier, outside the files `checks_version` hashes (§8.7). §13's check-internal
+  exception becomes layer-internal and names all four, so the count stays two and
+  CLAUDE.md's sentence on the sanctioned exceptions stays true.
 
 ---
 

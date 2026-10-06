@@ -1,4 +1,5 @@
-"""Env setup that must run before any test imports backend, and the async-backend pin.
+"""Env setup that must run before any test imports backend, the hypothesis profile, and
+the async-backend pin.
 
 Settings is built at import time (spec §10).
 """
@@ -6,11 +7,19 @@ Settings is built at import time (spec §10).
 import os
 
 import pytest
+from hypothesis import settings
 
 # config.py skips .env when this is set, so local and CI test runs see identical settings
 os.environ["NOTEPILOT_IGNORE_DOTENV"] = "1"
 # assignment, not setdefault: a key exported in your shell must never reach tests
 os.environ["ANTHROPIC_API_KEY"] = "test-dummy-key"
+
+
+# The free tier is deterministic (spec §11, invariant 20). Hypothesis loads its own "ci"
+# profile on GitHub Actions and a randomized one elsewhere; this one loads everywhere, so
+# local runs and CI draw the same examples, with no wall-clock deadline to flake on.
+settings.register_profile("deterministic", derandomize=True, deadline=None)
+settings.load_profile("deterministic")
 
 
 # Pins the anyio plugin's backend to asyncio.

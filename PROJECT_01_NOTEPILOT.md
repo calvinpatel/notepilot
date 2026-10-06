@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.10** (patch — a misspelled case key is a load error, October 2026).
-Supersedes v1.3.9.
+**Spec version: v1.3.11** (patch — layer-internal shapes are sanctioned, October 2026).
+Supersedes v1.3.10.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2421,8 +2421,10 @@ phase 3 (D3). Each module lands in the phase whose exit criteria need it (§14),
 
 **Shapes outside `schemas.py` — two sanctioned exceptions, nothing else.** New pipeline data
 shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`) live
-in `api.py`. Check-internal shapes (`Finding`, `Check`) live in `evals/registry.py` and never
-cross a layer boundary. Anything else outside `schemas.py` is drift.
+in `api.py`. Layer-internal shapes never cross a layer boundary and live in the layer that
+uses them (L104): `Finding` and `Check` in `evals/registry.py`, `NormalizedText` in
+`grounding.py` (§6.2), and the orchestrator's `SamplingBody` and `CallConfig` (§5.2).
+Anything else outside `schemas.py` is drift.
 
 ---
 
