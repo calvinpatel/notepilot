@@ -1,7 +1,12 @@
-"""Pins NormalizedText and its index map (spec §6.2, §6.5, §11; L26, L62)."""
+"""Pins NormalizedText, its index map, and rapidfuzz's alignment coordinates.
 
+Spec §6.2, §6.3, §6.5, §11; L26, L27, L62.
+"""
+
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from rapidfuzz import fuzz
 
 from backend.grounding import PUNCT_MAP, NormalizedText
 
@@ -97,3 +102,20 @@ def test_to_original_covers_exactly_the_slice(data: st.DataObject) -> None:
     assert NormalizedText.of(text[start:end]).text == "".join(
         c for c, i in zip(norm.text, norm.index_map, strict=True) if start <= i < end
     )
+
+
+# --- the rapidfuzz coordinate pin (§6.3; L27) -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("pt denies cp or sob today", "denies cp"), ("denies cp", "pt denies cp or sob today")],
+    ids=["first-longer", "second-longer"],
+)
+def test_alignment_src_indexes_the_first_argument(first: str, second: str) -> None:
+    # L27: §6.3 aligns with partial_ratio_alignment(norm.text, nq) and maps src_start and
+    # src_end through to_original, so they must index the first argument, whichever is longer
+    align = fuzz.partial_ratio_alignment(first, second)
+    assert align is not None
+    assert first[align.src_start : align.src_end] == "denies cp"
+    assert second[align.dest_start : align.dest_end] == "denies cp"
