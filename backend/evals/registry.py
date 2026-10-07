@@ -8,8 +8,9 @@ names (L38).
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, overload
 
+from backend.evals.judge import Judge
 from backend.schemas import EvalCase, EvalResult, Severity, SOAPNote
 
 # who creates the danger: the model, or the source text (§8.5, L42)
@@ -28,9 +29,23 @@ class Finding:
     severity: Severity | None = None  # None = the check's; a downgrade only (L38)
 
 
+# What a check returns: its findings, or an awaitable of them (§8.7)
+type CheckOutput = list[Finding] | Awaitable[list[Finding]]
+
 # A check's signature (§8.4). register_check's decorator is bound by it, so mypy checks a
 # decorated check's parameters and return; Check.fn keeps §8.7's looser type.
-type CheckFn = Callable[[SOAPNote, str, EvalCase | None], list[Finding] | Awaitable[list[Finding]]]
+type CheckFn = Callable[[SOAPNote, str, EvalCase | None], CheckOutput]
+
+
+class JudgedCheckFn(Protocol):
+    """A judged check's signature: CheckFn's, plus a required keyword judge (§8.7).
+
+    A Protocol, because Callable can't spell a keyword-only parameter.
+    """
+
+    def __call__(
+        self, note: SOAPNote, raw_text: str, case: EvalCase | None, /, *, judge: Judge
+    ) -> CheckOutput: ...
 
 
 @dataclass(frozen=True)
@@ -39,7 +54,7 @@ class Check:
 
     name: str
     severity: Severity
-    fn: Callable[..., list[Finding] | Awaitable[list[Finding]]]
+    fn: Callable[..., CheckOutput]
     requires_reference: bool
     needs_judge: bool
     origin: Origin
@@ -48,7 +63,25 @@ class Check:
 REGISTRY: dict[str, Check] = {}
 
 
+@overload
 def register_check[F: CheckFn](
+    *,
+    name: str,
+    severity: Severity,
+    requires_reference: bool = ...,
+    needs_judge: Literal[False] = ...,
+    origin: Origin = ...,
+) -> Callable[[F], F]: ...
+@overload
+def register_check[F: JudgedCheckFn](
+    *,
+    name: str,
+    severity: Severity,
+    requires_reference: bool = ...,
+    needs_judge: Literal[True],
+    origin: Origin = ...,
+) -> Callable[[F], F]: ...
+def register_check[F: Callable[..., CheckOutput]](
     *,
     name: str,
     severity: Severity,
@@ -56,6 +89,12 @@ def register_check[F: CheckFn](
     needs_judge: bool = False,
     origin: Origin = "model",
 ) -> Callable[[F], F]:
+    """Record the decorated check under name, once.
+
+    The overloads tie needs_judge to the signature: True takes a JudgedCheckFn, the default
+    a CheckFn, so mypy rejects a flag the parameters don't match.
+    """
+
     def deco(fn: F) -> F:
         if name in REGISTRY:
             raise RuntimeError(f"duplicate check name: {name}")

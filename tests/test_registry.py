@@ -1,4 +1,4 @@
-"""Pins the check registry and stamp (spec §8.7; L38, L42)."""
+"""Pins the check registry and stamp (spec §8.7; L38, L42, L111)."""
 
 import inspect
 from collections.abc import Iterator
@@ -6,6 +6,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from backend.evals.judge import Judge
 from backend.evals.registry import REGISTRY, Check, Finding, register_check, stamp
 from backend.schemas import EvalCase, EvalResult, Severity, SOAPNote
 
@@ -30,6 +31,12 @@ def _clean(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[
 
 
 def _other(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+    return []
+
+
+def _judged(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+) -> list[Finding]:
     return []
 
 
@@ -59,7 +66,7 @@ def test_register_check_records_each_option_on_its_own_field(
     registry: dict[str, Check],
 ) -> None:
     register_check(name="reference", severity=_W, requires_reference=True)(_clean)
-    register_check(name="judged", severity=_W, needs_judge=True)(_clean)
+    register_check(name="judged", severity=_W, needs_judge=True)(_judged)
     register_check(name="source", severity=_W, origin="source")(_clean)
     options = {n: (c.requires_reference, c.needs_judge, c.origin) for n, c in registry.items()}
     assert options == {
@@ -99,6 +106,30 @@ def test_register_check_types_a_checks_signature(registry: dict[str, Check]) -> 
     # nothing checks a signature at runtime: all three register
     assert set(registry) == {"sync", "async", "swapped"}
     assert inspect.iscoroutinefunction(registry["async"].fn)
+
+
+def test_register_check_ties_needs_judge_to_the_signature(registry: dict[str, Check]) -> None:
+    # needs_judge=True takes a check with a required keyword judge, and the default takes one
+    # without. Each ignore below is mypy's assertion, as in the test above.
+    @register_check(name="judged", severity=_W, needs_judge=True)
+    async def judged_check(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+    ) -> list[Finding]:
+        return []
+
+    @register_check(name="flag-only", severity=_W, needs_judge=True)  # type: ignore[type-var]
+    def flag_only(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+        return []
+
+    @register_check(name="judge-only", severity=_W)  # type: ignore[type-var]
+    async def judge_only(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+    ) -> list[Finding]:
+        return []
+
+    # at runtime the flag is recorded as given, whatever the signature
+    needs_judge = {n: c.needs_judge for n, c in registry.items()}
+    assert needs_judge == {"judged": True, "flag-only": True, "judge-only": False}
 
 
 def test_a_finding_rejects_attribute_assignment() -> None:

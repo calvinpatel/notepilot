@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.14** (patch — the ladder as built, October 2026).
-Supersedes v1.3.13.
+**Spec version: v1.3.15** (patch — the Judge protocol lands in 2a, October 2026).
+Supersedes v1.3.14.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2431,7 +2431,7 @@ notepilot/
 │   │   └── lexicons.py     ← imports nothing; severities as plain strings (§7)
 │   ├── evals/              ← DOMAIN
 │   │   ├── registry.py     ← Check + Finding (check-internal, sanctioned) · @register_check · stamp
-│   │   ├── judge.py        ← the Judge protocol — a domain interface (phase 2c)
+│   │   ├── judge.py        ← the Judge protocol — a domain interface (phase 2a, L111)
 │   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · drug_mentions / span_text
 │   │   ├── runner.py       ← run_checks · case_verdict · corpus_metrics · score_corpus · CHECKS_VERSION
 │   │   ├── loader.py       ← YAML → EvalCase; validates expected_flags; corpus_version()
@@ -2541,7 +2541,8 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
   rationale and Cal's sign-off
 □ registry: dict, rejects duplicates · origin · stamp() enforces downgrade-only (L38)
 □ EvalResult.errored (L43) · EvalReport.checks_run + checks_version (L44, L45)
-□ run_checks: async, fail-closed, judge as a parameter · all_critical_passed guard
+□ run_checks: async, fail-closed, judge as a parameter typed by evals/judge.py's Judge
+  protocol (L111) · all_critical_passed guard
 □ every reference-free check on the §8.4 roster except the judge, comparing against the
   span (L35) · the contraindication with L51 + L37
 □ omission law: a docstring + a test per row of the §8.4 omission table (D17)
@@ -2569,7 +2570,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 ### Phase 2c — the semantic backstop · `v0.2c-judge`
 
 ```
-□ evals/judge.py (Protocol) · judge_client.py (edge): one batched call (L40),
+□ judge_client.py (edge), implementing 2a's Judge protocol (L111): one batched call (L40),
   temperature=0, judge_timeout_s (L54)
 □ text_entailment_judge (D8): WARNING, needs_judge
 □ judge usage → EvalReport.judge_usage → CorpusRunRecord.judge_usage (L7)

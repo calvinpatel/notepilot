@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,22 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.15 — the Judge protocol lands in 2a (patch)
+
+Theme: one conflict, approved while planning phase 2a; it lands with the protocol, in step
+2b-i. No invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L111 §8.7, §13, §14 — the Judge protocol lands in 2a.** Conflict: §8.7's `run_checks`
+  takes `judge: Judge | None`, and §14 lands `run_checks` in 2a, but §13 marked
+  `evals/judge.py` as phase 2c and §14 listed it in 2c's block. Typing the parameter
+  `None` in 2a would mean changing its signature, and every caller's, in 2c: the cost
+  §14's preamble avoids by landing `run_checks` async in 2a. §8.7 wins: the protocol lands
+  in 2a, ahead of `run_checks`. `judge_client.py`, the judge check, and real judge usage
+  stay 2c.
 
 ---
 
