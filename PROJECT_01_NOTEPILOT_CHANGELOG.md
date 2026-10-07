@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,42 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.18 — case_verdict as built (patch)
+
+Theme: one conflict approved while planning phase 2a, and one found while prototyping its
+step 2c-i; both land with `case_verdict` there, and the loader follows in 2c-ii. No
+invariant's law changes: CLAUDE.md's phase list moves the loader and `case_verdict` to 2a,
+and invariant 12 lists L117 among the law's roads.
+
+**WARNING**
+- **L117 §8.7, §4.2, §11, §14 — a case scored on a report that ran no check is
+  `not_applicable`.** Conflict: §8.7's `case_verdict` passed a control or fidelity case
+  whose report ran nothing (measured: `passed`, while the same report's
+  `all_critical_passed` is False), since its empty answer key is a subset of anything.
+  Invariant 12 says "not checked" never renders as "passed" and a metric over an empty
+  denominator is `None` (§4.2), and a control passed on nothing would feed
+  `control_specificity` a perfect score for measuring nothing. An empty roster gets there:
+  drop `runner.py`'s import of `checks.py`, and every detection trap goes `not_applicable`
+  while every control reads `passed`. Invariant 12 wins: `case_verdict` returns
+  `not_applicable` first when `checks_run` is empty, whatever the species. §8.7's snippet
+  and verdict table carry it; §4.2's `CaseResult.status` comment, §11's fail-closed tests,
+  and §14's 2a line name it beside L44; invariant 12 in CLAUDE.md lists it. A run that
+  selected checks but no CRITICAL one stays out of scope: the coverage rule (§8.5)
+  guarantees CRITICAL checks.
+
+**INFO**
+- **L116 §14, §11, §8.5 — the injected corpus needs the loader and `case_verdict`.**
+  Conflict: §14's 2a block requires the injected corpus green in pytest, and §11 defines
+  that tier as ground, `run_checks`, and `case_verdict` over §8.5's YAML cases, but §14
+  listed the loader and `case_verdict` in 2b's block, as did CLAUDE.md's phase list. 2a
+  could then score its corpus only with a second, hand-rolled verdict in test code, which
+  drifts from the real one (invariant 11), or with Python fixtures in place of §8.5's
+  YAML. §11 and §8.5 win: the loader, without `corpus_version`, and `case_verdict` move to
+  2a; 2b keeps `corpus_version`, `score_corpus`, the metrics, the records, and the model
+  cases. CLAUDE.md's phase list moves with them.
 
 ---
 

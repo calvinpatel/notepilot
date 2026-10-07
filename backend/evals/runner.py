@@ -1,8 +1,10 @@
-"""The check engine and the checks' lineage (spec §8.7).
+"""The check engine, the per-case verdict, and the checks' lineage (spec §8.7).
 
 run_checks runs the selected checks on one note. It fails closed per check (invariant 12): a
 check that raises, returns a finding above its severity (L38), or names a claim the note
 lacks (L115) becomes one errored result, logged in L69's form (L113), and the rest still run.
+
+case_verdict scores one case's report against the case's answer key (invariant 11).
 
 CHECKS_VERSION hashes the source that decides verdicts, so a corpus run records which checks
 judged it (L45, L114).
@@ -17,7 +19,14 @@ from typing import Final, Literal
 
 from backend.evals.judge import Judge
 from backend.evals.registry import REGISTRY, stamp
-from backend.schemas import EvalCase, EvalReport, EvalResult, SOAPNote, TokenUsage
+from backend.schemas import (
+    CaseStatus,
+    EvalCase,
+    EvalReport,
+    EvalResult,
+    SOAPNote,
+    TokenUsage,
+)
 from backend.tracebacks import format_frames
 
 logger = logging.getLogger(__name__)
@@ -105,3 +114,23 @@ async def run_checks(
         checks_version=CHECKS_VERSION,
         judge_usage=judge.usage if judge is not None else TokenUsage(),
     )
+
+
+def case_verdict(report: EvalReport, case: EvalCase) -> CaseStatus:
+    """The case's status against its answer key, its expected_flags (§8.7; invariant 11).
+
+    not_applicable when no check ran (L117) or an expected check didn't run (L44). Otherwise
+    failed when an expected check errored or any CRITICAL errored (L43); passed when every
+    expected check fired and every CRITICAL that fired was expected; else failed.
+    CRITICAL-scoped on purpose: an unexpected WARNING doesn't fail a case.
+    """
+    expected = set(case.expected_flags)
+    # L117: a run that checked nothing scores no case; L44: nor one an expected check missed
+    if not report.checks_run or not expected <= report.checks_run:
+        return "not_applicable"
+    errored = {r.check for r in report.results if r.errored}
+    if errored & expected or any(r.errored for r in report.critical_results):
+        return "failed"
+    fired = {r.check for r in report.results if not r.passed and not r.errored}
+    fired_critical = {r.check for r in report.critical_results if not r.passed and not r.errored}
+    return "passed" if expected <= fired and fired_critical <= expected else "failed"

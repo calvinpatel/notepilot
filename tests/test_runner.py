@@ -1,4 +1,6 @@
-"""Pins the check engine and its lineage (spec §8.7; L38, L43–L45, L49, L113–L115)."""
+"""Pins the check engine, the per-case verdict, and the checks' lineage (spec §8.7; L38,
+L43–L45, L49, L113–L115).
+"""
 
 import asyncio
 import logging
@@ -9,10 +11,12 @@ import pytest
 
 from backend.evals.judge import Judge
 from backend.evals.registry import Check, Finding, register_check
-from backend.evals.runner import CHECKS_VERSION, checks_version, run_checks
+from backend.evals.runner import CHECKS_VERSION, case_verdict, checks_version, run_checks
 from backend.schemas import (
+    CaseStatus,
     ClinicalClaim,
     EvalCase,
+    EvalReport,
     EvalResult,
     Severity,
     SOAPNote,
@@ -282,3 +286,92 @@ def test_checks_version_moves_when_a_file_moves(tmp_path: Path) -> None:
     one = checks_version(_tree(tmp_path / "one", {**_BASE, "evals/one/check.py": "same"}))
     two = checks_version(_tree(tmp_path / "two", {**_BASE, "evals/two/check.py": "same"}))
     assert one != two
+
+
+# --- case_verdict (L43, L44) --------------------------------------------------
+
+
+def _detection(*expected: str) -> EvalCase:
+    return EvalCase(
+        id="trap-1",
+        species="detection",
+        raw_text=RAW,
+        trap="planted",
+        expected_flags=list(expected),
+    )
+
+
+def _fidelity() -> EvalCase:
+    return EvalCase(id="fidelity-1", species="fidelity", raw_text=RAW, trap="dropped")
+
+
+def _fired(check: str, severity: Severity) -> EvalResult:
+    return EvalResult(check=check, severity=severity, passed=False, detail="detail-1")
+
+
+def _clean_result(check: str, severity: Severity) -> EvalResult:
+    return EvalResult(check=check, severity=severity, passed=True)
+
+
+def _report(results: list[EvalResult], ran: set[str] | None = None) -> EvalReport:
+    """checks_run defaults to the checks the results name, as run_checks reports it."""
+    checks_run = frozenset(ran if ran is not None else {r.check for r in results})
+    return EvalReport(results=results, checks_run=checks_run, checks_version="version-1")
+
+
+# §8.7's verdict table, row by row, then the edges its prose states
+@pytest.mark.parametrize(
+    ("case", "report", "status"),
+    [
+        (_detection("contra"), _report([_fired("contra", _C)]), "passed"),
+        (_detection("contra"), _report([_clean_result("contra", _C)]), "failed"),
+        (_detection("contra"), _report([_errored("contra", _C)]), "failed"),
+        (_detection("judge"), _report([_fired("other", _C)], ran={"other"}), "not_applicable"),
+        (_fidelity(), _report([_clean_result("allergy", _C)]), "passed"),
+        (_fidelity(), _report([_fired("allergy", _C)]), "failed"),
+        (_case(), _report([_fired("dose", _W)]), "passed"),
+        (_case(), _report([_fired("drug", _C)]), "failed"),
+        (_detection("judge"), _report([_errored("judge", _W)]), "failed"),
+        (_case(), _report([_errored("drug", _C)]), "failed"),
+        (_case(), _report([_errored("judge", _W)]), "passed"),
+        (_detection("contra"), _report([_fired("contra", _W)]), "passed"),
+        (
+            _detection("contra", "drug"),
+            _report([_fired("contra", _C), _clean_result("drug", _C)]),
+            "failed",
+        ),
+        (_detection("contra"), _report([_fired("contra", _C), _fired("drug", _C)]), "failed"),
+    ],
+    ids=[
+        "detection-fired",  # the v1.1 inversion: a fired expected flag is a pass
+        "detection-silent",
+        "detection-errored",  # L43: v1.2 scored this green
+        "detection-not-selected",  # L44
+        "fidelity-silent",
+        "fidelity-fired",
+        "control-fired-warning",  # the verdict is CRITICAL-scoped
+        "control-fired-critical",  # a false positive
+        "detection-errored-warning",  # L43: an error never satisfies an expectation
+        "control-errored-critical",  # L43: a crashed CRITICAL never passes a case
+        "control-errored-warning",  # a judge outage doesn't fail a case
+        "detection-fired-downgraded",  # an expected check fires at any severity
+        "detection-one-of-two",
+        "detection-plus-unexpected-critical",
+    ],
+)
+def test_case_verdict(case: EvalCase, report: EvalReport, status: CaseStatus) -> None:
+    assert case_verdict(report, case) == status
+
+
+@pytest.mark.parametrize(
+    "case", [_case(), _fidelity(), _detection("contra")], ids=lambda c: c.species
+)
+def test_a_report_that_ran_no_check_scores_no_case(case: EvalCase) -> None:
+    # L117: a control or fidelity case would otherwise pass on nothing (invariant 12)
+    assert case_verdict(_report([], ran=set()), case) == "not_applicable"
+
+
+def test_not_applicable_comes_before_any_failure() -> None:
+    # L44: an expected check that didn't run excludes the case, whatever else happened
+    report = _report([_fired("drug", _C), _errored("dose", _C)], ran={"drug", "dose"})
+    assert case_verdict(report, _detection("judge")) == "not_applicable"

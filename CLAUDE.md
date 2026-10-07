@@ -102,7 +102,8 @@ asked.
     `EvalResult(passed=False, errored=True)` — never a skipped check, never a 500, never
     a magic `detail` string. The same law, other roads: an empty note from clinical
     input is a WARNING, not green; "not checked" never renders as "passed"; a metric over
-    an empty denominator is `None`, not 1.0.
+    an empty denominator is `None`, not 1.0; a case scored on a report that ran no check is
+    `not_applicable`, never `passed` (L117).
 13. **`clinical/` imports nothing from the spine.** `extract.py` imports only
     `lexicons.py`; `lexicons.py` imports nothing (severities stored as plain strings).
     Extractors take plain strings and return multi-valued results; the checks run the
@@ -167,9 +168,9 @@ Build order is spec §14 and it is strictly sequential:
 
 1. **MVP spine** — paste → route → LLM tool call → draft → display
 2. **2a — the safety layer, proven for free** — grounding, extraction, the reference-free
-   roster, the injected corpus
-3. **2b — the regression thesis goes live** — model corpus, `case_verdict`, repeats,
-   lineage, the four metrics
+   roster, the injected corpus with its loader and `case_verdict`
+3. **2b — the regression thesis goes live** — model corpus, repeats, lineage, the
+   four metrics
 4. **2c — the semantic backstop** — the entailment judge
 5. **3 — full-stack real** — Postgres, React UI, deploy
 6. **4 — RAG deepening** — designed in spec v1.4 before any code

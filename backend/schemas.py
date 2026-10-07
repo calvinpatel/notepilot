@@ -196,3 +196,8 @@ class EvalCase(BaseModel):
         if self.species == "fidelity" and self.draft is not None:
             raise ValueError("a fidelity trap tests the MODEL; it cannot inject a draft")
         return self
+
+
+# --- corpus run lineage (§4.2) ------------------------------------------------
+
+CaseStatus = Literal["passed", "failed", "not_applicable"]  # case_verdict's answer (L44)

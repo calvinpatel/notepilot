@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.17** (patch — the engine as built, October 2026).
-Supersedes v1.3.16.
+**Spec version: v1.3.18** (patch — case_verdict as built, October 2026).
+Supersedes v1.3.17.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -395,7 +395,8 @@ class CaseResult(BaseModel):                # ONE (case, repeat) pair
     repeat: int                             # D11: 0 … corpus_repeats-1
     species: Species
     status: CaseStatus                      # v1.3 (L44): not_applicable = an expected check
-                                            #   wasn't selected this run (e.g. judge off)
+                                            #   wasn't selected this run (e.g. judge off), or
+                                            #   (L117) no check ran at all
     fired_checks: list[str]                 # fired (passed=False) and NOT errored
     missing_expected: list[str]             # expected_flags that did NOT fire
     unexpected_fired: list[str]             # fired but not expected, ALL severities — a
@@ -1704,6 +1705,9 @@ couldn't express, and renames `case_passed` because the answer is no longer a bo
 
 ```python
 def case_verdict(report: EvalReport, case: EvalCase) -> CaseStatus:
+    if not report.checks_run:
+        return "not_applicable"           # L117: a run that checked nothing scores no case,
+                                          #   not even a control (invariant 12)
     expected = set(case.expected_flags)
     if not expected <= report.checks_run:
         return "not_applicable"           # L44: an expected check didn't RUN (judge off) —
@@ -1740,6 +1744,7 @@ detection   {contra}   fired {contra}                   PASSED    FAIL  ← the 
 detection   {contra}   fired {}                         FAILED    PASS
 detection   {contra}   errored {contra}                 FAILED    FAIL  (v1.2's verdict: PASS, L43)
 detection   {judge}    judge not selected               N/A       —     ← L44
+control     {}         no check ran                     N/A       FAIL  ← L117
 fidelity    {}         fired {}                         PASSED    PASS
 fidelity    {}         fired {allergy_preserved}        FAILED    FAIL
 control     {}         fired {dose_consistency} (W)     PASSED*   PASS
@@ -2382,7 +2387,8 @@ in the push workflow — it spends real money.
   registered; the §8.5 coverage rule holds.
 - **Fail-closed engine** — a raising check yields `errored=True, passed=False` and the others
   still run; a severity-upgrading finding errors its check (L38); an errored expected check
-  fails its case (L43); a check absent from `checks_run` makes its case N/A (L44).
+  fails its case (L43); a check absent from `checks_run` makes its case N/A (L44), and so
+  does a report that ran no check (L117).
 - **Omission law (D17)** — for each row of the §8.4 omission table, a test that omits the
   input and asserts the stated behavior.
 - **Frozen spine** — assigning to or appending to a `ClinicalClaim`'s fields raises (L6).
@@ -2562,6 +2568,9 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 □ every reference-free check on the §8.4 roster except the judge, comparing against the
   span (L35) · the contraindication with L51 + L37
 □ omission law: a docstring + a test per row of the §8.4 omission table (D17)
+□ loader: YAML → EvalCase, expected_flags validated (L116)
+□ case_verdict unit-tested: the v1.1 inversion · errored never satisfies (L43) · N/A (L44)
+  · a report that ran no check is N/A too (L117)
 □ injected corpus satisfies the coverage rule (L42) · green in pytest
 □ route returns SOAPNote + EvalReport (production mode) · still no DB
 ```
@@ -2574,8 +2583,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 □ one planted danger per trap (D16), enforced in review
 □ typed must_not_add, polarity-aware reference checks (L10, L36) · must_preserve /
   must_not_add registered with requires_reference
-□ loader: YAML → EvalCase, expected_flags validated · corpus_version
-□ case_verdict unit-tested: the v1.1 inversion · errored never satisfies (L43) · N/A (L44)
+□ corpus_version, over the cases 2a's loader reads (L116)
 □ score_corpus: concurrency · per-case catch parity + all-failed runs recorded (L46) ·
   k repeats + flaky_cases (D11) · failed-attempt usage counted (L49)
 □ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · CorpusMetrics (L3)
