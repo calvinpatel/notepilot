@@ -1,29 +1,15 @@
 """Pins the check registry and stamp (spec §8.7; L38, L42, L111)."""
 
 import inspect
-from collections.abc import Iterator
 from dataclasses import FrozenInstanceError
 
 import pytest
 
 from backend.evals.judge import Judge
-from backend.evals.registry import REGISTRY, Check, Finding, register_check, stamp
+from backend.evals.registry import Check, Finding, register_check, stamp
 from backend.schemas import EvalCase, EvalResult, Severity, SOAPNote
 
 _C, _W, _I = Severity.CRITICAL, Severity.WARNING, Severity.INFO
-
-
-@pytest.fixture
-def registry() -> Iterator[dict[str, Check]]:
-    """REGISTRY, emptied for the test and restored after it.
-
-    In place, not rebound: a module that imported REGISTRY by name holds this same dict.
-    """
-    saved = dict(REGISTRY)
-    REGISTRY.clear()
-    yield REGISTRY
-    REGISTRY.clear()
-    REGISTRY.update(saved)
 
 
 def _clean(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:

@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.16** (patch — L69's frames leave api.py, October 2026).
-Supersedes v1.3.15.
+**Spec version: v1.3.17** (patch — the engine as built, October 2026).
+Supersedes v1.3.16.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1662,18 +1662,24 @@ async def run_checks(note: SOAPNote, raw_text: str, case: EvalCase | None = None
     selected = [c for c in REGISTRY.values()
                 if (mode == "ci" or not c.requires_reference)
                 and (not c.needs_judge or judge is not None)]    # v1.3 (L49): a parameter,
-    results: list[EvalResult] = []                               #   not a global read
+    claim_ids = {c.id for c in note.claims}                      #   not a global read
+    results: list[EvalResult] = []
     for check in selected:
         try:
             out = (check.fn(note, raw_text, case, judge=judge) if check.needs_judge
                    else check.fn(note, raw_text, case))
             findings = await out if inspect.isawaitable(out) else out
             stamped = [stamp(check, f) for f in findings]        # a bad finding = a bad check
-        except Exception:
-            # A crashed check is NOT a passed check and NOT a 500 (invariant 12). Logged by
-            # NAME, never the note's content (L53). CancelledError is a BaseException and
-            # correctly passes through.
-            logger.exception("check %s crashed", check.name)
+            # L115: a finding naming a claim the note lacks would render nowhere
+            if any(i not in claim_ids for r in stamped for i in r.claim_ids):
+                raise ValueError(f"{check.name}: a finding names a claim the note lacks")
+        except Exception as exc:
+            # A crashed check is NOT a passed check and NOT a 500 (invariant 12). Logged in
+            # L69's form, by NAME and structure: the message and exc_info can carry the
+            # note's content (L53, L113). CancelledError is a BaseException and correctly
+            # passes through.
+            logger.error("check_crashed code=check_errored check=%s exc_type=%s frames=%s",
+                         check.name, type(exc).__name__, format_frames(exc))
             results.append(EvalResult(check=check.name, severity=check.severity,
                                       passed=False, errored=True, detail="check errored"))
             continue
@@ -1788,8 +1794,10 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
                 report = await run_checks(note, case.raw_text, case, mode="ci", judge=judge)
             except OrchestratorError as e:
                 return errored_case(case, repeat, e.code), e.usage, TokenUsage()
-            except Exception as e:                      # v1.3 (L46): parity with run_checks —
-                logger.exception("case %s crashed", case.id)   # an APIError under the
+            except Exception as e:     # v1.3 (L46): parity with run_checks — an APIError on
+                logger.error(          #   one case can't escape gather and discard the rest
+                    "case_crashed code=case_errored case=%s exc_type=%s frames=%s",
+                    case.id, type(e).__name__, format_frames(e))         # L113: L69's form
                 return errored_case(case, repeat, type(e).__name__), TokenUsage(), TokenUsage()
         return (case_result(case, repeat, report),      # status via case_verdict()
                 result.metadata.usage, report.judge_usage)
@@ -1822,9 +1830,13 @@ other 23; and a run where every case failed still writes its record, because lin
 longer depends on a successful call.
 
 `CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`, and
-`grounding.py`, computed at import — derived like every other version (invariant 15). v1.2
-hashed the model, the prompt, and the corpus but not the checks: editing a lexicon changed
-verdicts with every lineage field unchanged.
+`grounding.py`, computed at import — derived like every other version (invariant 15).
+Source is the `.py` files: the case YAMLs have `corpus_version`, and
+`runs/corpus_runs.jsonl` changes with every run. Each file enters with its path relative
+to `backend/` and its content's hash, sorted by path, so a moved or renamed file moves the
+version; twelve hex digits, as `prompt_version` (L114). v1.2 hashed the model, the prompt,
+and the corpus but not the checks: editing a lexicon changed verdicts with every lineage
+field unchanged.
 
 **DECISION D11 (v1.3, vetoable) — repeats.** `temperature=0` is not deterministic (§3), and
 at n = 24 with one run, a single flaky case moves a rate by ~4 points — noise that reads as a
@@ -2168,9 +2180,10 @@ channels and shipped a contract that could only express the first).
   message as `key=value` (L79): per-request id, model, latency, token counts, error *codes*. v1.3 (L53) makes one
   rule absolute: **raw text, note content, and exception messages that may carry them never
   reach a log line or an HTTP body.** Concretely: `OrchestratorError` is logged by `code`
-  without `exc_info`; checks log by check *name*; any stringified validation error uses
-  `errors(include_input=False)`; error bodies are `{error, request_id}` (§9.4); the 500
-  path logs exception type and frames, never the message or `exc_info` (L69).
+  without `exc_info`; any stringified validation error uses `errors(include_input=False)`;
+  error bodies are `{error, request_id}` (§9.4); the 500 path logs exception type and
+  frames, never the message or `exc_info` (L69), and a crashed check logs the same way, by
+  check *name* (L113).
   `persist_enabled=false` keeps the demo out of the database; this rule keeps it out of the
   hosting platform's log retention, which v1.2's "not a PHI sink" had forgotten.
   Structured/JSON logging → v2.

@@ -1,4 +1,5 @@
-"""The test side of the LLMClient seam (spec §5.5; L19, L74).
+"""The test sides of the domain's seams: the LLMClient (spec §5.5; L19, L74) and the Judge
+(§8.2; L17).
 
 FakeLLMClient satisfies LLMClient with a script. Each item is a real anthropic.types.Message
 to return, so the fake cannot drift from the wire format, or an exception to raise, so tests
@@ -12,11 +13,15 @@ forgotten script into a response a test could pass on.
 mypy checks a Protocol only where something is bound to it. In backend/, get_client's return
 annotation is the only binding of the real client, and nothing binds the fake. _sdk_binds and
 _fake_binds, never called, bind each side here so `mypy backend/ tests/` checks the whole seam.
+
+FakeJudge satisfies Judge with a fixed usage. Its entailment is unscripted: a call fails the
+test through pytest.fail, for the same reason as a call past FakeLLMClient's script.
+_fake_judge_binds binds it.
 """
 
 import copy
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 from anthropic import AsyncAnthropic
@@ -33,7 +38,9 @@ from anthropic.types import (
     Usage,
 )
 
+from backend.evals.judge import Judge
 from backend.orchestrator import SUMMARY_TOOL, LLMClient
+from backend.schemas import TokenUsage
 
 
 @dataclass(frozen=True)
@@ -162,3 +169,15 @@ def _sdk_binds(client: AsyncAnthropic) -> LLMClient:
 
 def _fake_binds(client: FakeLLMClient) -> LLMClient:
     return client
+
+
+@dataclass
+class FakeJudge:
+    usage: TokenUsage = field(default_factory=TokenUsage)
+
+    async def entailment(self, pairs: Sequence[tuple[str, str]]) -> list[bool]:
+        pytest.fail("FakeJudge.entailment is unscripted")
+
+
+def _fake_judge_binds(judge: FakeJudge) -> Judge:
+    return judge

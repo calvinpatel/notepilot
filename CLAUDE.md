@@ -113,10 +113,11 @@ asked.
     source; the span is the source. A Tier 1 exact match is not evidence the text is true.
 15. **Lineage is derived, never declared.** `prompt_version` = hash(system prompt + tool
     schema + correction template + call config); `corpus_version` = hash(cases dir);
-    `checks_version` = hash(`evals/` + `clinical/` + `grounding.py`); `settings.model` =
-    a pinned model id, never an alias (spec §5.5, L84 — dateless ids from the 4.6
-    generation on are pinned; never validate with a date regex); `git_dirty` recorded on
-    every corpus run. A hand-bumped version string is a lie waiting for someone to forget.
+    `checks_version` = hash(the `.py` files in `evals/` + `clinical/` + `grounding.py`,
+    L114); `settings.model` = a pinned model id, never an alias (spec §5.5, L84 —
+    dateless ids from the 4.6 generation on are pinned; never validate with a date
+    regex); `git_dirty` recorded on every corpus run. A hand-bumped version string is a
+    lie waiting for someone to forget.
 16. **Retry only when the next request differs from the last.** Validation error → the
     model sees its mistake → retry (`max_validation_retries`, §5.4). `max_tokens` or a
     missing block → identical request at `temperature=0` → fail fast. Transport retries
@@ -134,8 +135,9 @@ asked.
 19. **PHI never leaves through the side doors.** Raw text, note content, and exception
     messages that may carry them never reach a log line or an HTTP body. Error bodies are
     `{error, request_id}`; `OrchestratorError` is logged by `code` without `exc_info`;
-    checks log by name; validation errors are stringified with `include_input=False`
-    (spec §9.4, §9.8). This is the runtime twin of "zero PHI in the repo."
+    a crashed check logs its name, type, and frames, never its message or `exc_info`
+    (L113); validation errors are stringified with `include_input=False` (spec §9.4,
+    §9.8). This is the runtime twin of "zero PHI in the repo."
 20. **A test's tier is decided by what's stochastic in its path.** Injected cases
     (`EvalCase.draft` set) are deterministic and run free on every commit; model cases
     are paid. A danger the *model* creates (a fabrication, a flip) is tested by injecting

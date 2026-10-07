@@ -1,13 +1,18 @@
-"""Env setup that must run before any test imports backend, the hypothesis profile, and
-the async-backend pin.
+"""Env setup that must run before any test imports backend, the hypothesis profile, the
+async-backend pin, and the registry fixture.
 
 Settings is built at import time (spec §10).
 """
 
 import os
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 from hypothesis import settings
+
+if TYPE_CHECKING:
+    from backend.evals.registry import Check
 
 # config.py skips .env when this is set, so local and CI test runs see identical settings
 os.environ["NOTEPILOT_IGNORE_DOTENV"] = "1"
@@ -35,3 +40,19 @@ settings.load_profile("deterministic")
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture
+def registry() -> Iterator[dict[str, Check]]:
+    """REGISTRY, emptied for the test and restored after it.
+
+    In place, not rebound: a module that imported REGISTRY by name holds this same dict.
+    Imported here, not at the top, so the env setup above runs before any backend import.
+    """
+    from backend.evals.registry import REGISTRY
+
+    saved = dict(REGISTRY)
+    REGISTRY.clear()
+    yield REGISTRY
+    REGISTRY.clear()
+    REGISTRY.update(saved)
