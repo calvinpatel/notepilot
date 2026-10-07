@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.15** (patch — the Judge protocol lands in 2a, October 2026).
-Supersedes v1.3.14.
+**Spec version: v1.3.16** (patch — L69's frames leave api.py, October 2026).
+Supersedes v1.3.15.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2004,14 +2004,16 @@ above, and each names its test.
   former "logged in full" cell. The 500 path logs `code="internal_error"`, `request_id`,
   `exc_type=type(exc).__name__`, and frames as `file:line:function` from
   `traceback.extract_tb` — never `exc_info`, `str(exc)`, or a chained cause. Frames carry
-  no PHI; messages can (a chained `ValidationError` carries `input_value`). It is a
-  catch-all **middleware** running inside the request-id middleware, not
-  `@app.exception_handler(Exception)`: Starlette's `ServerErrorMiddleware` calls that
-  handler and then re-raises for the server to log, so uvicorn prints the full traceback
-  anyway. The specific handlers (`ModelOutputError`, the SDK errors) stay
-  `exception_handler`s. *Test:* a route raising an exception whose message is a sentinel →
-  500 `{error, request_id}`; the sentinel is in no `caplog` record and not in the body.
-  With the default `TestClient`, the wrong implementation fails this test by re-raising.
+  no PHI; messages can (a chained `ValidationError` carries `input_value`).
+  `tracebacks.py`, which imports nothing from `backend/`, renders them, so a domain module
+  can log a failure the same way (L112). It is a catch-all **middleware** running inside
+  the request-id middleware, not `@app.exception_handler(Exception)`: Starlette's
+  `ServerErrorMiddleware` calls that handler and then re-raises for the server to log, so
+  uvicorn prints the full traceback anyway. The specific handlers (`ModelOutputError`, the
+  SDK errors) stay `exception_handler`s. *Test:* a route raising an exception whose
+  message is a sentinel → 500 `{error, request_id}`; the sentinel is in no `caplog` record
+  and not in the body. With the default `TestClient`, the wrong implementation fails this
+  test by re-raising.
 - **The default 422 handler is replaced (L70).** FastAPI's default returns `exc.errors()`,
   whose `input` is the entire paste. A `RequestValidationError` handler returns 422
   `{"error": "input_invalid", "request_id": ...}` and logs by code only. *Test:* an
@@ -2421,6 +2423,7 @@ notepilot/
 │                              (model corpus: manual, $)
 ├── backend/
 │   ├── schemas.py          ← DOMAIN. the spine. imports nothing; imported by everything.
+│   ├── tracebacks.py       ← DOMAIN. imports nothing. L69's frames as file:line:function (L112)
 │   ├── config.py           ← operational knobs (pydantic-settings)
 │   ├── orchestrator.py     ← EDGE. raw text → SummarizationResult; the LLMClient protocol ·
 │   │                          get_client (L95)

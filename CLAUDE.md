@@ -53,13 +53,13 @@ asked.
 ## Architectural invariants (never violate, flag any code that does)
 
 1. **Dependencies point inward at `schemas.py`; vendors stay at the edge.** `schemas.py`
-   imports nothing; everything imports it. DOMAIN modules (`schemas.py`, `grounding.py`,
-   `clinical/`, `evals/`) know nothing about FastAPI, Postgres, or Anthropic. EDGE
-   modules (`orchestrator.py`, `judge_client.py`, `api.py`, `db.py`) are adapters — the
-   only places a vendor's wire format may appear. When the domain needs a network call it
-   declares a `Protocol` (`evals/judge.py: Judge`) and an edge module implements it
-   (spec §0, L17). If a change would make a domain module import an edge module, stop
-   and flag it.
+   imports nothing; everything imports it. DOMAIN modules (`schemas.py`, `tracebacks.py`,
+   `grounding.py`, `clinical/`, `evals/`) know nothing about FastAPI, Postgres, or
+   Anthropic. EDGE modules (`orchestrator.py`, `judge_client.py`, `api.py`, `db.py`) are
+   adapters — the only places a vendor's wire format may appear. When the domain needs a
+   network call it declares a `Protocol` (`evals/judge.py: Judge`) and an edge module
+   implements it (spec §0, L17). If a change would make a domain module import an edge
+   module, stop and flag it.
 2. **Grounding is pure and makes zero LLM calls.** Deterministic string work only.
    Judgment to the model, mechanics to code — never ask the LLM to count characters,
    find offsets, or compare drug names.

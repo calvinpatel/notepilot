@@ -57,7 +57,6 @@ logs the full traceback, message and chained cause included.
 """
 
 import logging
-import traceback
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Final
@@ -74,6 +73,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from backend.config import settings
 from backend.orchestrator import LLMClient, ModelOutputError, get_client, summarize
 from backend.schemas import RunMetadata, SOAPNoteDraft
+from backend.tracebacks import format_frames
 
 # §9.8 (L79): configured once, at app construction. Every field a log call carries goes in
 # the message as key=value via %-style args. Never extra=: with no custom formatter it
@@ -97,39 +97,6 @@ class RequestIdMiddleware:
         if scope["type"] == "http":
             scope.setdefault("state", {})["request_id"] = uuid4().hex
         await self.app(scope, receive, send)
-
-
-# Frames render repo files relative to this root (L69). Derived from this file, never from
-# sys.path or the cwd: under uvicorn sys.path[0] is '', under pytest the absolute repo root,
-# so a sys.path-relative file would render differently in tests than in production.
-_REPO_ROOT: Final = Path(__file__).resolve().parents[1]
-
-
-def _display_path(filename: str) -> str:
-    """A frame's file, shortened: after site-packages, relative to the repo, or a basename.
-
-    site-packages is checked first: .venv sits inside the repo root, so the repo-relative
-    form of an installed module would start with .venv/lib/.../site-packages/.
-    """
-    path = Path(filename)
-    parts = path.parts
-    if "site-packages" in parts:
-        return "/".join(parts[parts.index("site-packages") + 1 :])
-    if path.is_relative_to(_REPO_ROOT):
-        return path.relative_to(_REPO_ROOT).as_posix()
-    return path.name
-
-
-def _frames(exc: Exception) -> str:
-    """The traceback as file:line:function entries, outermost first, joined by '>' (L69).
-
-    Frames carry no PHI; the message and the chained cause can (a ValidationError carries
-    input_value), so frames and the type name are all the 500 path records about it.
-    """
-    return ">".join(
-        f"{_display_path(frame.filename)}:{frame.lineno}:{frame.name}"
-        for frame in traceback.extract_tb(exc.__traceback__)
-    )
 
 
 class CatchAllMiddleware:
@@ -173,7 +140,7 @@ class CatchAllMiddleware:
                 code,
                 rid,
                 type(exc).__name__,
-                _frames(exc),
+                format_frames(exc),
             )
             if started:
                 return
