@@ -1,4 +1,4 @@
-"""Pins the spine types (spec §4.1, §4.2; L6, L9, L25, L42, L43, L86, L89, L102, L103).
+"""Pins the spine types (spec §4.1, §4.2; L6, L9, L25, L42, L43, L86, L89, L102, L103, L106).
 
 Rejection tests validate a dict through model_validate — the §5.4 entry point
 (L12) — and pin the single error's type and loc, so no test passes on an
@@ -22,7 +22,7 @@ from backend.schemas import (
     TokenUsage,
 )
 
-BLANK = ("", "   ", "\n\t")
+BLANK = ("", "   ", "\n\t", "\x1c\x1f")  # str.isspace() whitespace pydantic's strip kept (L106)
 
 
 def _claim(**overrides: object) -> dict[str, object]:
@@ -76,6 +76,22 @@ def test_text_is_stripped() -> None:
 
 def test_source_quote_is_stripped() -> None:
     assert ClaimDraft(text="fact-1", section="S", source_quote="  x  ").source_quote == "x"
+
+
+def test_strip_removes_what_grounding_calls_whitespace() -> None:
+    # L106: the boundary strips what str.isspace() calls whitespace, as grounding does
+    assert ClaimDraft(text="fact-1", section="S", source_quote="x\x1c").source_quote == "x"
+
+
+@pytest.mark.parametrize("value", [5, b"   "], ids=["int", "bytes"])
+def test_source_quote_rejects_a_non_string(value: object) -> None:
+    # the strip passes a non-string through, so the strict str schema rejects it; a lax one
+    # would decode bytes after the strip and accept b"   " as a blank quote
+    with pytest.raises(ValidationError) as exc:
+        ClaimDraft.model_validate(_claim(source_quote=value))
+    (err,) = exc.value.errors()
+    assert err["type"] == "string_type"
+    assert err["loc"] == ("source_quote",)
 
 
 # --- Section literal (§4.1) ----------------------------------------------------

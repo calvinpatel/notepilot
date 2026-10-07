@@ -25,6 +25,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
@@ -33,8 +34,18 @@ from pydantic import (
 )
 
 Section = Literal["S", "O", "A", "P"]
-# whitespace is empty at this boundary, for text (L86) as for quote (L25)
-NonBlankStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _strip(value: object) -> object:
+    """str.strip(): blank at the boundary is what str.isspace() calls whitespace (L106)."""
+    return value.strip() if isinstance(value, str) else value
+
+
+# whitespace is empty at this boundary, for text (L86) as for quote (L25). Listed after
+# StringConstraints, the validator wraps the str schema: the strip runs first, and a blank
+# string fails the str schema's length check as string_too_short. strict, because a lax
+# str schema decodes bytes after the strip, so b"   " would pass as a blank string.
+NonBlankStr = Annotated[str, StringConstraints(strict=True, min_length=1), BeforeValidator(_strip)]
 
 
 # --- what the LLM emits: the tool contract -----------------------------------

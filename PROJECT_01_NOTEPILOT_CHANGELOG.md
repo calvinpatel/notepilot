@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,29 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.13 — the boundary's whitespace is grounding's (patch)
+
+Theme: one conflict, measured while drafting phase 2a's step 1b. No invariant moves;
+CLAUDE.md is unchanged.
+
+**WARNING**
+- **L106 §4.1, §6.2, §6.3, §11 — the boundary's whitespace is grounding's.** Conflict:
+  §4.1's `NonBlankStr` stripped with pydantic's `strip_whitespace`, while §6.2 collapses
+  what `str.isspace()` calls whitespace, and §6.3's Tier 0 and L62's first property strip
+  with `str.strip()`. The two disagree on U+001C–U+001F, which Python calls whitespace and
+  pydantic does not (measured). So `source_quote="\x1c"` passed the boundary as non-blank
+  and reached Tier 0's guard; without Tier 0 it would normalize to a space and ground
+  cleanly at Tier 2 on the note's first whitespace. L62's first property was false for a
+  quote ending in one of them (hypothesis found `"İ\x1c"`). §6.2 wins: it is grounding's
+  definition. `NonBlankStr` strips with `str.strip()` in a `BeforeValidator` that wraps
+  the str schema, so a blank string still fails as `string_too_short` and a non-string as
+  `string_type`. The str schema is strict: a lax one decodes bytes after the strip, so
+  `b"   "` would pass as a blank string, where main rejected it (measured). The tool
+  schema is unchanged, so `PROMPT_VERSION` is too. A blank quote is now unrepresentable on
+  both sides of grounding.
 
 ---
 

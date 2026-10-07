@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.12** (patch — the fuzzy cutoff's default, October 2026).
-Supersedes v1.3.11.
+**Spec version: v1.3.13** (patch — the boundary's whitespace is grounding's, October 2026).
+Supersedes v1.3.12.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -156,12 +156,20 @@ so the spine is a **family**, not a single class:
 ```python
 from enum import Enum
 from typing import Annotated, Literal
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints
 
 Section = Literal["S", "O", "A", "P"]
-NonBlankStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+def _strip(value: object) -> object:  # L106: str.strip(), so blank here is what
+    return value.strip() if isinstance(value, str) else value  # str.isspace() says (§6.2)
+
+NonBlankStr = Annotated[str, StringConstraints(strict=True, min_length=1),
+                        BeforeValidator(_strip)]
                                     # v1.3.2 (L86): whitespace is empty at this boundary —
-                                    #   for the claim's text as for its quote (L25)
+                                    #   for the claim's text as for its quote (L25). The
+                                    #   validator wraps the str schema, so a blank string
+                                    #   still fails as string_too_short; strict, so bytes
+                                    #   can't be decoded past the strip (L106)
 
 # --- what the LLM emits: the tool contract -----------------------------------
 class ClaimDraft(BaseModel):
