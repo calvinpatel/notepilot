@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.11** (patch — layer-internal shapes are sanctioned, October 2026).
-Supersedes v1.3.10.
+**Spec version: v1.3.12** (patch — the fuzzy cutoff's default, October 2026).
+Supersedes v1.3.11.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -958,6 +958,15 @@ direction, and trailing zeros are on the do-not-use list anyway. The guard lives
 grounding, not evals, because it decides the *tier* — whether the quote is real — and only
 grounding may write that (D6). Whether a claim's text agrees with a real span is evals'
 question (§6.4, §8.4).
+
+**The cutoff routes; it doesn't detect (L105).** `fuzzy_score_cutoff` defaults to 90.
+Measured on synthetic notes, one-token fabrications (a side, `mcg` for `mg`, a look-alike
+drug, a flipped negation) scored as high as 98, above most honest paraphrases, so no cutoff
+separates the two. What the cutoff decides is the route. At or above it, a claim whose
+digits match keeps its span, and the consistency family checks the text against that span
+(L35); below it, the claim is UNSUPPORTED, and the red badge and `hallucinated_medication`
+own it. 90 errs red, as the numeric guard does. L8 keeps every near-miss score, so 2b's
+model corpus can retune it.
 
 ### 6.4 Errors-as-values, structural flags, and the eval handoff
 
@@ -2248,9 +2257,10 @@ The result area is never blank, or the L81 smoke run can fail without saying so.
   numbers in this spec's code samples are `settings.*` in the repo.
 - **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
   `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
-  `min_input_chars` `ge=1`, and a validator rejects `min_input_chars >= max_input_chars`. A
-  negative `max_validation_retries` would make §5.4's loop run zero times and report a model
-  failure the model never had the chance to cause. `tests/conftest.py` sets a dummy
+  `min_input_chars` `ge=1`, `fuzzy_score_cutoff` `ge=0, le=100` and finite (L105), and a
+  validator rejects `min_input_chars >= max_input_chars`. A negative
+  `max_validation_retries` would make §5.4's loop run zero times and report a model failure
+  the model never had the chance to cause. `tests/conftest.py` sets a dummy
   `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret, because no test
   reaches the network. *Test:* a missing key, a negative retry count, and
   `min_input_chars >= max_input_chars` each raise at `Settings()` construction.

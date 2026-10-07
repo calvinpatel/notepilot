@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     sdk_transport_retries: int = Field(2, ge=0)
     llm_timeout_s: float = Field(90.0, gt=0, allow_inf_nan=False)  # L54
 
+    # Tier 3's floor (§6.3, L105): a rapidfuzz score, 0 to 100. allow_inf_nan=False makes a
+    # non-finite value a finite_number error; ge and le alone report nan as less_than_equal.
+    fuzzy_score_cutoff: float = Field(90.0, ge=0, le=100, allow_inf_nan=False)
+
     @property
     def max_output_tokens(self) -> int:
         """Derived, never a field (L94): a field could be set from the environment alone."""

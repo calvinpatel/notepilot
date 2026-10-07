@@ -55,6 +55,7 @@ def _settings(
     max_validation_retries: int = 2,
     sdk_transport_retries: int = 2,
     llm_timeout_s: float = 90.0,
+    fuzzy_score_cutoff: float = 50.0,
     model: str = "model-id-1",
     anthropic_api_key: SecretStr = _DUMMY_KEY,
 ) -> Settings:
@@ -68,6 +69,7 @@ def _settings(
         max_validation_retries=max_validation_retries,
         sdk_transport_retries=sdk_transport_retries,
         llm_timeout_s=llm_timeout_s,
+        fuzzy_score_cutoff=fuzzy_score_cutoff,
     )
 
 
@@ -174,6 +176,36 @@ def test_positive_float_knobs_reject_non_finite(name: str, value: float) -> None
 @pytest.mark.parametrize("name", list(_POSITIVE_FLOAT_KNOBS))
 def test_positive_float_knobs_accept_small_positive(name: str) -> None:
     assert getattr(_POSITIVE_FLOAT_KNOBS[name](0.001), name) == 0.001
+
+
+# --- fuzzy_score_cutoff: a finite score, 0 to 100 (§6.3, §10; L105) --------------
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [(-0.1, "greater_than_equal"), (100.1, "less_than_equal")],
+    ids=["below-0", "above-100"],
+)
+def test_fuzzy_score_cutoff_rejects_out_of_range(value: float, error: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(fuzzy_score_cutoff=value)
+    (err,) = exc.value.errors()
+    assert err["type"] == error
+    assert err["loc"] == ("fuzzy_score_cutoff",)
+
+
+@pytest.mark.parametrize("value", [math.inf, math.nan], ids=["inf", "nan"])
+def test_fuzzy_score_cutoff_rejects_non_finite(value: float) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(fuzzy_score_cutoff=value)
+    (err,) = exc.value.errors()
+    assert err["type"] == "finite_number"
+    assert err["loc"] == ("fuzzy_score_cutoff",)
+
+
+@pytest.mark.parametrize("value", [0.0, 100.0], ids=["0", "100"])
+def test_fuzzy_score_cutoff_accepts_the_bounds(value: float) -> None:
+    assert _settings(fuzzy_score_cutoff=value).fuzzy_score_cutoff == value
 
 
 # --- max_output_tokens: derived, checked against the ceiling (L16, L72, L94) ------

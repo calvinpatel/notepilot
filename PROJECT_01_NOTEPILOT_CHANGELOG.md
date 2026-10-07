@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,26 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.12 — the fuzzy cutoff's default (patch)
+
+Theme: one fill, measured while drafting phase 2a's step 1b. No invariant moves; CLAUDE.md
+is unchanged.
+
+**WARNING**
+- **L105 §6.3, §10 — `fuzzy_score_cutoff` defaults to 90.** Fill: §6.3 reads the knob and
+  §10 lists it, but neither gave it a default or a domain. Measured on 65 synthetic quotes
+  (31 honest paraphrases, 34 fabrications) through §6.3's Tier 3 with rapidfuzz 3.14.6: at
+  90, 14 paraphrases stay PARAPHRASED and 8 fabrications leak as PARAPHRASED; at 85, 17
+  and 11; at 95, 8 and 2. The leaks at 90 are one-token swaps no usable cutoff stops: two
+  sides, `mcg` for `mg`, a look-alike drug, three negations, and a lateral-for-medial
+  finding. A leaked claim keeps its span, and the consistency family compares its drugs,
+  doses, and negations against that span (L35); no §8.4 check reads a side or that
+  finding. So the cutoff routes rather than detects, and 90 errs red, as the numeric guard
+  does. Domain `ge=0, le=100`, finite: a rapidfuzz score. The sample is synthetic and
+  small; L8's kept scores are the data that retunes it.
 
 ---
 
