@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,41 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.14 — the ladder as built (patch)
+
+Theme: the grounding ladder lands in phase 2a's step 1b-iii, with the three patches it
+depends on and one correction. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L107 §4.1, §6.1, §6.3, §6.5, §11, §14, §17 — Tier 0 goes.** Conflict: §6.3's Tier 0
+  returned `ClinicalClaim(**base, flags=(SafetyFlag.UNSUPPORTED,))` for a blank quote, but
+  §4.1's `ClinicalClaim` inherits the boundary's non-blank `source_quote`, so that
+  construction raises: the guard could never produce its output. §4.1 wins. With L106, a
+  blank quote is unrepresentable on both sides of grounding; a draft built around one
+  without validation is a programming error, and grounding raises when it builds the claim
+  (tested). Tiers 1–4 keep their numbers.
+- **L108 §6.3, §6.4 — Tier 3's span snaps to whole words.** Conflict: §6.3 mapped
+  `partial_ratio_alignment`'s window straight back to the raw text, but the window is
+  exactly as long as the normalized quote, so a source that says the same thing in more
+  characters gets a span cut mid-word (measured: `ncrease metformin to 1000 mg BID`,
+  `75 mcg dail`). §6.4 hands the span to the consistency family as what the source says
+  (L35), and a cut word is a mismatch the source doesn't contain. §6.4 wins: the span
+  widens to whole words before the numeric guard reads it. Widening only adds characters,
+  so the guard loses no digit.
+
+**INFO**
+- **L109 §6.2 — `to_original` rejects an empty slice.** Fill: an empty slice has no last
+  character, and at 0 `index_map[-1]` wraps to the end, returning the whole text as the
+  span (measured). No caller passes one: Tier 2's normalized quote is never empty, and
+  Tier 3 checks `src_end > src_start`. So `to_original` raises `ValueError` rather than
+  return a plausible span.
+- **L110 §6.3 — the guard's example scores 90.0.** Correction: §6.3 said
+  `partial_ratio("BP 130/110", "BP 190/110")` scores in the high 80s. It scores 90.0
+  (measured), exactly the default cutoff (L105), so the example clears the cutoff and it
+  is the guard that demotes it; the test that pins the guard includes it.
 
 ---
 

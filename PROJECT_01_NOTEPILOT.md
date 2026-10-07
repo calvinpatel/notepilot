@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.13** (patch — the boundary's whitespace is grounding's, October 2026).
-Supersedes v1.3.12.
+**Spec version: v1.3.14** (patch — the ladder as built, October 2026).
+Supersedes v1.3.13.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -820,7 +820,6 @@ returns −1 and gets screamed at as a hallucination. The central tension of the
 **did the model paraphrase a real quote, or invent a fake one?** The ladder separates them:
 
 ```
-Tier 0  empty quote                      ─► no span + UNSUPPORTED  (defense in depth)
 Tier 1  exact substring                  ─► span, no flag          (clean)
 Tier 2  normalized exact                 ─► span, no flag          (whitespace/case/quotes)
 Tier 3  fuzzy ≥ cutoff AND digits match  ─► span + PARAPHRASED     (low confidence)
@@ -874,7 +873,9 @@ class NormalizedText:
 
     def to_original(self, n_start: int, n_end: int) -> tuple[int, int]:
         """Half-open normalized [n_start, n_end) → half-open original span."""
-        return self.index_map[n_start], self.index_map[n_end - 1] + 1
+        if n_start >= n_end:                          # L109: an empty slice has no last
+            raise ValueError("empty normalized slice")  #   character; at 0, index_map[-1]
+        return self.index_map[n_start], self.index_map[n_end - 1] + 1   #   wraps to the end
 ```
 
 **The off-by-one that lives in `to_original`:** the end is the *last matched character's*
@@ -886,6 +887,11 @@ find "denies cp" in normalized → [n_start=3, n_end=12)
 ✓ (index_map[3], index_map[11] + 1) = (4, 13)    raw[4:13] == "denies\tCP"
 ✗ (index_map[3], index_map[12])       → IndexError
 ```
+
+**An empty slice raises (L109).** `to_original(k, k)` has no last matched character, and at
+`k = 0` `index_map[-1]` wraps to the end and returns the whole text as the span. Tier 2's
+normalized quote is never empty and Tier 3 checks `src_end > src_start`, so an empty slice
+is a caller's bug: `to_original` raises `ValueError` rather than return a plausible span.
 
 **The v1.2 Unicode bug (v1.3, L26).** v1.2 appended `ch.lower()` as one character with one
 map entry. `"İ".lower()` is two code points, so `out` grew by two while `index_map` grew by
@@ -908,14 +914,19 @@ def _numbers_match(quote: str, span_text: str) -> bool:
     span_nums = set(_DIGITS.findall(span_text))
     return all(n in span_nums for n in _DIGITS.findall(quote))
 
+def _snap(raw_text: str, start: int, end: int) -> tuple[int, int]:
+    """Widen a span to whole words (L108): an alignment window can start or end mid-word."""
+    while start > 0 and raw_text[start - 1].isalnum() and raw_text[start].isalnum():
+        start -= 1
+    while end < len(raw_text) and raw_text[end - 1].isalnum() and raw_text[end].isalnum():
+        end += 1
+    return start, end
+
 def ground_claim(draft: ClaimDraft, raw_text: str, norm: NormalizedText,
                  *, claim_id: int) -> ClinicalClaim:
-    quote = draft.source_quote                   # stripped + non-empty at the boundary (L25)
+    quote = draft.source_quote             # stripped + non-blank at the boundary (L25, L106)
     base = draft.model_dump() | {"id": claim_id}
 
-    if not quote.strip():                                            # Tier 0 — for drafts
-        return ClinicalClaim(**base, flags=(SafetyFlag.UNSUPPORTED,))   #   built without
-                                                                        #   validation
     idx = raw_text.find(quote)                                       # Tier 1
     if idx != -1:
         return ClinicalClaim(**base, source_span=(idx, idx + len(quote)))
@@ -927,7 +938,7 @@ def ground_claim(draft: ClaimDraft, raw_text: str, norm: NormalizedText,
 
     align = fuzz.partial_ratio_alignment(norm.text, nq)              # Tier 3 — in NORMALIZED
     if align is not None and align.src_end > align.src_start:        #   space (v1.3, L27)
-        span = norm.to_original(align.src_start, align.src_end)
+        span = _snap(raw_text, *norm.to_original(align.src_start, align.src_end))  # L108
         if (align.score >= settings.fuzzy_score_cutoff
                 and _numbers_match(quote, raw_text[span[0]:span[1]])):
             return ClinicalClaim(**base, source_span=span, grounding_score=align.score,
@@ -957,8 +968,19 @@ aligned, and mapped back through the same `to_original` as Tier 2 — one mappin
 two. A unit test pins which string's coordinates `src_start`/`src_end` refer to for this
 argument order; nobody's memory of the rapidfuzz API is trusted over a test.
 
+**Tier 3's span snaps to whole words (L108).** `partial_ratio_alignment` aligns a window
+exactly as long as the normalized quote, so when the source says the same thing in more
+characters, the window cuts a word at one end: `1000mg BID` aligns to
+`ncrease metformin to 1000 mg BID`, and `75mcg daily` to
+`stable on levothyroxine 75 mcg dail`. §6.4 hands the span to the consistency family as what
+the source says (L35), and a cut word is a mismatch the source doesn't contain. So the span
+widens to whole words before the numeric guard reads it; widening only adds characters, so
+the guard loses no digit. A window that misses a token entirely (`PHQ9 score 7` aligned to
+`PHQ-9 score `) isn't rescued: the guard demotes it, the safe direction.
+
 **Why the numeric guard is a clinical decision, not a string-matching one (v1.2):**
-`partial_ratio("BP 130/110", "BP 190/110")` scores in the high 80s. Letters are where models
+`partial_ratio("BP 130/110", "BP 190/110")` scores 90.0, exactly the default cutoff (L105,
+L110), so without the guard it would ground as PARAPHRASED. Letters are where models
 paraphrase (`pt` → `patient`); digits are where they *hallucinate* — a wrong vital, a wrong
 dose, a wrong date. For numbers, any difference *is* invention. The guard errs toward red:
 `5.0 mg` quoted as `5 mg` demotes to `UNSUPPORTED` even though the value is equal — the safe
@@ -1023,8 +1045,10 @@ model corpus can retune it.
 - **Empty / whitespace-only quote** — the schema strips and requires length ≥ 1 (§4.1), so
   `""` *and* `"   "` fail validation and trigger the §5.4 retry. (v1.2 described
   `min_length=1` and the Tier 0 guard as two defenses against one input; they covered
-  different inputs — `"   "` passed `min_length=1`. v1.3, L25.) Tier 0 stays as defense in
-  depth for drafts constructed without validation.
+  different inputs — `"   "` passed `min_length=1`. v1.3, L25.) A blank quote is
+  unrepresentable on both sides of grounding (L106), so Tier 0 is gone (L107): its output
+  could never be constructed. A draft built around a blank quote without validation is a
+  programming error, and grounding raises when it builds the claim.
 - **Fuzzy match with mismatched digits** — `"BP 190/110"` against a source that says
   `"BP 130/110"` → `UNSUPPORTED`, not `PARAPHRASED`, with its `grounding_score` kept.
 - **Degenerate quote (v1.3, D15)** — `quote="the"` or `quote="pain"` is a clean Tier 1
@@ -2333,7 +2357,7 @@ in the push workflow — it spends real money.
 - **Phase-1 boundary decisions** — each names its test where it is specified: §9.4 (L69,
   L70, L71, L73, L79, L80, L98, L99), §5.2 (L72, L75, L78), §10 (L77), §5.5 (L74),
   §9.1 (L76), §9.10 (L68).
-- **Grounding** — Tiers 0–4; the numeric guard (`"BP 190/110"` vs a `130/110` source →
+- **Grounding** — Tiers 1–4; the numeric guard (`"BP 190/110"` vs a `130/110` source →
   `UNSUPPORTED` with its score kept); the rapidfuzz coordinate pin (L27); v1.2's
   `detect_vital_drift`, moved here (L66).
 - **Extraction** — `extract_drugs("allergic to penicillin") == set()`; the four negation
@@ -2506,7 +2530,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
 ```
-□ ground(): Tiers 0–4 · numeric guard · Tier 3 in normalized space (L27) · Unicode-safe
+□ ground(): Tiers 1–4 · numeric guard · Tier 3 in normalized space (L27) · Unicode-safe
   map (L26) · scores kept on near-misses (L8) · frozen note, tuple flags (L6) · ids stamped
 □ property tests restated, non-ASCII strategies (L62) · rapidfuzz coordinate pin
 □ extract.py (imports only lexicons): drugs · allergies normalized (L30) · parsed doses
@@ -2646,7 +2670,7 @@ The whole project. Per-phase exit criteria live in §14.
       `clinical/extract.py` imports only `lexicons.py`, which imports nothing; vendor
       formats appear only in EDGE modules
 - [ ] Grounding is pure + unit-tested: ladder + offset mapping (property-based, non-ASCII) +
-      punctuation folding + Tier 0 + numeric guard + normalized Tier 3 + flag cases
+      punctuation folding + numeric guard + normalized, word-snapped Tier 3 + flag cases
 - [ ] `ClinicalClaim` and `SOAPNote` are frozen with tuple collections (D6 enforced)
 - [ ] Every claim carries an `id`; every `EvalResult` carries `claim_ids`; the UI joins on it
       (both render channels demonstrable, §9.7)
