@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,42 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.23 — allergies (patch)
+
+Theme: three fills for phase 2a's step 3c, the allergy extractor and the first allergy
+lexicon, signed off by Cal. The allergy-context scope rule was proposed while planning
+phase 2a; the other two were found while drafting the step. No invariant moves; CLAUDE.md
+is unchanged.
+
+**WARNING**
+- **L128 §7 — the allergy-context scope rule.** Fill: §7 says allergy context must keep
+  "allergic to penicillin" from reaching the contraindication check, and never says how
+  far it reaches. Allergy is a fourth cue class, before the allergen and after it, and a
+  mention it governs is an allergen the drug extractors drop. An allergy header at a
+  line's start opens a section that runs to a blank line or the next header (measured: by
+  window alone, "Allergies:" over a vertical list read no allergen). Inside it, other cues
+  still govern, so an order under the header stays an order. An allergy post-cue reaches
+  back over the list before it (measured: one allergen per post-cue read "PCN and sulfa
+  allergies" as sulfa alone, silently). Two costs, accepted because each fails loud
+  through `allergy_preserved`: a bare medication line under a header reads as an allergen,
+  and a list can reach back into a medication. A CRLF line break is now one token
+  (measured: as two, CRLF text closed its section at once).
+- **L129 §7 — allergen names.** Fill: §7 shows `ALLERGY_ALIASES` but not what may be a key
+  or a value. It holds the classes and D10's statements, a canonical name mapping to
+  itself as §7's "nka" -> "nka" does; drug allergens come through `GENERIC_DRUGS` and
+  `BRAND_TO_GENERIC` (L30), and a test holds the values outside `GENERIC_DRUGS`. "nkda"
+  and "nka" are allergy statements without a cue unless negated, "Allergies: none" is NKA,
+  and denied allergies ("not allergic to") join the negation cues. As with L126, a listed
+  allergen needs its common names, or a raw "penicillin allergy" against a note's unmapped
+  "PCN allergy" fires `allergy_preserved` on a faithful note.
+
+**INFO**
+- **L130 §8.8 — allergens that aren't drugs, stated.** Fill: §7's allergy keys are drugs,
+  classes, and D10's statements, so a latex or food allergy is never extracted and
+  `allergy_preserved` can't see one dropped. L127's vocabulary bullet now says so.
 
 ---
 

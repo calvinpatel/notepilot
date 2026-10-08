@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.22** (patch — drugs, status, and new prescriptions, October 2026).
-Supersedes v1.3.21.
+**Spec version: v1.3.23** (patch — allergies, October 2026).
+Supersedes v1.3.22.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1178,17 +1178,17 @@ classes.
 
 **The scope rule, made exact (L121).** The engine's token is a word (a run of letters and
 digits; a decimal number is one word, so "38.5" ends no sentence), one punctuation mark, or
-a line break, read from the casefolded text; a carriage return reads as a line break, and an
-underscore, like whitespace, only separates words (L123). Lexicon phrases are tokenized the
-same way, so "d/c" matches as three tokens and "SI/HI" is two words. Phrases match left to
-right, longest first: a pseudo-negation, which contains its cue, is matched in the cue's
-place, and "negative for" wins over "negative". The window counts words only: punctuation
-spends none of it, and a finding is in scope when its first word is among the
-`NEGATION_WINDOW` words after the cue. "Immediately before" skips any mark but a comma or a
-terminator (L122): "chest pain: denied" negates chest pain, and "endorses chest pain, denied
-fever" negates the fever. A phrase in both cue classes ("denied") is a post-cue when a
-finding is immediately before it and a pre-cue otherwise, so "pt denied chest pain" and
-"chest pain denied, fever" both read right.
+a line break, read from the casefolded text; a carriage return, alone or before a line feed,
+reads as one line break (L128), and an underscore, like whitespace, only separates words
+(L123). Lexicon phrases are tokenized the same way, so "d/c" matches as three tokens and
+"SI/HI" is two words. Phrases match left to right, longest first: a pseudo-negation, which
+contains its cue, is matched in the cue's place, and "negative for" wins over "negative".
+The window counts words only: punctuation spends none of it, and a finding is in scope when
+its first word is among the `NEGATION_WINDOW` words after the cue. "Immediately before"
+skips any mark but a comma or a terminator (L122): "chest pain: denied" negates chest pain,
+and "endorses chest pain, denied fever" negates the fever. A phrase in both cue classes
+("denied") is a post-cue when a finding is immediately before it and a pre-cue otherwise, so
+"pt denied chest pain" and "chest pain denied, fever" both read right.
 
 **Medication cues (L124, L125).** A drug mention sees three cue classes at once: negation
 (the `FINDING_NEG_*` tables, shared with findings), stop, and start. Each cue carries its
@@ -1206,6 +1206,25 @@ cost, an old start ("metformin was started in 2019") in `new_prescriptions`, lan
 WARNING. Refused and continued orders ("do not stop", "continue") are lexicon entries, not a
 rule.
 
+**Allergy context (L128, L129).** Allergy is a fourth cue class a drug mention sees:
+`ALLERGY_CUES` before the allergen and `ALLERGY_POST` after it. A mention it governs is an
+allergen, which `extract_allergies` collects and the drug extractors drop. It reaches
+further than the other classes, in two ways a window can't. An allergy cue ending in a colon
+at a line's start ("Allergies:") opens a section, which runs to a blank line, or to the next
+header (up to three words and a colon, the first naming no allergen) at a line's start or
+after a period. Inside it, a mention no other cue governs is an allergen and a terminator
+doesn't end the section, while every other cue still governs its own window: "Start
+amoxicillin" under the header is a start, never an allergen. An allergy post-cue reaches
+back over the list before it, the mentions joined by commas, "and", "or", or a mark such as
+"/", ending at the one adjacent to the cue, and takes each that no other cue governs: "PCN
+and sulfa allergies" names both. Where these fail, they fail loud, since `allergy_preserved`
+fires: a bare medication line under a header reads as an allergen, and a list can reach back
+into a medication ("takes lisinopril, sulfa allergy"). Allergen names follow L126's rule.
+`ALLERGY_ALIASES` holds the classes and D10's statements, a canonical name mapping to
+itself, and drug allergens come through `GENERIC_DRUGS` and `BRAND_TO_GENERIC`. "nkda" and
+"nka" need no cue unless negated, "Allergies: none" is NKA, and a denied allergy ("not
+allergic to") is a negation cue. A CRLF line break is one token, which sections need.
+
 **`clinical/lexicons.py` — the shape (v1.3):**
 
 ```python
@@ -1216,7 +1235,8 @@ GENERIC_DRUGS:     set[str]          # the drug vocabulary (L126): "apixaban", "
 BRAND_TO_GENERIC:  dict[str, str]    # "tylenol" -> "acetaminophen", "augmentin" -> "amoxicillin-clavulanate"
 ALLERGY_ALIASES:   dict[str, str]    # "pcn" -> "penicillin", "sulfa drugs" -> "sulfa",
                                      # "no known drug allergies" -> "nkda", "nka" -> "nka"     (D10)
-ALLERGY_CUES:      set[str]          # "allergic to", "allergy", "allergies:", "reaction to"
+ALLERGY_CUES:      set[str]          # "allergic to", "allergy to", "allergies:", "reaction to"
+ALLERGY_POST:      set[str]          # "allergy", "allergies": after the allergen (L128)
 FINDING_NEG_PRE:   set[str]          # "denies", "no", "without", "negative for"
 FINDING_NEG_POST:  set[str]          # "denied", "absent", "negative"
 PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "not only"
@@ -1926,8 +1946,10 @@ know, stated plainly (v1.3):
 - **Lexicon recall on real language.** Injected traps prove each check fires on the text it
   was written for. How often the hand lexicon misses a real-world phrasing is unmeasured —
   the corpus is synthetic by design (zero PHI).
-- **Vocabulary** (L127). A drug the lexicon doesn't list is invisible to every drug check,
-  which then passes over it. Recall on an unlisted drug is zero, not unmeasured.
+- **Vocabulary** (L127, L130). A drug the lexicon doesn't list is invisible to every drug
+  check, which then passes over it. Recall on an unlisted drug is zero, not unmeasured. An
+  allergen that isn't a drug (latex, a food) is never extracted, so `allergy_preserved`
+  can't see one dropped.
 - **Judge quality.** Measured only indirectly, through model cases; never against a
   clinician.
 - **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.

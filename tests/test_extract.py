@@ -1,4 +1,4 @@
-"""Pins extraction's scope engine and its extractors (spec §7, §11; L31, L33, L120-L126)."""
+"""Pins extraction's scope engine and its extractors (spec §7, §11; D10, L31, L33, L120-L129)."""
 
 import ast
 import itertools
@@ -10,12 +10,16 @@ import pytest
 
 from backend.clinical.extract import (
     _phrases,
+    extract_allergies,
     extract_drugs,
     extract_findings,
     extract_med_status,
     new_prescriptions,
 )
 from backend.clinical.lexicons import (
+    ALLERGY_ALIASES,
+    ALLERGY_CUES,
+    ALLERGY_POST,
     BRAND_TO_GENERIC,
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
@@ -266,6 +270,136 @@ def test_a_narrative_start_counts_however_old_it_is() -> None:
     assert new_prescriptions("metformin was started in 2019") == {"metformin"}
 
 
+# --- allergies: context, sections, and lists (D10, L30, L128, L129) ---------------
+
+
+def test_an_allergy_cue_makes_its_drug_an_allergen_and_no_medication() -> None:
+    # §7's case: "allergic to penicillin" mentions a drug and prescribes nothing
+    assert extract_allergies("Allergic to amoxicillin.") == {"amoxicillin"}
+    assert extract_med_status("Allergic to amoxicillin.") == {}
+
+
+def test_an_allergen_brand_reads_as_its_generic() -> None:
+    # L30: an Augmentin allergy is an amoxicillin-clavulanate allergy
+    assert extract_allergies("Augmentin allergy") == {"amoxicillin-clavulanate"}
+
+
+def test_an_allergy_header_governs_the_list_after_it() -> None:
+    assert extract_allergies("Allergies: PCN, sulfa") == {"penicillin", "sulfa"}
+
+
+def test_an_allergy_section_crosses_semicolons() -> None:
+    assert extract_allergies("Allergies: PCN; sulfa; NSAIDs") == {"penicillin", "sulfa", "nsaid"}
+
+
+VERTICAL = "Allergies:\n- Penicillin (hives)\n- Sulfa (rash)\n\nMeds:\n- Lisinopril 10 mg daily"
+
+
+@pytest.mark.parametrize("line_break", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_an_allergy_section_reads_a_vertical_list(line_break: str) -> None:
+    # L128: by window alone, the line break after the header closed it before the list
+    text = VERTICAL.replace("\n", line_break)
+    assert extract_allergies(text) == {"penicillin", "sulfa"}
+    assert extract_drugs(text) == {"lisinopril"}
+
+
+def test_a_blank_line_ends_an_allergy_section() -> None:
+    text = "Allergies: PCN\n\nLisinopril 10 mg daily"
+    assert extract_allergies(text) == {"penicillin"}
+    assert extract_drugs(text) == {"lisinopril"}
+
+
+def test_the_next_header_ends_an_allergy_section() -> None:
+    text = "Allergies: penicillin (anaphylaxis)\nMedications: amoxicillin 500 mg tid"
+    assert extract_allergies(text) == {"penicillin"}
+    assert extract_drugs(text) == {"amoxicillin"}
+
+
+def test_a_header_after_a_period_ends_an_allergy_section() -> None:
+    text = "Allergies: NKDA. Meds: lisinopril 10 mg daily."
+    assert extract_allergies(text) == {"nkda"}
+    assert extract_drugs(text) == {"lisinopril"}
+
+
+def test_a_line_starting_with_an_allergen_and_a_colon_is_no_header() -> None:
+    text = "Allergies:\nPenicillin: hives\nSulfa: rash"
+    assert extract_allergies(text) == {"penicillin", "sulfa"}
+
+
+def test_an_allergy_header_opens_a_section_only_at_a_lines_start() -> None:
+    text = "Pt reports allergies: PCN. Lisinopril 10 mg daily"
+    assert extract_allergies(text) == {"penicillin"}
+    assert extract_drugs(text) == {"lisinopril"}
+
+
+def test_only_an_allergy_cue_ending_in_a_colon_opens_a_section() -> None:
+    text = "Allergic to penicillin.\nAmoxicillin 500 mg tid"
+    assert extract_allergies(text) == {"penicillin"}
+    assert extract_drugs(text) == {"amoxicillin"}
+
+
+def test_an_order_inside_an_allergy_section_still_governs_its_drug() -> None:
+    text = "Allergies: PCN\nStart amoxicillin 500 mg tid"
+    assert extract_allergies(text) == {"penicillin"}
+    assert new_prescriptions(text) == {"amoxicillin"}
+
+
+def test_a_bare_medication_line_under_an_allergy_header_reads_as_an_allergen() -> None:
+    # L128's accepted cost: it fails loud, since allergy_preserved fires on it
+    text = "Allergies: PCN\nAmoxicillin 500 mg tid"
+    assert extract_allergies(text) == {"penicillin", "amoxicillin"}
+
+
+@pytest.mark.parametrize(
+    ("text", "allergens"),
+    [
+        ("PCN and sulfa allergies", {"penicillin", "sulfa"}),
+        ("PCN, sulfa, and NSAID allergies", {"penicillin", "sulfa", "nsaid"}),
+        ("Augmentin/sulfa allergy", {"amoxicillin-clavulanate", "sulfa"}),
+    ],
+    ids=["and", "commas", "slash"],
+)
+def test_an_allergy_post_cue_reaches_back_over_a_list(text: str, allergens: set[str]) -> None:
+    # L128: one allergen per post-cue read "PCN and sulfa allergies" as sulfa alone
+    assert extract_allergies(text) == allergens
+
+
+def test_a_word_ends_the_list_an_allergy_post_cue_reaches() -> None:
+    text = "lisinopril 10 mg daily, sulfa allergy"
+    assert extract_allergies(text) == {"sulfa"}
+    assert extract_drugs(text) == {"lisinopril"}
+
+
+def test_an_allergy_list_takes_no_mention_another_cue_governs() -> None:
+    text = "start amoxicillin and sulfa allergy"
+    assert extract_allergies(text) == {"sulfa"}
+    assert new_prescriptions(text) == {"amoxicillin"}
+
+
+def test_a_list_can_reach_back_into_a_medication() -> None:
+    # L128's accepted cost: it fails loud, since allergy_preserved fires on it
+    assert extract_allergies("takes lisinopril, sulfa allergy") == {"lisinopril", "sulfa"}
+
+
+@pytest.mark.parametrize(
+    ("text", "statement"),
+    [("NKDA", "nkda"), ("No known allergies", "nka"), ("Allergies: none", "nka")],
+)
+def test_nkda_and_nka_need_no_allergy_cue(text: str, statement: str) -> None:
+    # D10: NKDA and NKA are different facts
+    assert extract_allergies(text) == {statement}
+
+
+def test_a_denied_allergy_names_no_allergen() -> None:
+    assert extract_allergies("Not allergic to amoxicillin; denies allergy to penicillin") == set()
+
+
+def test_an_order_cue_closes_an_allergy_window() -> None:
+    text = "allergic to amoxicillin, start azithromycin"
+    assert extract_allergies(text) == {"amoxicillin"}
+    assert new_prescriptions(text) == {"azithromycin"}
+
+
 # --- every lexicon entry, in its role --------------------------------------------
 
 
@@ -320,6 +454,29 @@ def test_every_post_negation_or_stop_cue_stops_the_drug_before_it(cue: str) -> N
     assert extract_med_status(f"metformin {cue}") == {"metformin": {"stopped"}}
 
 
+@pytest.mark.parametrize("cue", sorted(ALLERGY_CUES))
+def test_every_allergy_cue_makes_the_drug_after_it_an_allergen(cue: str) -> None:
+    assert extract_allergies(f"{cue} amoxicillin") == {"amoxicillin"}
+
+
+@pytest.mark.parametrize("cue", sorted(ALLERGY_POST))
+def test_every_post_allergy_cue_makes_the_drug_before_it_an_allergen(cue: str) -> None:
+    assert extract_allergies(f"amoxicillin {cue}") == {"amoxicillin"}
+
+
+@pytest.mark.parametrize(("name", "key"), sorted(ALLERGY_ALIASES.items()))
+def test_every_allergen_name_means_its_class_or_statement(name: str, key: str) -> None:
+    # L129: a class needs an allergy cue; NKDA and NKA are allergy statements by themselves
+    text = name if key in {"nkda", "nka"} else f"{name} allergy"
+    assert extract_allergies(text) == {key}
+
+
+def test_allergen_names_mean_classes_and_d10s_statements_never_a_listed_drug() -> None:
+    # L129: a drug's other names belong in BRAND_TO_GENERIC
+    assert not set(ALLERGY_ALIASES.values()) & GENERIC_DRUGS
+    assert {"nkda", "nka"} <= set(ALLERGY_ALIASES.values())
+
+
 @pytest.mark.parametrize("cue", sorted(MED_START_CUES))
 def test_every_start_cue_starts_the_drug_after_it(cue: str) -> None:
     assert extract_med_status(f"{cue} metformin") == {"metformin": {"active"}}
@@ -332,11 +489,14 @@ def test_every_post_start_cue_starts_the_drug_before_it(cue: str) -> None:
     assert new_prescriptions(f"metformin {cue}") == {"metformin"}
 
 
-def test_a_phrase_has_one_role_unless_it_is_one_classs_pre_and_post_cue() -> None:
+def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() -> None:
     # longest-first matching gives a phrase one role; L121 rules on a class's pre/post pair
     roles = {
         "finding": FINDINGS,
         "drug": GENERIC_DRUGS | set(BRAND_TO_GENERIC),
+        "allergen": set(ALLERGY_ALIASES),
+        "allergy": ALLERGY_CUES,
+        "allergy, post": ALLERGY_POST,
         "negation": FINDING_NEG_PRE,
         "negation, post": FINDING_NEG_POST,
         "stop": MED_STOP_CUES,
@@ -346,7 +506,12 @@ def test_a_phrase_has_one_role_unless_it_is_one_classs_pre_and_post_cue() -> Non
         "pseudo": PSEUDO_NEGATIONS,
         "terminator": TERMINATORS,
     }
-    pairs = [{"negation", "negation, post"}, {"stop", "stop, post"}, {"start", "start, post"}]
+    pairs = [
+        {"negation", "negation, post"},
+        {"stop", "stop, post"},
+        {"start", "start, post"},
+        {"allergy", "allergy, post"},
+    ]
     shared = {
         (a, b, phrase)
         for (a, x), (b, y) in itertools.combinations(roles.items(), 2)

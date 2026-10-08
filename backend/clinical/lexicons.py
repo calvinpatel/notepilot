@@ -64,7 +64,69 @@ BRAND_TO_GENERIC: dict[str, str] = {
     "glucophage": "metformin",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-07.
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+ALLERGY_ALIASES: dict[str, str] = {
+    # The class an unspecified penicillin allergy names (D14: "PCN allergy" is the common form).
+    "penicillin": "penicillin",
+    # The plural, as charted ("allergic to penicillins").
+    "penicillins": "penicillin",
+    # §7's example: the charted abbreviation.
+    "pcn": "penicillin",
+    # The sulfonamide-antibiotic class, as charted.
+    "sulfa": "sulfa",
+    # §7's example, spelled out.
+    "sulfa drugs": "sulfa",
+    # The class's formal name.
+    "sulfonamides": "sulfa",
+    # The NSAID class.
+    "nsaid": "nsaid",
+    # The plural, as charted ("NSAIDs: GI bleed").
+    "nsaids": "nsaid",
+    # No known drug allergies (D10).
+    "nkda": "nkda",
+    # §7's example, spelled out.
+    "no known drug allergies": "nkda",
+    # The same statement, without "known".
+    "no drug allergies": "nkda",
+    # §7's example: no known allergies, food and environmental included (D10).
+    "nka": "nka",
+    # NKA, spelled out.
+    "no known allergies": "nka",
+    # The same statement, without "known".
+    "no allergies": "nka",
+    # The template's way of charting NKA.
+    "allergies: none": "nka",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+ALLERGY_CUES: set[str] = {
+    # The patient's own report ("allergic to penicillin").
+    "allergic to",
+    # As charted ("allergy to sulfa").
+    "allergy to",
+    # The plural ("allergies to PCN and sulfa").
+    "allergies to",
+    # The template header; at a line's start it opens an allergy section (L128).
+    "allergies:",
+    # The singular header, likewise.
+    "allergy:",
+    # The header without its colon, inline ("Allergies PCN, sulfa").
+    "allergies",
+    # §7's example: an adverse reaction charted as one ("reaction to Augmentin").
+    "reaction to",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+ALLERGY_POST: set[str] = {
+    # §7's example: after the allergen ("PCN allergy", "Augmentin allergy").
+    "allergy",
+    # After a list, it reaches every allergen the list joins ("PCN and sulfa allergies").
+    "allergies",
+    # The short form after the allergen ("penicillin allergic").
+    "allergic",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
 FINDING_NEG_PRE: set[str] = {
     # The patient's own negative report, the standard HPI and ROS cue.
     "denies",
@@ -78,6 +140,14 @@ FINDING_NEG_PRE: set[str] = {
     "without",
     # ROS and results phrasing ("negative for fever, chills").
     "negative for",
+    # A denied allergy: the drug named is no allergen ("not allergic to amoxicillin").
+    "not allergic to",
+    # As charted ("no allergy to cephalosporins").
+    "no allergy to",
+    # The patient's own denial ("denies allergy to penicillin").
+    "denies allergy to",
+    # As "no allergy to" ("no known allergy to sulfa").
+    "no known allergy to",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-07.
@@ -191,6 +261,10 @@ MED_STOP_POST: set[str] = {
     "was stopped",
     # The copula form of "held".
     "was held",
+    # A held drug charted after it ("metformin on hold for contrast").
+    "on hold",
+    # Discontinue's abbreviation, charted after the drug ("lisinopril d/c'd").
+    "d/c'd",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-08.
