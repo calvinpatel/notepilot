@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.13.5,<3",
     "pydantic-settings>=2.15.0",
     "rapidfuzz>=3.14.6",
+    "ruamel-yaml>=0.19.1,<0.20",
     "uvicorn[standard]>=0.54.0",
 ]
 

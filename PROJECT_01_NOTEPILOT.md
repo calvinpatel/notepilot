@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.18** (patch — case_verdict as built, October 2026).
-Supersedes v1.3.17.
+**Spec version: v1.3.19** (patch — the loader as built, October 2026).
+Supersedes v1.3.18.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1533,7 +1533,11 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 
 **Corpus mechanics:**
 
-- **One YAML file per case**, loaded with `EvalCase.model_validate`. Filename = `id`.
+- **One YAML file per case**, `<id>.yaml`, parsed as YAML 1.2 by ruamel.yaml's safe loader
+  and loaded with `EvalCase.model_validate`. A duplicate key is a load error (L118): a
+  second `expected_flags:` would otherwise replace the first without a word. So is any other
+  entry in `evals/cases/`, a `.yml` file or a subdirectory included, because a file the
+  loader skipped would be a case that never runs; dotfiles are skipped (L119).
 - **The loader validates the answer key against the registry.** Every `expected_flags` entry
   must be a registered check name — a typo is a load error, not a case that fails forever
   and gets rationalized as "the model's fault." So is a misspelled key (L103): `EvalCase`
