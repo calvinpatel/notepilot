@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,45 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.22 — drugs, status, and new prescriptions (patch)
+
+Theme: four fills found while drafting phase 2a's step 3b, landing as step 3b-ii with the
+drug extractors and the first medication lexicon, all signed off by Cal. No invariant
+moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L124 §7 — medication cues, combined.** Fill: §7 has one scope engine serve three cue
+  classes and never says how they combine in one string, or what status a negated drug
+  has. Each cue carries its class, and the most recent pre-cue's window governs. A drug
+  sees negation (the `FINDING_NEG_*` tables), stop, and start at once. A negated mention
+  is "stopped", so a flip from "not on apixaban" to "Continue apixaban" stays visible to
+  `med_status_consistency` (dropping negated mentions from status would hide it).
+  `extract_drugs` keeps each drug with an active mention, and `new_prescriptions` each
+  drug a start cue governs. The allergy-context exclusion stays with step 3c, whose scope
+  rule decides both it and `extract_allergies`.
+- **L125 §7 — post-position order cues.** Fill: §7's order cues are pre-cues only, and the
+  common stop charting is post ("lisinopril discontinued due to cough"). Read as active,
+  it would fire `med_status_consistency` on a faithful "Discontinue lisinopril" and pass a
+  flipped "Continue lisinopril". `MED_STOP_POST` and `MED_START_POST` hold the post forms,
+  as `FINDING_NEG_POST` does. Narrative past tense counts as a start (measured: as
+  nothing, "held metformin, started apixaban" read apixaban stopped); the cost, an old
+  start in `new_prescriptions`, lands on a WARNING.
+- **L126 §7 — the drug vocabulary.** Fill: §7 named no drug vocabulary. `GENERIC_DRUGS` is
+  it, and `BRAND_TO_GENERIC` maps every other name a listed drug is charted by (brands,
+  abbreviations, spellings) onto it, a test holding its values in `GENERIC_DRUGS`.
+  `DRUG_CLASS` keys aren't the vocabulary: that would make a vocabulary entry carry a
+  class, which D9's rung 2 turns into a CRITICAL, before steps 3c and 4b decide classes. A
+  listed drug needs its common names (measured: without "zestril", `extract_drugs` reads
+  nothing in "Zestril 10 mg daily" and lisinopril in "Lisinopril 10 mg daily", so
+  `drug_in_quote` would fire on a faithful claim).
+
+**INFO**
+- **L127 §8.8 — vocabulary coverage, stated.** Fill: §8.8 says lexicon recall on real
+  phrasing is unmeasured. Coverage is a stronger fact: a drug the lexicon doesn't list is
+  invisible to every drug check, which then passes, so its recall is zero.
 
 ---
 

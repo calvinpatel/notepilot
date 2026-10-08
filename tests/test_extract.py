@@ -1,4 +1,4 @@
-"""Pins extraction's scope engine and extract_findings (spec §7, §11; L31, L33, L120, L121)."""
+"""Pins extraction's scope engine and its extractors (spec §7, §11; L31, L33, L120-L126)."""
 
 import ast
 import itertools
@@ -8,11 +8,23 @@ from pathlib import Path
 
 import pytest
 
-from backend.clinical.extract import _phrases, extract_findings
+from backend.clinical.extract import (
+    _phrases,
+    extract_drugs,
+    extract_findings,
+    extract_med_status,
+    new_prescriptions,
+)
 from backend.clinical.lexicons import (
+    BRAND_TO_GENERIC,
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
+    GENERIC_DRUGS,
+    MED_START_CUES,
+    MED_START_POST,
+    MED_STOP_CUES,
+    MED_STOP_POST,
     NEGATION_WINDOW,
     PSEUDO_NEGATIONS,
     TERMINATORS,
@@ -126,7 +138,7 @@ def test_a_spent_post_cue_leaves_the_next_cue_free() -> None:
     }
 
 
-# --- tokens (L121) ---------------------------------------------------------------
+# --- tokens (L121, L123) ---------------------------------------------------------
 
 
 def test_matching_ignores_case() -> None:
@@ -172,6 +184,88 @@ def test_a_line_break_of_each_kind_reads_as_one(line_break: str) -> None:
     assert extract_findings(text) == {"fever": {False}, "chills": {True}}
 
 
+# --- drugs: status, active mentions, and starts (D13, L41, L124-L126) -------------
+
+
+def test_a_drug_no_cue_governs_is_active() -> None:
+    # §7's example: "continue" asserts the default
+    assert extract_med_status("continue apixaban") == {"apixaban": {"active"}}
+
+
+def test_a_stop_cue_before_a_drug_stops_it() -> None:
+    assert extract_med_status("discontinue apixaban") == {"apixaban": {"stopped"}}
+
+
+def test_a_stop_cue_after_a_drug_stops_it() -> None:
+    # L125: the common charting puts the stop after the drug
+    text = "Lisinopril discontinued due to cough"
+    assert extract_med_status(text) == {"lisinopril": {"stopped"}}
+
+
+def test_the_latest_pre_cue_governs() -> None:
+    text = "stop metformin and start lisinopril"
+    assert extract_med_status(text) == {"metformin": {"stopped"}, "lisinopril": {"active"}}
+    assert new_prescriptions(text) == {"lisinopril"}
+
+
+def test_each_order_in_a_list_governs_its_own_drug() -> None:
+    text = "Continued lisinopril, held metformin, started apixaban"
+    assert extract_med_status(text) == {
+        "lisinopril": {"active"},
+        "metformin": {"stopped"},
+        "apixaban": {"active"},
+    }
+    assert new_prescriptions(text) == {"apixaban"}
+
+
+def test_a_continued_order_closes_a_stop_window() -> None:
+    assert extract_med_status("stop metformin, continue lisinopril") == {
+        "metformin": {"stopped"},
+        "lisinopril": {"active"},
+    }
+
+
+def test_a_refused_stop_leaves_the_drug_active() -> None:
+    assert extract_med_status("do not stop apixaban") == {"apixaban": {"active"}}
+
+
+def test_a_refused_start_leaves_the_drug_stopped_and_not_started() -> None:
+    assert extract_med_status("do not start metformin") == {"metformin": {"stopped"}}
+    assert new_prescriptions("do not start metformin") == set()
+
+
+def test_a_negated_drug_is_stopped_and_not_active() -> None:
+    # L124: "not on apixaban" asserts the drug isn't taken
+    assert extract_med_status("pt not on apixaban") == {"apixaban": {"stopped"}}
+    assert extract_drugs("pt not on apixaban") == set()
+
+
+def test_a_drug_with_any_active_mention_is_active() -> None:
+    text = "stop lisinopril. lisinopril 10 mg daily"
+    assert extract_med_status(text) == {"lisinopril": {"stopped", "active"}}
+    assert extract_drugs(text) == {"lisinopril"}
+
+
+def test_a_brand_reads_as_its_generic() -> None:
+    assert new_prescriptions("start Augmentin 875 mg bid") == {"amoxicillin-clavulanate"}
+
+
+def test_the_longest_drug_name_matches() -> None:
+    assert extract_drugs("amoxicillin-clavulanate 875 mg") == {"amoxicillin-clavulanate"}
+
+
+@pytest.mark.parametrize("text", ["mom takes metformin", "tried ibuprofen last year"])
+def test_a_mention_no_start_cue_governs_is_no_new_prescription(text: str) -> None:
+    # §7's examples: the drug reads active, but nothing started it
+    assert new_prescriptions(text) == set()
+    assert extract_drugs(text) != set()
+
+
+def test_a_narrative_start_counts_however_old_it_is() -> None:
+    # L125's accepted cost, which lands on a WARNING
+    assert new_prescriptions("metformin was started in 2019") == {"metformin"}
+
+
 # --- every lexicon entry, in its role --------------------------------------------
 
 
@@ -200,19 +294,63 @@ def test_every_terminator_closes_the_window(terminator: str) -> None:
     assert extract_findings(f"denies {terminator} fever") == {"fever": {True}}
 
 
-def test_a_phrase_has_one_role_unless_it_is_a_pre_and_a_post_cue() -> None:
-    # longest-first matching gives a phrase one role; L121 rules on the one pair allowed
+@pytest.mark.parametrize("drug", sorted(GENERIC_DRUGS))
+def test_every_drug_extracts_as_itself(drug: str) -> None:
+    assert extract_med_status(drug) == {drug: {"active"}}
+
+
+@pytest.mark.parametrize(("name", "drug"), sorted(BRAND_TO_GENERIC.items()))
+def test_every_other_name_extracts_as_its_generic(name: str, drug: str) -> None:
+    assert extract_med_status(name) == {drug: {"active"}}
+
+
+def test_every_other_name_means_a_listed_drug_and_none_is_one() -> None:
+    # L126: GENERIC_DRUGS is the vocabulary, and BRAND_TO_GENERIC maps onto it
+    assert set(BRAND_TO_GENERIC.values()) <= GENERIC_DRUGS
+    assert not GENERIC_DRUGS & set(BRAND_TO_GENERIC)
+
+
+@pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE | MED_STOP_CUES))
+def test_every_negation_or_stop_cue_stops_the_drug_after_it(cue: str) -> None:
+    assert extract_med_status(f"{cue} metformin") == {"metformin": {"stopped"}}
+
+
+@pytest.mark.parametrize("cue", sorted(FINDING_NEG_POST | MED_STOP_POST))
+def test_every_post_negation_or_stop_cue_stops_the_drug_before_it(cue: str) -> None:
+    assert extract_med_status(f"metformin {cue}") == {"metformin": {"stopped"}}
+
+
+@pytest.mark.parametrize("cue", sorted(MED_START_CUES))
+def test_every_start_cue_starts_the_drug_after_it(cue: str) -> None:
+    assert extract_med_status(f"{cue} metformin") == {"metformin": {"active"}}
+    assert new_prescriptions(f"{cue} metformin") == {"metformin"}
+
+
+@pytest.mark.parametrize("cue", sorted(MED_START_POST))
+def test_every_post_start_cue_starts_the_drug_before_it(cue: str) -> None:
+    assert extract_med_status(f"metformin {cue}") == {"metformin": {"active"}}
+    assert new_prescriptions(f"metformin {cue}") == {"metformin"}
+
+
+def test_a_phrase_has_one_role_unless_it_is_one_classs_pre_and_post_cue() -> None:
+    # longest-first matching gives a phrase one role; L121 rules on a class's pre/post pair
     roles = {
         "finding": FINDINGS,
-        "pre": FINDING_NEG_PRE,
-        "post": FINDING_NEG_POST,
+        "drug": GENERIC_DRUGS | set(BRAND_TO_GENERIC),
+        "negation": FINDING_NEG_PRE,
+        "negation, post": FINDING_NEG_POST,
+        "stop": MED_STOP_CUES,
+        "stop, post": MED_STOP_POST,
+        "start": MED_START_CUES,
+        "start, post": MED_START_POST,
         "pseudo": PSEUDO_NEGATIONS,
         "terminator": TERMINATORS,
     }
+    pairs = [{"negation", "negation, post"}, {"stop", "stop, post"}, {"start", "start, post"}]
     shared = {
         (a, b, phrase)
         for (a, x), (b, y) in itertools.combinations(roles.items(), 2)
-        if {a, b} != {"pre", "post"}
+        if {a, b} not in pairs
         for phrase in _phrases(x).keys() & _phrases(y).keys()
     }
     assert shared == set()
@@ -265,6 +403,10 @@ def test_each_table_is_signed_off_and_each_entry_carries_its_rationale() -> None
         if isinstance(table.value, ast.Set):
             for entry in table.value.elts:
                 assert lines[entry.lineno - 2].lstrip().startswith("#"), ast.unparse(entry)
+        elif isinstance(table.value, ast.Dict):
+            for key in table.value.keys:
+                assert key is not None, name  # no ** unpacking
+                assert lines[key.lineno - 2].lstrip().startswith("#"), ast.unparse(key)
         else:
             assert isinstance(table.value, ast.Constant), name
             assert table.lineno - 1 - top >= 2, name  # the sign-off line, then a rationale

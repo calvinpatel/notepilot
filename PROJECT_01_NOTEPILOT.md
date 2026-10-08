@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.21** (patch — the scope rule, corrected, October 2026).
-Supersedes v1.3.20.
+**Spec version: v1.3.22** (patch — drugs, status, and new prescriptions, October 2026).
+Supersedes v1.3.21.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1117,7 +1117,7 @@ Certainty = Literal["definite", "probable", "possible", "rule_out"]   # stronges
 
 def extract_drugs(text: str) -> set[str]:
     """Generic names mentioned as ACTIVE. Brand→generic. Excludes negated, stopped
-    (MED_STOP_CUES), and allergy-context mentions."""
+    (MED_STOP_CUES, MED_STOP_POST: L125), and allergy-context mentions."""
 
 def extract_med_status(text: str) -> dict[str, set[MedStatus]]:
     """v1.3 (D13): drug → the statuses asserted for it. "continue apixaban" → {"active"};
@@ -1125,7 +1125,8 @@ def extract_med_status(text: str) -> dict[str, set[MedStatus]]:
 
 def new_prescriptions(text: str) -> set[str]:
     """v1.3 (L41): drugs STARTED at this visit — a MED_START_CUES cue within the window
-    ("start", "prescribe", "Rx", "begin"). Deliberately narrow: the only drug derivation
+    ("start", "prescribe", "Rx", "begin"), or a MED_START_POST cue just after the drug
+    ("amoxicillin started", L125). Deliberately narrow: the only drug derivation
     from raw text trusted enough to run live (§8.1). "mom takes metformin", "tried
     ibuprofen last year", "discussed a statin, pt declined" → excluded."""
 
@@ -1189,12 +1190,29 @@ fever" negates the fever. A phrase in both cue classes ("denied") is a post-cue 
 finding is immediately before it and a pre-cue otherwise, so "pt denied chest pain" and
 "chest pain denied, fever" both read right.
 
+**Medication cues (L124, L125).** A drug mention sees three cue classes at once: negation
+(the `FINDING_NEG_*` tables, shared with findings), stop, and start. Each cue carries its
+class, and the most recent pre-cue's window governs: a new pre-cue of any class replaces an
+open window, so "stop metformin and start lisinopril" stops one drug and starts the other. A
+post-cue's class labels the mention immediately before it. A negated mention is "stopped":
+`MedStatus` has two values, and "not on apixaban" asserts the drug isn't taken, which keeps
+a flip to "Continue apixaban" visible to `med_status_consistency`. `extract_drugs` keeps
+each drug with an active mention; `new_prescriptions` keeps each drug a start cue governs. A
+stop is most often charted after its drug ("lisinopril discontinued"), so `MED_STOP_POST`
+and `MED_START_POST` hold the post-cue forms, as `FINDING_NEG_POST` does for findings.
+Narrative past tense ("started", "prescribed") counts as a start: read as nothing, it would
+let a stop's window run on over the next drug ("held metformin, started apixaban"), and the
+cost, an old start ("metformin was started in 2019") in `new_prescriptions`, lands on a
+WARNING. Refused and continued orders ("do not stop", "continue") are lexicon entries, not a
+rule.
+
 **`clinical/lexicons.py` — the shape (v1.3):**
 
 ```python
 # imports NOTHING. Severities are plain strings ("critical" / "warning") so clinical/ never
 # imports the spine; evals converts with Severity(value). (v1.3, L65)
 
+GENERIC_DRUGS:     set[str]          # the drug vocabulary (L126): "apixaban", "lisinopril", ...
 BRAND_TO_GENERIC:  dict[str, str]    # "tylenol" -> "acetaminophen", "augmentin" -> "amoxicillin-clavulanate"
 ALLERGY_ALIASES:   dict[str, str]    # "pcn" -> "penicillin", "sulfa drugs" -> "sulfa",
                                      # "no known drug allergies" -> "nkda", "nka" -> "nka"     (D10)
@@ -1205,7 +1223,9 @@ PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "not only"
 TERMINATORS:       set[str]          # "but", "however", "although", ";", "."
 NEGATION_WINDOW:   int               # words a pre-cue governs — linguistic knowledge, so it lives here
 MED_STOP_CUES:     set[str]          # "discontinue", "d/c", "stop", "held", "hold"    (L31: split out)
+MED_STOP_POST:     set[str]          # "discontinued", "held": after the drug (L125)
 MED_START_CUES:    set[str]          # "start", "begin", "initiate", "prescribe", "rx" (L41)
+MED_START_POST:    set[str]          # "started", "prescribed": after the drug (L125)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
 DRUG_CLASS:        dict[str, str]    # "amoxicillin" -> "penicillin", "cephalexin" -> "cephalosporin",
                                      # "ibuprofen" -> "nsaid". v1.3 (L67): ONE direction. v1.2 kept
@@ -1253,6 +1273,13 @@ with the rationale in a comment above each entry (L120).*
 All lexicon entries are **generic-only** post-normalization: every extractor maps
 brand→generic first, so a class entry containing a brand name is dead weight at best and a
 missed match at worst.
+
+**The drug vocabulary (L126).** `GENERIC_DRUGS` lists every drug the extractors know.
+`BRAND_TO_GENERIC` maps every other name a listed drug is charted by onto it: brands,
+abbreviations, and spellings ("apap", "amox/clav"), and a test holds its values in
+`GENERIC_DRUGS`. A listed drug needs all its common names: when the source writes a name the
+table lacks and the claim writes the generic, `drug_in_quote` fires on a faithful claim.
+`DRUG_CLASS` keys are drawn from `GENERIC_DRUGS` too.
 
 **The sign-off (L120).** Each table in `lexicons.py`, and `NEGATION_WINDOW`, is headed by a
 `# Clinical sign-off: <name>, <date>.` line that covers the entries beneath it, and each entry
@@ -1899,6 +1926,8 @@ know, stated plainly (v1.3):
 - **Lexicon recall on real language.** Injected traps prove each check fires on the text it
   was written for. How often the hand lexicon misses a real-world phrasing is unmeasured —
   the corpus is synthetic by design (zero PHI).
+- **Vocabulary** (L127). A drug the lexicon doesn't list is invisible to every drug check,
+  which then passes over it. Recall on an unlisted drug is zero, not unmeasured.
 - **Judge quality.** Measured only indirectly, through model cases; never against a
   clinician.
 - **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.
