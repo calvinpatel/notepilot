@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.20** (patch — scoped negation as built, October 2026).
-Supersedes v1.3.19.
+**Spec version: v1.3.21** (patch — the scope rule, corrected, October 2026).
+Supersedes v1.3.20.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1176,16 +1176,18 @@ serves `MED_STOP_CUES` / `MED_START_CUES` and `CERTAINTY_CUES` — one scope eng
 classes.
 
 **The scope rule, made exact (L121).** The engine's token is a word (a run of letters and
-digits; a decimal number is one word, so "38.5" ends no sentence), one punctuation mark, or a
-line break, read from the casefolded text; a carriage return reads as a line break. Lexicon
-phrases are tokenized the same way, so "d/c" matches as three tokens and "SI/HI" is two
-words. Phrases match left to right, longest first: a pseudo-negation, which contains its cue,
-is matched in the cue's place, and "negative for" wins over "negative". The window counts
-words only: punctuation spends none of it, and a finding is in scope when its first word is
-among the `NEGATION_WINDOW` words after the cue. "Immediately before" skips punctuation that
-isn't a terminator, so "chest pain: denied" negates chest pain. A phrase in both cue classes
-("denied") is a post-cue when a finding is immediately before it and a pre-cue otherwise, so
-"pt denied chest pain" and "chest pain denied, fever" both read right.
+digits; a decimal number is one word, so "38.5" ends no sentence), one punctuation mark, or
+a line break, read from the casefolded text; a carriage return reads as a line break, and an
+underscore, like whitespace, only separates words (L123). Lexicon phrases are tokenized the
+same way, so "d/c" matches as three tokens and "SI/HI" is two words. Phrases match left to
+right, longest first: a pseudo-negation, which contains its cue, is matched in the cue's
+place, and "negative for" wins over "negative". The window counts words only: punctuation
+spends none of it, and a finding is in scope when its first word is among the
+`NEGATION_WINDOW` words after the cue. "Immediately before" skips any mark but a comma or a
+terminator (L122): "chest pain: denied" negates chest pain, and "endorses chest pain, denied
+fever" negates the fever. A phrase in both cue classes ("denied") is a post-cue when a
+finding is immediately before it and a pre-cue otherwise, so "pt denied chest pain" and
+"chest pain denied, fever" both read right.
 
 **`clinical/lexicons.py` — the shape (v1.3):**
 

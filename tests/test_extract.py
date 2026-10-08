@@ -76,7 +76,7 @@ def test_the_window_rationales_list_is_negated_to_its_last_item() -> None:
     assert extract_findings(text) == {finding: {False} for finding in negated}
 
 
-# --- post-cues: adjacency, and the cue in both classes (L121) --------------------
+# --- post-cues: adjacency, and the cue in both classes (L121, L122) ---------------
 
 
 def test_a_post_cue_negates_one_finding_not_the_list_before_it() -> None:
@@ -96,8 +96,20 @@ def test_a_terminator_between_a_finding_and_a_post_cue_breaks_adjacency() -> Non
     assert extract_findings("chest pain; absent") == {"chest pain": {True}}
 
 
+def test_a_comma_between_a_finding_and_a_post_cue_breaks_adjacency() -> None:
+    # L122: past a comma, a post-cue belongs to the clause that follows it
+    assert extract_findings("chest pain, absent") == {"chest pain": {True}}
+
+
 def test_a_cue_in_both_classes_is_a_pre_cue_with_no_finding_before_it() -> None:
     assert extract_findings("pt denied chest pain") == {"chest pain": {False}}
+
+
+def test_a_cue_in_both_classes_is_a_pre_cue_after_a_comma() -> None:
+    assert extract_findings("endorses chest pain, denied fever") == {
+        "chest pain": {True},
+        "fever": {False},
+    }
 
 
 def test_a_cue_in_both_classes_is_only_a_post_cue_after_a_finding() -> None:
@@ -131,6 +143,18 @@ def test_a_decimal_number_is_one_word() -> None:
 
 def test_a_slash_separates_two_words() -> None:
     assert extract_findings("denies fever/chills") == {"fever": {False}, "chills": {False}}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("chest_pain", {"chest pain": {True}}), ("denies___fever", {"fever": {False}})],
+    ids=["joined", "blank"],
+)
+def test_an_underscore_separates_words_as_whitespace_does(
+    text: str, expected: dict[str, set[bool]]
+) -> None:
+    # L123: neither a word nor a mark, so it spends no window
+    assert extract_findings(text) == expected
 
 
 def test_the_longest_finding_matches() -> None:

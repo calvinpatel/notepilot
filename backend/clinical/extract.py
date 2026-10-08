@@ -7,7 +7,7 @@ The scope engine is NegEx-shaped (L31), made exact by L121. Text is casefolded a
 tokens: words, punctuation marks, and line breaks. Lexicon phrases are split the same way and
 matched left to right, the longest first. A pre-negation cue governs the findings that start
 within NEGATION_WINDOW words after it. A post-negation cue governs the finding immediately
-before it, across punctuation that isn't a terminator; a cue in both classes is a post-cue
+before it, across any mark but a comma or a terminator; a cue in both classes is a post-cue
 there and a pre-cue anywhere else. A terminator closes the window.
 """
 
@@ -30,7 +30,11 @@ type _Phrases = Mapping[tuple[str, ...], str]
 
 
 def _tokens(text: str) -> list[str]:
-    """text, casefolded, as tokens. A carriage return reads as a line break."""
+    """text, casefolded, as tokens.
+
+    A carriage return reads as a line break. An underscore, like whitespace, only separates
+    words (L123).
+    """
     return _TOKEN.findall(text.casefold().replace("\r", "\n"))
 
 
@@ -68,7 +72,7 @@ def _scope(text: str, entities: _Phrases, pre: _Phrases, post: _Phrases) -> list
     """Each entity mention in text, in order, and whether a cue governs it (L31, L121)."""
     mentions: list[tuple[str, bool]] = []
     window = 0  # the words an open pre-cue still governs
-    before: int | None = None  # the mention immediately before, past punctuation marks
+    before: int | None = None  # the mention immediately before, past any mark but a comma
     for phrase in _split(_tokens(text), (_PSEUDO, _TERMINATORS, entities, pre, post)):
         words = sum(map(_is_word, phrase))
         in_window = window > 0
@@ -81,10 +85,10 @@ def _scope(text: str, entities: _Phrases, pre: _Phrases, post: _Phrases) -> list
             window = NEGATION_WINDOW
         elif phrase in entities:
             mentions.append((entities[phrase], in_window))
-        # adjacency: a mention opens it, and a word or a terminator ends it
+        # adjacency: a mention opens it; a word, a terminator, or a comma ends it (L122)
         if phrase in entities:
             before = len(mentions) - 1
-        elif words or phrase in _TERMINATORS:
+        elif words or phrase in _TERMINATORS or phrase == (",",):
             before = None
     return mentions
 
