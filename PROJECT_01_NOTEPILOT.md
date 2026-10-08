@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.19** (patch — the loader as built, October 2026).
-Supersedes v1.3.18.
+**Spec version: v1.3.20** (patch — scoped negation as built, October 2026).
+Supersedes v1.3.19.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1168,12 +1168,24 @@ what a cue governs. "Cue anywhere in the string" gets all of these wrong:
 ```
 
 The MVP rule is NegEx-shaped and deterministic: **token-level** cue matching; a
-**pre-negation** cue negates findings within `NEGATION_WINDOW` tokens after it; a
+**pre-negation** cue negates findings within `NEGATION_WINDOW` words after it; a
 **post-negation** cue negates the finding immediately before it; **terminators** ("but",
 "however", "although", ";", ".") close the window; **pseudo-negations** ("no increase",
 "no change", "not only") are matched first and suppress the cue. The same window machinery
 serves `MED_STOP_CUES` / `MED_START_CUES` and `CERTAINTY_CUES` — one scope engine, three cue
 classes.
+
+**The scope rule, made exact (L121).** The engine's token is a word (a run of letters and
+digits; a decimal number is one word, so "38.5" ends no sentence), one punctuation mark, or a
+line break, read from the casefolded text; a carriage return reads as a line break. Lexicon
+phrases are tokenized the same way, so "d/c" matches as three tokens and "SI/HI" is two
+words. Phrases match left to right, longest first: a pseudo-negation, which contains its cue,
+is matched in the cue's place, and "negative for" wins over "negative". The window counts
+words only: punctuation spends none of it, and a finding is in scope when its first word is
+among the `NEGATION_WINDOW` words after the cue. "Immediately before" skips punctuation that
+isn't a terminator, so "chest pain: denied" negates chest pain. A phrase in both cue classes
+("denied") is a post-cue when a finding is immediately before it and a pre-cue otherwise, so
+"pt denied chest pain" and "chest pain denied, fever" both read right.
 
 **`clinical/lexicons.py` — the shape (v1.3):**
 
@@ -1189,7 +1201,7 @@ FINDING_NEG_PRE:   set[str]          # "denies", "no", "without", "negative for"
 FINDING_NEG_POST:  set[str]          # "denied", "absent", "negative"
 PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "not only"
 TERMINATORS:       set[str]          # "but", "however", "although", ";", "."
-NEGATION_WINDOW:   int               # tokens a pre-cue governs — linguistic knowledge, so it lives here
+NEGATION_WINDOW:   int               # words a pre-cue governs — linguistic knowledge, so it lives here
 MED_STOP_CUES:     set[str]          # "discontinue", "d/c", "stop", "held", "hold"    (L31: split out)
 MED_START_CUES:    set[str]          # "start", "begin", "initiate", "prescribe", "rx" (L41)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
@@ -1234,11 +1246,17 @@ none would go silent. **Reaction type** (anaphylaxis vs rash) changes the clinic
 and is not extracted in v1 — a stated limitation (§8.8), backlogged (§15). Carbapenems and
 aztreonam enter the lexicon only if a corpus case needs them. *These are defaults drafted
 from the modern evidence; they get Cal's clinical sign-off when `lexicons.py` is authored,
-with the rationale in a comment beside each entry.*
+with the rationale in a comment above each entry (L120).*
 
 All lexicon entries are **generic-only** post-normalization: every extractor maps
 brand→generic first, so a class entry containing a brand name is dead weight at best and a
 missed match at worst.
+
+**The sign-off (L120).** Each table in `lexicons.py`, and `NEGATION_WINDOW`, is headed by a
+`# Clinical sign-off: <name>, <date>.` line that covers the entries beneath it, and each entry
+carries its rationale in a comment on the line above it. When a table gains or changes an
+entry, the line's date moves: it attests the table as it stands, and git history keeps each
+entry's own. A test holds the form.
 
 **MVP scope:** a small hand-curated lexicon + the scope engine + a dose-pattern regex +
 findings and diagnosis lists covering exactly the traps in *my* corpus.
@@ -2560,11 +2578,11 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
   map (L26) · scores kept on near-misses (L8) · frozen note, tuple flags (L6) · ids stamped
 □ property tests restated, non-ASCII strategies (L62) · rapidfuzz coordinate pin
 □ extract.py (imports only lexicons): drugs · allergies normalized (L30) · parsed doses
-  (L33) · scoped negation (L31) · med status (D13) · diagnoses + certainty (D12) ·
+  (L33) · scoped negation (L31, L121) · med status (D13) · diagnoses + certainty (D12) ·
   new_prescriptions (L41)
 □ lexicons.py: brand→generic · aliases · split cue classes · DRUG_CLASS (L67) · R1_GROUP
   (D9) · CROSS_REACTIVITY (D14) · NKDA ≠ NKA (D10) — each clinical entry carries its
-  rationale and Cal's sign-off
+  rationale and Cal's sign-off, in L120's form
 □ registry: dict, rejects duplicates · origin · stamp() enforces downgrade-only (L38)
 □ EvalResult.errored (L43) · EvalReport.checks_run + checks_version (L44, L45)
 □ run_checks: async, fail-closed, judge as a parameter typed by evals/judge.py's Judge

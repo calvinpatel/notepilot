@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,38 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.20 — scoped negation as built (patch)
+
+Theme: one fill approved while planning phase 2a and one found while drafting its step 3a;
+both land with the first lexicon commit, step 3a's scope engine and `extract_findings`. No
+invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L121 §7 — the scope rule, made exact.** Fill: §7 (L31) makes cue matching token-level
+  and gives a pre-cue `NEGATION_WINDOW` tokens, but defines neither a token nor how the
+  window counts, and the choices decide §7's own examples: once ":" is a token, "chest
+  pain: denied" has no finding immediately before its cue. The engine's token is a word (a
+  decimal number whole), one punctuation mark, or a line break, from the casefolded text,
+  and lexicon phrases are tokenized the same way. Phrases match left to right, longest
+  first. The window counts words, so punctuation spends none of it, and a finding is in
+  scope when its first word falls inside it. "Immediately before" skips punctuation that
+  isn't a terminator. A phrase in both cue classes, as "denied" is, is a post-cue when a
+  finding is immediately before it and a pre-cue otherwise (measured: as a post-cue only,
+  "pt denied chest pain" read positive; as both at once, "chest pain denied, fever"
+  negated the fever).
+
+**INFO**
+- **L120 §7, §14 — the sign-off's form.** Fill: §14 asked each clinical entry to carry
+  "its rationale and Cal's sign-off" and named no form, and D14 put the rationale "beside"
+  each entry, where a 100-column line has no room for it. Each table in `lexicons.py`, and
+  `NEGATION_WINDOW`, is headed by a `# Clinical sign-off: <name>, <date>.` line covering
+  the entries beneath it, and each entry carries its rationale in a comment on the line
+  above it. When a table changes, the line's date moves with it. A test holds the form.
+  CLAUDE.md's "Clinical entries arrive VERBATIM" names the same sign-off line and
+  rationale comment.
 
 ---
 
