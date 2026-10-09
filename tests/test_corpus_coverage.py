@@ -32,10 +32,16 @@ def _shares_a_drug(note: SOAPNote, raw_text: str) -> bool:
     return False
 
 
+def _names_a_drug(note: SOAPNote, raw_text: str) -> bool:
+    return any(named_drugs(claim.text) for claim in note.claims)
+
+
 # A control exercises a check when the check has something to compare on it (L138): for the
-# claim-local family, a key its extractor finds in both a claim's text and that claim's span.
+# claim-local family, a key its extractor finds in both a claim's text and that claim's span;
+# for hallucinated_medication, a claim naming a drug, which grounding's flag then decides.
 EXERCISES: dict[str, Callable[[SOAPNote, str], bool]] = {
     "drug_in_quote": _shares_a_drug,
+    "hallucinated_medication": _names_a_drug,
 }
 
 

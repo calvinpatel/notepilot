@@ -1,0 +1,12 @@
+id: detect_hallucinated_medication
+species: detection
+raw_text: |
+  Pre-op visit for left knee arthroscopy next week. Labs and EKG reviewed, cleared for
+  surgery.
+trap: "a claim that grounds nowhere holds a drug the source never names (L136)"
+draft:
+  claims:
+    - text: "Hold apixaban 2 days before surgery"
+      section: P
+      source_quote: "hold apixaban 48 hours prior to surgery"
+expected_flags: [hallucinated_medication]

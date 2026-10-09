@@ -1,4 +1,4 @@
-"""Pins the reference-free roster's helpers and checks (spec §8.4; L35, L136)."""
+"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, L35, L136)."""
 
 import os
 import subprocess
@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 from backend.clinical.lexicons import GENERIC_DRUGS
-from backend.evals.checks import check_drug_in_quote, named_drugs, span_text
+from backend.evals.checks import (
+    check_drug_in_quote,
+    check_hallucinated_medication,
+    named_drugs,
+    span_text,
+)
 from backend.evals.registry import REGISTRY, Finding
 from backend.schemas import ClinicalClaim, SafetyFlag, Severity, SOAPNote
 
@@ -161,6 +166,82 @@ def test_drug_in_quote_finds_each_drug_once_in_name_order() -> None:
     findings = check_drug_in_quote(note, raw)
     assert _named(findings) == sorted(GENERIC_DRUGS)
     assert {f.claim_ids for f in findings} == {(0,)}
+
+
+# --- hallucinated_medication (§8.4, D6, L136) ---------------------------------------------
+
+
+def test_hallucinated_medication_is_a_reference_free_critical_check() -> None:
+    check = REGISTRY["hallucinated_medication"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_hallucinated_medication_fires_on_a_drug_in_a_claim_that_grounds_nowhere() -> None:
+    note, raw = _note(("Continue lisinopril", "continue lisinopril"), ("Start amoxicillin", None))
+    findings = check_hallucinated_medication(note, raw)
+    assert _named(findings) == ["amoxicillin"]
+    assert findings[0].claim_ids == (1,)
+
+
+@pytest.mark.parametrize("text", ["Discontinue apixaban", "Hold apixaban", "Not on apixaban"])
+def test_hallucinated_medication_fires_on_a_drug_named_at_any_status(text: str) -> None:
+    # L136: as active drugs alone, an ungrounded stop or denial named nothing
+    note, raw = _note((text, None))
+    assert _named(check_hallucinated_medication(note, raw)) == ["apixaban"]
+
+
+def test_hallucinated_medication_passes_a_claim_that_grounds_nowhere_and_names_no_drug() -> None:
+    note, raw = _note(("Follow up in one week", None))
+    assert check_hallucinated_medication(note, raw) == []
+
+
+def test_hallucinated_medication_passes_a_paraphrased_claim() -> None:
+    raw = "will start azithromycin 500 mg daily"
+    claim = ClinicalClaim(
+        id=0,
+        text="Start amoxicillin 500 mg daily",
+        section="P",
+        source_quote="will start amoxicillin 500 mg daily",
+        source_span=(0, len(raw)),
+        flags=(SafetyFlag.PARAPHRASED,),
+    )
+    assert check_hallucinated_medication(SOAPNote(claims=(claim,)), raw) == []
+
+
+def test_hallucinated_medication_reads_groundings_flag_never_the_span() -> None:
+    # D6: evals consume grounding's flags; ground() never pairs UNSUPPORTED with a span, so
+    # only a hand-built claim tells reading the flag from re-deriving it
+    raw = "continue lisinopril"
+    claim = ClinicalClaim(
+        id=0,
+        text="Start amoxicillin",
+        section="P",
+        source_quote=raw,
+        source_span=(0, len(raw)),
+        flags=(SafetyFlag.UNSUPPORTED,),
+    )
+    assert _named(check_hallucinated_medication(SOAPNote(claims=(claim,)), raw)) == ["amoxicillin"]
+
+
+def test_hallucinated_medication_finds_each_drug_once_in_name_order() -> None:
+    # the whole vocabulary, in reverse: name order has to come from the check's sort
+    text = "Start " + ", ".join(sorted(GENERIC_DRUGS, reverse=True))
+    note, raw = _note((text, None))
+    findings = check_hallucinated_medication(note, raw)
+    assert _named(findings) == sorted(GENERIC_DRUGS)
+    assert {f.claim_ids for f in findings} == {(0,)}
+
+
+def test_the_presence_checks_split_a_note_by_whether_each_claim_grounds() -> None:
+    # a grounded claim is drug_in_quote's, an ungrounded one hallucinated_medication's
+    note, raw = _note(("Start amoxicillin", "Will start antibiotics"), ("Start azithromycin", None))
+    assert [f.claim_ids for f in check_drug_in_quote(note, raw)] == [(0,)]
+    assert [f.claim_ids for f in check_hallucinated_medication(note, raw)] == [(1,)]
 
 
 # --- registration -------------------------------------------------------------------------

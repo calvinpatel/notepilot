@@ -6,7 +6,7 @@ the two (L35). Registration is this module's import side effect: runner.py impor
 
 from backend.clinical.extract import extract_med_status
 from backend.evals.registry import Finding, register_check
-from backend.schemas import ClinicalClaim, EvalCase, Severity, SOAPNote
+from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
 
 def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:
@@ -43,5 +43,28 @@ def check_drug_in_quote(
         for drug in sorted(named_drugs(claim.text) - named_drugs(span)):
             findings.append(
                 Finding(detail=f"{drug}: in the claim, not its source span", claim_ids=(claim.id,))
+            )
+    return findings
+
+
+@register_check(name="hallucinated_medication", severity=Severity.CRITICAL)
+def check_hallucinated_medication(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per drug in a claim grounding flagged UNSUPPORTED (§8.4, L136).
+
+    Reads grounding's flag and never re-derives it (D6). A grounded claim is drug_in_quote's,
+    so the two presence checks split a note between them.
+
+    Omission (D17): an omitted claim leaves nothing to read, so the check passes; §8.4's
+    omission table assigns that omission elsewhere.
+    """
+    findings: list[Finding] = []
+    for claim in note.claims:
+        if SafetyFlag.UNSUPPORTED not in claim.flags:
+            continue
+        for drug in sorted(named_drugs(claim.text)):
+            findings.append(
+                Finding(detail=f"{drug}: in a claim that grounds nowhere", claim_ids=(claim.id,))
             )
     return findings
