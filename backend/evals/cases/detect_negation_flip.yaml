@@ -1,0 +1,12 @@
+id: detect_negation_flip
+species: detection
+raw_text: |
+  Routine follow-up visit. Denies chest pain, shortness of breath, or palpitations.
+  BP 128/78 today.
+trap: "a claim reports the finding its source span denies (v1.2)"
+draft:
+  claims:
+    - text: "Reports chest pain"
+      section: S
+      source_quote: "Denies chest pain, shortness of breath, or palpitations"
+expected_flags: [negation_consistency]

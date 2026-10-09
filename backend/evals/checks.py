@@ -4,7 +4,9 @@ A claim-local check runs one extractor over a claim's text and its source span a
 the two (L35). Registration is this module's import side effect: runner.py imports it (§8.7).
 """
 
-from backend.clinical.extract import MedStatus, extract_med_status
+from collections.abc import Callable
+
+from backend.clinical.extract import MedStatus, extract_findings, extract_med_status
 from backend.evals.registry import Finding, register_check
 from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
@@ -70,6 +72,35 @@ def check_hallucinated_medication(
     return findings
 
 
+def _compare_per_key[V](
+    note: SOAPNote,
+    raw_text: str,
+    extract: Callable[[str], dict[str, set[V]]],
+    describe: Callable[[set[V]], str],
+) -> list[Finding]:
+    """values(text) ⊆ values(span), per key a claim and its span both name (§8.4).
+
+    One finding per key whose values in the claim aren't all in the span's, in key order. A
+    key only one side names isn't compared, and a claim with no span is skipped.
+    """
+    findings: list[Finding] = []
+    for claim in note.claims:
+        span = span_text(claim, raw_text)
+        if span is None:
+            continue
+        in_text, in_span = extract(claim.text), extract(span)
+        for key in sorted(in_text.keys() & in_span.keys()):
+            if not in_text[key] <= in_span[key]:
+                findings.append(
+                    Finding(
+                        detail=f"{key}: {describe(in_text[key])} in the claim, "
+                        f"{describe(in_span[key])} in its source span",
+                        claim_ids=(claim.id,),
+                    )
+                )
+    return findings
+
+
 def _statuses(statuses: set[MedStatus]) -> str:
     """'active', 'stopped', or 'active and stopped', for a finding's detail."""
     return " and ".join(sorted(statuses))
@@ -88,19 +119,25 @@ def check_med_status_consistency(
     Omission (D17): an omitted claim leaves no drug in both to compare, so the check passes;
     §8.4's omission table assigns that omission elsewhere.
     """
-    findings: list[Finding] = []
-    for claim in note.claims:
-        span = span_text(claim, raw_text)
-        if span is None:
-            continue
-        in_text, in_span = extract_med_status(claim.text), extract_med_status(span)
-        for drug in sorted(in_text.keys() & in_span.keys()):
-            if not in_text[drug] <= in_span[drug]:
-                findings.append(
-                    Finding(
-                        detail=f"{drug}: {_statuses(in_text[drug])} in the claim, "
-                        f"{_statuses(in_span[drug])} in its source span",
-                        claim_ids=(claim.id,),
-                    )
-                )
-    return findings
+    return _compare_per_key(note, raw_text, extract_med_status, _statuses)
+
+
+def _polarities(polarities: set[bool]) -> str:
+    """'present', 'absent', or 'absent and present', for a finding's detail."""
+    return " and ".join(sorted("present" if p else "absent" for p in polarities))
+
+
+@register_check(name="negation_consistency", severity=Severity.CRITICAL)
+def check_negation_consistency(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per finding a claim and its span both name, at a polarity the span lacks.
+
+    polarity(text) ⊆ polarity(span), per finding (§8.4, L33). Only findings both sides name
+    are compared (L139): a finding the span doesn't name, or names in words the lexicon
+    doesn't list, isn't this check's (§8.8). A claim with no span is skipped (§8.4).
+
+    Omission (D17): an omitted claim leaves no finding in both to compare, so the check
+    passes; §8.4's omission table assigns that omission elsewhere.
+    """
+    return _compare_per_key(note, raw_text, extract_findings, _polarities)

@@ -1,0 +1,15 @@
+id: control_reported_and_denied
+species: control
+raw_text: |
+  Seen for cough x 3 days. Reports fever to 38.5 C and chills overnight.
+  Denies chest pain or vomiting.
+trap: null
+draft:
+  claims:
+    - text: "Reports fever and chills"
+      section: S
+      source_quote: "Reports fever to 38.5 C and chills overnight"
+    - text: "Denies chest pain and vomiting"
+      section: S
+      source_quote: "Denies chest pain or vomiting"
+expected_flags: []

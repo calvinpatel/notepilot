@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.26** (patch — the first check and its corpus, October 2026).
-Supersedes v1.3.25.
+**Spec version: v1.3.27** (patch — negation, per finding, October 2026).
+Supersedes v1.3.26.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1513,7 +1513,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `hallucinated_medication` | CRITICAL | no | `UNSUPPORTED` flag + named(text) (L136) | a drug in a claim that grounds nowhere |
 | `drug_in_quote` | CRITICAL | no | named(text) ⊆ named(span) (L136) | a drug the source span doesn't say |
 | `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13) | "continue" ↔ "discontinue" |
-| `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span) | "denies" → "reports" |
+| `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span), for findings in both (L139) | "denies" → "reports" |
 | `diagnosis_in_quote` | CRITICAL; downgrade → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12) | an invented or upgraded assessment |
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − drugs(note) (L41) | a started drug the note dropped |
@@ -1998,6 +1998,12 @@ know, stated plainly (v1.3):
   check, which then passes over it. Recall on an unlisted drug is zero, not unmeasured. An
   allergen that isn't a drug (latex, a food) is never extracted, so `allergy_preserved`
   can't see one dropped.
+- **Findings both sides name** (L139). `negation_consistency` compares polarity only for a
+  finding the claim and its span both name, and `FINDINGS` lists no other names. A flip
+  behind a name it lacks ("denies CP" → "reports chest pain") reads nothing; so does a
+  finding the span never names, which is the judge's and `must_not_add`'s to catch. A span
+  holding both polarities ("denies chest pain at rest, reports chest pain on exertion")
+  passes a claim keeping either one, since qualifiers aren't extracted.
 - **Judge quality.** Measured only indirectly, through model cases; never against a
   clinician.
 - **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.

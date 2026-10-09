@@ -1,4 +1,4 @@
-"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D13, L35, L136)."""
+"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D13, L35, L136, L139)."""
 
 import os
 import subprocess
@@ -7,11 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from backend.clinical.lexicons import GENERIC_DRUGS
+from backend.clinical.lexicons import FINDINGS, GENERIC_DRUGS
 from backend.evals.checks import (
     check_drug_in_quote,
     check_hallucinated_medication,
     check_med_status_consistency,
+    check_negation_consistency,
     named_drugs,
     span_text,
 )
@@ -357,6 +358,111 @@ def test_presence_and_status_split_one_error_into_one_finding(
     note, raw = _note((text, span))
     assert _named(check_drug_in_quote(note, raw)) == presence
     assert _named(check_med_status_consistency(note, raw)) == status
+
+
+# --- negation_consistency (§8.4, L33, L139) -----------------------------------------------
+
+
+def test_negation_consistency_is_a_reference_free_critical_check() -> None:
+    check = REGISTRY["negation_consistency"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_negation_consistency_fires_on_a_denied_finding_written_as_reported() -> None:
+    note, raw = _note(("Reports chest pain", "denies chest pain"))
+    findings = check_negation_consistency(note, raw)
+    assert [f.detail for f in findings] == [
+        "chest pain: present in the claim, absent in its source span"
+    ]
+    assert findings[0].claim_ids == (0,)
+
+
+def test_negation_consistency_fires_on_a_reported_finding_written_as_denied() -> None:
+    note, raw = _note(("Denies fever", "reports fever and chills"))
+    assert _named(check_negation_consistency(note, raw)) == ["fever"]
+
+
+def test_negation_consistency_passes_a_polarity_both_sides_assert() -> None:
+    note, raw = _note(("Denies chest pain", "denies chest pain or shortness of breath"))
+    assert check_negation_consistency(note, raw) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Reports chest pain", "denies fever"),
+        ("No fever", "Temp 37.0, afebrile"),
+        ("Reports chest pain", "denies CP"),
+    ],
+    ids=["invented", "afebrile", "unlisted-name"],
+)
+def test_negation_consistency_leaves_a_finding_the_span_doesnt_name(text: str, span: str) -> None:
+    # L139: compared per finding, for findings both sides name; §8.8 states the recall cost
+    note, raw = _note((text, span))
+    assert check_negation_consistency(note, raw) == []
+
+
+@pytest.mark.parametrize(
+    "text", ["Reports chest pain on exertion", "Denies chest pain"], ids=["kept", "selective"]
+)
+def test_negation_consistency_passes_one_of_the_spans_polarities(text: str) -> None:
+    # polarity(text) ⊆ polarity(span): with qualifiers unread, a claim keeping either half of
+    # a mixed span passes, the faithful half and the selective one alike (§8.8, L139)
+    note, raw = _note((text, "denies chest pain at rest, reports chest pain on exertion"))
+    assert check_negation_consistency(note, raw) == []
+
+
+def test_negation_consistency_fires_on_a_polarity_the_span_lacks_beside_one_it_has() -> None:
+    note, raw = _note(
+        (
+            "Denies chest pain at rest, reports chest pain on exertion",
+            "reports chest pain on exertion",
+        )
+    )
+    findings = check_negation_consistency(note, raw)
+    assert [f.detail for f in findings] == [
+        "chest pain: absent and present in the claim, present in its source span"
+    ]
+
+
+def test_negation_consistency_reads_the_claims_own_span_not_the_raw_text() -> None:
+    note, raw = _note(("Denies fever", "denies fever"), ("Denies fever", "reports fever"))
+    assert [f.claim_ids for f in check_negation_consistency(note, raw)] == [(1,)]
+
+
+def test_negation_consistency_reads_the_span_never_the_quote() -> None:
+    # invariant 14: the quote agrees with the claim; the span it grounded to doesn't (L35)
+    raw = "reports chest pain at rest"
+    claim = ClinicalClaim(
+        id=0,
+        text="Denies chest pain at rest",
+        section="S",
+        source_quote="denies chest pain at rest",
+        source_span=(0, len(raw)),
+        flags=(SafetyFlag.PARAPHRASED,),
+    )
+    assert _named(check_negation_consistency(SOAPNote(claims=(claim,)), raw)) == ["chest pain"]
+
+
+def test_negation_consistency_skips_a_claim_that_grounds_nowhere() -> None:
+    note, raw = _note(("Reports chest pain", None))
+    assert check_negation_consistency(note, raw) == []
+
+
+def test_negation_consistency_finds_each_finding_once_in_name_order() -> None:
+    # every listed finding, in reverse: name order has to come from the check's sort
+    names = sorted(FINDINGS, reverse=True)
+    text = ", ".join(f"denies {n}" for n in names)
+    span = ", ".join(f"reports {n}" for n in names)
+    note, raw = _note((text, span))
+    findings = check_negation_consistency(note, raw)
+    assert _named(findings) == sorted(FINDINGS)
+    assert {f.claim_ids for f in findings} == {(0,)}
 
 
 # --- registration -------------------------------------------------------------------------

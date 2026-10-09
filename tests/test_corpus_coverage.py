@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import pytest
 
+from backend.clinical.extract import extract_findings
 from backend.evals.checks import named_drugs, span_text
 from backend.evals.loader import CASES_DIR, load_cases
 from backend.evals.registry import REGISTRY
@@ -32,6 +33,14 @@ def _shares_a_drug(note: SOAPNote, raw_text: str) -> bool:
     return False
 
 
+def _shares_a_finding(note: SOAPNote, raw_text: str) -> bool:
+    for claim in note.claims:
+        span = span_text(claim, raw_text)
+        if span is not None and extract_findings(claim.text).keys() & extract_findings(span).keys():
+            return True
+    return False
+
+
 def _names_a_drug(note: SOAPNote, raw_text: str) -> bool:
     return any(named_drugs(claim.text) for claim in note.claims)
 
@@ -43,6 +52,7 @@ EXERCISES: dict[str, Callable[[SOAPNote, str], bool]] = {
     "drug_in_quote": _shares_a_drug,
     "hallucinated_medication": _names_a_drug,
     "med_status_consistency": _shares_a_drug,
+    "negation_consistency": _shares_a_finding,
 }
 
 
