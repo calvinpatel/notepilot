@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.29** (patch — doses compared, October 2026).
-Supersedes v1.3.28.
+**Spec version: v1.3.30** (patch — case line breaks, October 2026).
+Supersedes v1.3.29.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1688,6 +1688,12 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   contain only the planted claim. For model cases, the authoring rule: **no incidental
   entities that could trip the same check.** The residual gap is stated in §8.8; an `about:`
   field on expected flags is backlogged (§15).
+- **A case's raw text breaks lines only where its source would (L143).** A line break is a
+  terminator (§7: a templated line carries one statement), so it closes a cue's window like
+  a period. A case wrapped to fit a width changes what it means: "start" at a line's end,
+  with "azithromycin" on the next, reads no new prescription (measured). So a long sentence
+  stays on one line. Review enforces it, as it does D16: a section header over its list is a
+  break the source makes, and no test can tell that from a wrap.
 - **Tier-3 fixtures self-check.** An injected case meant to exercise the fuzzy tier
   (`detect_paraphrase_drug_swap`) asserts in its test that the claim actually grounded
   `PARAPHRASED` — otherwise a cutoff change silently turns it into a Tier 4 case testing

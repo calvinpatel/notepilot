@@ -1,8 +1,8 @@
 id: detect_status_flip
 species: detection
 raw_text: |
-  Atrial fibrillation, rate controlled. Continue apixaban 5 mg bid; recheck renal function in
-  3 months.
+  Atrial fibrillation, rate controlled.
+  Continue apixaban 5 mg bid; recheck renal function in 3 months.
 trap: "a claim stops the drug its source span continues (D13)"
 draft:
   claims:

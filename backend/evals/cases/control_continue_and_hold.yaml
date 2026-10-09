@@ -1,8 +1,8 @@
 id: control_continue_and_hold
 species: control
 raw_text: |
-  BP well controlled on Zestril 10 mg daily, continue. Metformin held for CT with contrast
-  today, resume in 48 hours.
+  BP well controlled on Zestril 10 mg daily, continue.
+  Metformin held for CT with contrast today, resume in 48 hours.
 trap: null
 draft:
   claims:

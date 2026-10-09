@@ -1,8 +1,8 @@
 id: detect_hallucinated_medication
 species: detection
 raw_text: |
-  Pre-op visit for left knee arthroscopy next week. Labs and EKG reviewed, cleared for
-  surgery.
+  Pre-op visit for left knee arthroscopy next week.
+  Labs and EKG reviewed, cleared for surgery.
 trap: "a claim that grounds nowhere holds a drug the source never names (L136)"
 draft:
   claims:
