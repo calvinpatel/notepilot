@@ -8,7 +8,11 @@ from collections.abc import Callable
 
 import pytest
 
-from backend.clinical.extract import extract_findings
+from backend.clinical.extract import (
+    extract_diagnoses,
+    extract_excluded_diagnoses,
+    extract_findings,
+)
 from backend.evals.checks import named_drugs, span_text
 from backend.evals.loader import CASES_DIR, load_cases
 from backend.evals.registry import REGISTRY
@@ -33,6 +37,18 @@ def _shares_a_drug(note: SOAPNote, raw_text: str) -> bool:
     return False
 
 
+def _diagnoses(text: str) -> set[str]:
+    return extract_diagnoses(text).keys() | extract_excluded_diagnoses(text)
+
+
+def _shares_a_diagnosis(note: SOAPNote, raw_text: str) -> bool:
+    for claim in note.claims:
+        span = span_text(claim, raw_text)
+        if span is not None and _diagnoses(claim.text) & _diagnoses(span):
+            return True
+    return False
+
+
 def _shares_a_finding(note: SOAPNote, raw_text: str) -> bool:
     for claim in note.claims:
         span = span_text(claim, raw_text)
@@ -49,6 +65,7 @@ def _names_a_drug(note: SOAPNote, raw_text: str) -> bool:
 # claim-local family, a key its extractor finds in both a claim's text and that claim's span;
 # for hallucinated_medication, a claim naming a drug, which grounding's flag then decides.
 EXERCISES: dict[str, Callable[[SOAPNote, str], bool]] = {
+    "diagnosis_in_quote": _shares_a_diagnosis,
     "drug_in_quote": _shares_a_drug,
     "hallucinated_medication": _names_a_drug,
     "med_status_consistency": _shares_a_drug,

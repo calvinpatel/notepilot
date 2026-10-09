@@ -1,4 +1,7 @@
-"""Pins extraction's scope engine and extractors (spec §7, §11; D1, D10, D12, L31, L120-L135)."""
+"""Pins extraction's scope engine and extractors.
+
+Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140.
+"""
 
 import ast
 import itertools
@@ -15,6 +18,7 @@ from backend.clinical.extract import (
     extract_diagnoses,
     extract_doses,
     extract_drugs,
+    extract_excluded_diagnoses,
     extract_findings,
     extract_med_status,
     new_prescriptions,
@@ -531,7 +535,7 @@ def test_a_dose_in_the_next_sentence_reads_as_nothing() -> None:
     assert extract_doses(text) == {"metformin": {Dose(500.0, "mg", "daily")}}
 
 
-# --- diagnoses and certainty (D7, D12, L134, L135) -------------------------------
+# --- diagnoses, certainty, and exclusions (D7, D12, L134, L135, L140) ------------
 
 
 def test_a_diagnosis_no_cue_governs_is_definite() -> None:
@@ -553,6 +557,34 @@ def test_a_certainty_cue_governs_before_or_after_its_diagnosis(text: str) -> Non
 def test_a_negated_diagnosis_is_not_asserted(text: str) -> None:
     # "PE ruled out" says it was excluded; "rule out PE" is a plan to exclude it
     assert extract_diagnoses(text) == {}
+
+
+@pytest.mark.parametrize(
+    ("text", "excluded"),
+    [
+        ("PE ruled out", {"pulmonary embolism"}),
+        ("no pneumonia", {"pneumonia"}),
+        ("negative for PE", {"pulmonary embolism"}),
+    ],
+    ids=["ruled-out", "no", "negative-for"],
+)
+def test_a_negated_diagnosis_is_excluded(text: str, excluded: set[str]) -> None:
+    # L140: the mentions extract_diagnoses drops, read beside it
+    assert extract_excluded_diagnoses(text) == excluded
+
+
+@pytest.mark.parametrize(
+    "text", ["r/o PE", "PE", "likely PE", "cannot rule out PE", "PE not ruled out", "PNA vs PE"]
+)
+def test_a_diagnosis_asserted_at_any_certainty_is_not_excluded(text: str) -> None:
+    assert extract_excluded_diagnoses(text) == set()
+
+
+def test_a_rule_out_and_its_result_read_apart_in_one_statement() -> None:
+    # the workup and its answer: to be excluded, then excluded
+    text = "r/o PE; CTA negative, PE ruled out"
+    assert extract_diagnoses(text) == {"pulmonary embolism": {"rule_out"}}
+    assert extract_excluded_diagnoses(text) == {"pulmonary embolism"}
 
 
 @pytest.mark.parametrize("text", ["cannot rule out PE", "PE not ruled out"])
@@ -723,6 +755,16 @@ def test_every_pre_negation_cue_negates_the_diagnosis_after_it(cue: str) -> None
 @pytest.mark.parametrize("cue", sorted(FINDING_NEG_POST))
 def test_every_post_negation_cue_negates_the_diagnosis_before_it(cue: str) -> None:
     assert extract_diagnoses(f"pneumonia {cue}") == {}
+
+
+@pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE))
+def test_every_pre_negation_cue_excludes_the_diagnosis_after_it(cue: str) -> None:
+    assert extract_excluded_diagnoses(f"{cue} pneumonia") == {"pneumonia"}
+
+
+@pytest.mark.parametrize("cue", sorted(FINDING_NEG_POST))
+def test_every_post_negation_cue_excludes_the_diagnosis_before_it(cue: str) -> None:
+    assert extract_excluded_diagnoses(f"pneumonia {cue}") == {"pneumonia"}
 
 
 @pytest.mark.parametrize("cue", sorted(MED_START_CUES))

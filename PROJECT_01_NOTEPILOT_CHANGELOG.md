@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,30 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.28 — exclusions (patch)
+
+Theme: a fill decided while drafting step 4 lands with `diagnosis_in_quote`, the check it
+completes; step 4a's claim-local checks are all registered but `dose_consistency`. No
+invariant moves; CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L140 §7, §8.4, §8.6 — a negated diagnosis is read.** Fill: L135 made a negated
+  diagnosis not asserted, and `diagnosis_in_quote` compared asserted ones only, so no
+  check saw an exclusion. "r/o PE" written as "PE ruled out" compared ∅ ⊆ {rule_out} and
+  passed (measured): premature closure, a patient sent home before the CTA. "pneumonia"
+  written as "No pneumonia" passed the same way. L124 kept a negated drug visible for this
+  reason. `extract_excluded_diagnoses` reads the negated mentions beside
+  `extract_diagnoses`, and the check compares each diagnosis' reading, its certainties and
+  whether it is excluded. An exclusion the span doesn't make is CRITICAL, whether the span
+  rules the diagnosis out, asserts it, or never names it (an inferred exclusion, D7). A
+  claim asserting a diagnosis its span excludes is CRITICAL as definite or probable and
+  WARNING as possible or rule-out, which reopen the question as D12's downgrade does.
+  D12's "never stronger" also needed a reading over L135's sets: strongest compares to
+  strongest, so a span reading "r/o PE; PE likely given D-dimer" supports a claim of
+  "Likely PE".
 
 ---
 

@@ -1,0 +1,12 @@
+id: detect_certainty_upgrade
+species: detection
+raw_text: |
+  Pleuritic chest pain since yesterday, HR 112.
+  r/o PE, CTA ordered.
+trap: "a claim asserts the diagnosis its source span rules out (D12)"
+draft:
+  claims:
+    - text: "Pulmonary embolism"
+      section: A
+      source_quote: "r/o PE, CTA ordered"
+expected_flags: [diagnosis_in_quote]

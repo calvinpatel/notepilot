@@ -1,4 +1,4 @@
-"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D13, L35, L136, L139)."""
+"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D12, D13, L35, L136-L140)."""
 
 import os
 import subprocess
@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.clinical.lexicons import FINDINGS, GENERIC_DRUGS
+from backend.clinical.lexicons import DIAGNOSES, FINDINGS, GENERIC_DRUGS
 from backend.evals.checks import (
+    check_diagnosis_in_quote,
     check_drug_in_quote,
     check_hallucinated_medication,
     check_med_status_consistency,
@@ -462,6 +463,144 @@ def test_negation_consistency_finds_each_finding_once_in_name_order() -> None:
     note, raw = _note((text, span))
     findings = check_negation_consistency(note, raw)
     assert _named(findings) == sorted(FINDINGS)
+    assert {f.claim_ids for f in findings} == {(0,)}
+
+
+# --- diagnosis_in_quote (§8.4, D7, D12, L140) ---------------------------------------------
+
+
+def test_diagnosis_in_quote_is_a_reference_free_critical_check() -> None:
+    check = REGISTRY["diagnosis_in_quote"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_diagnosis_in_quote_fires_on_an_invented_diagnosis() -> None:
+    # D7 and D12's trap: a vital sign written as a diagnosis
+    note, raw = _note(("Hypertensive urgency", "BP 190/110 on arrival"))
+    findings = check_diagnosis_in_quote(note, raw)
+    assert [(f.detail, f.severity) for f in findings] == [
+        (
+            "hypertensive urgency: definite in the claim, not named in its source span",
+            Severity.CRITICAL,
+        )
+    ]
+    assert findings[0].claim_ids == (0,)
+
+
+def test_diagnosis_in_quote_fires_on_an_upgrade() -> None:
+    note, raw = _note(("Pulmonary embolism", "r/o PE, CTA ordered"))
+    assert [(f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw)] == [
+        (
+            "pulmonary embolism: definite in the claim, rule-out in its source span",
+            Severity.CRITICAL,
+        )
+    ]
+
+
+def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
+    note, raw = _note(("Possible pneumonia", "pneumonia"))
+    assert [(f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw)] == [
+        ("pneumonia: possible in the claim, definite in its source span", Severity.WARNING)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Likely pneumonia", "likely pneumonia"),
+        ("Pneumonia", "PNA"),
+        ("r/o PE", "PE possible, r/o PE"),
+        ("Likely PE", "r/o PE; PE likely given D-dimer"),
+        ("PE ruled out", "CTA negative, PE ruled out"),
+        ("PE ruled out", "r/o PE; CTA negative, PE ruled out"),
+    ],
+    ids=[
+        "same",
+        "alias",
+        "one-of-the-spans",
+        "strongest-matches",
+        "exclusion",
+        "workup-and-result",
+    ],
+)
+def test_diagnosis_in_quote_passes_a_reading_the_span_supports(text: str, span: str) -> None:
+    note, raw = _note((text, span))
+    assert check_diagnosis_in_quote(note, raw) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "span", "severity"),
+    [
+        ("PE ruled out", "r/o PE", Severity.CRITICAL),
+        ("No pneumonia", "pneumonia", Severity.CRITICAL),
+        ("PE ruled out", "CTA negative", Severity.CRITICAL),
+        ("PE", "PE ruled out", Severity.CRITICAL),
+        ("Likely PE", "PE ruled out", Severity.CRITICAL),
+        ("Possible PE", "PE ruled out", Severity.WARNING),
+        ("r/o PE", "PE ruled out", Severity.WARNING),
+    ],
+    ids=[
+        "premature-closure",
+        "flip",
+        "inferred-exclusion",
+        "definite-against-an-exclusion",
+        "probable-against-an-exclusion",
+        "possible-reopens",
+        "rule-out-reopens",
+    ],
+)
+def test_diagnosis_in_quote_reads_exclusions(text: str, span: str, severity: Severity) -> None:
+    # L140: an exclusion the span doesn't make is CRITICAL; asserting what the span excludes is
+    # CRITICAL as definite or probable, and a WARNING as possible or rule-out, which reopen it
+    note, raw = _note((text, span))
+    assert [f.severity for f in check_diagnosis_in_quote(note, raw)] == [severity]
+
+
+def test_diagnosis_in_quote_describes_an_exclusion() -> None:
+    note, raw = _note(("PE ruled out", "r/o PE"))
+    assert [f.detail for f in check_diagnosis_in_quote(note, raw)] == [
+        "pulmonary embolism: excluded in the claim, rule-out in its source span"
+    ]
+
+
+def test_diagnosis_in_quote_reads_the_claims_own_span_not_the_raw_text() -> None:
+    note, raw = _note(
+        ("Likely pneumonia", "likely pneumonia"), ("Likely pneumonia", "r/o pneumonia")
+    )
+    assert [f.claim_ids for f in check_diagnosis_in_quote(note, raw)] == [(1,)]
+
+
+def test_diagnosis_in_quote_reads_the_span_never_the_quote() -> None:
+    # invariant 14: the quote agrees with the claim; the span it grounded to doesn't (L35)
+    raw = "r/o pulmonary embolism, CTA ordered"
+    claim = ClinicalClaim(
+        id=0,
+        text="Pulmonary embolism",
+        section="A",
+        source_quote="pulmonary embolism, CTA ordered",
+        source_span=(0, len(raw)),
+        flags=(SafetyFlag.PARAPHRASED,),
+    )
+    assert _named(check_diagnosis_in_quote(SOAPNote(claims=(claim,)), raw)) == [
+        "pulmonary embolism"
+    ]
+
+
+def test_diagnosis_in_quote_skips_a_claim_that_grounds_nowhere() -> None:
+    note, raw = _note(("Hypertensive urgency", None))
+    assert check_diagnosis_in_quote(note, raw) == []
+
+
+def test_diagnosis_in_quote_finds_each_diagnosis_once_in_name_order() -> None:
+    # every listed diagnosis, in reverse: name order has to come from the check's sort
+    note, raw = _note((", ".join(sorted(DIAGNOSES, reverse=True)), "Assessment deferred"))
+    findings = check_diagnosis_in_quote(note, raw)
+    assert _named(findings) == sorted(DIAGNOSES)
     assert {f.claim_ids for f in findings} == {(0,)}
 
 

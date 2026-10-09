@@ -1,0 +1,12 @@
+id: detect_premature_exclusion
+species: detection
+raw_text: |
+  Pleuritic chest pain since yesterday, HR 112.
+  r/o PE; CTA pending.
+trap: "a claim excludes the diagnosis its source span is still ruling out (L140)"
+draft:
+  claims:
+    - text: "PE ruled out"
+      section: A
+      source_quote: "r/o PE; CTA pending"
+expected_flags: [diagnosis_in_quote]

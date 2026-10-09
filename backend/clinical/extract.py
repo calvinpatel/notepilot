@@ -439,6 +439,19 @@ def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
     return certainties
 
 
+def extract_excluded_diagnoses(text: str) -> set[str]:
+    """The diagnoses text excludes. "PE ruled out" -> {"pulmonary embolism"} (L140).
+
+    extract_diagnoses' sibling: the negated mentions it drops, so a check can see an exclusion.
+    One statement can both rule a diagnosis out and exclude it.
+    """
+    return {
+        diagnosis
+        for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _DIFFERENTIAL)
+        if label == "negated"
+    }
+
+
 def extract_findings(text: str) -> dict[str, set[bool]]:
     """finding -> polarities asserted. "denies chest pain" -> {"chest pain": {False}}.
 

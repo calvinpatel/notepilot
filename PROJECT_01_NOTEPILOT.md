@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.27** (patch — negation, per finding, October 2026).
-Supersedes v1.3.26.
+**Spec version: v1.3.28** (patch — exclusions, October 2026).
+Supersedes v1.3.27.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1146,6 +1146,10 @@ def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
     """v1.3 (D12): diagnosis → certainties asserted. "r/o PE" →
     {"pulmonary embolism": {"rule_out"}} (L134). Lexicon is corpus-driven (MVP), like
     FINDINGS."""
+
+def extract_excluded_diagnoses(text: str) -> set[str]:
+    """v1.3.28 (L140): the diagnoses text excludes, the negated mentions extract_diagnoses
+    drops. "PE ruled out" → {"pulmonary embolism"}."""
 ```
 
 Callers add the claim linkage themselves. These two helpers live in `evals/` — they touch
@@ -1242,17 +1246,17 @@ titration. A dose before its drug ("500 mg of amoxicillin") or in the next sente
 nothing, the accepted costs. Whether `dose_consistency` treats 1 g as 1000 mg, or a dose
 without a frequency as matching one with, is that check's to say (step 4c).
 
-**Diagnoses and certainty (L134, L135).** `diagnosis_in_quote` compares keys, so a diagnosis
-needs every name it is charted by, as a drug does (L126): `DIAGNOSES` holds the canonical
-names, and `DIAGNOSIS_ALIASES` maps the others onto them ("PE" -> "pulmonary embolism").
-Certainty is a cue class a diagnosis sees beside negation: `CERTAINTY_CUES` before it and
-`CERTAINTY_POST` after it, each cue naming the `Certainty` it asserts, and a diagnosis no
-cue governs is definite. A negated diagnosis isn't asserted, so "PE ruled out" (excluded)
-and "r/o PE" (to be excluded) read apart, and "cannot rule out" and "not ruled out" are
-possible. A differential cue ("vs") governs both its sides: the diagnosis immediately before
-it, unless another cue governs that one, and the window after it, so "PNA vs PE" reads both
-as possible. "PE" also charts the physical exam, so "PE: lungs clear" reads a pulmonary
-embolism, an accepted cost.
+**Diagnoses and certainty (L134, L135, L140).** `diagnosis_in_quote` compares keys, so a
+diagnosis needs every name it is charted by, as a drug does (L126): `DIAGNOSES` holds the
+canonical names, and `DIAGNOSIS_ALIASES` maps the others onto them ("PE" -> "pulmonary
+embolism"). Certainty is a cue class a diagnosis sees beside negation: `CERTAINTY_CUES`
+before it and `CERTAINTY_POST` after it, each cue naming the `Certainty` it asserts, and a
+diagnosis no cue governs is definite. A negated diagnosis isn't asserted, so "PE ruled out"
+(excluded) and "r/o PE" (to be excluded) read apart; `extract_excluded_diagnoses` reads the
+excluded ones (L140). "Cannot rule out" and "not ruled out" are possible. A differential cue
+("vs") governs both its sides: the diagnosis immediately before it, unless another cue
+governs that one, and the window after it, so "PNA vs PE" reads both as possible. "PE" also
+charts the physical exam, so "PE: lungs clear" reads a pulmonary embolism, an accepted cost.
 
 **`clinical/lexicons.py` — the shape (v1.3):**
 
@@ -1514,7 +1518,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `drug_in_quote` | CRITICAL | no | named(text) ⊆ named(span) (L136) | a drug the source span doesn't say |
 | `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13) | "continue" ↔ "discontinue" |
 | `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span), for findings in both (L139) | "denies" → "reports" |
-| `diagnosis_in_quote` | CRITICAL; downgrade → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12) | an invented or upgraded assessment |
+| `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − drugs(note) (L41) | a started drug the note dropped |
 | `quote_informativeness` | WARNING | no | content tokens ≥ `min_quote_content_tokens`, or a lexicon entity (D15) | degenerate quotes |
@@ -1560,6 +1564,16 @@ Four things to read off the table:
    normalized `text` is in the kind's extractor output over the whole note — with polarity
    for findings (L36): "denies chest pain" preserves as `present=False`; a flipped note has
    not preserved it, and a faithful "denies chest pain" is not an invented chest pain.
+
+**Diagnoses are compared as readings (D12, L140).** A string's reading of a diagnosis is the
+certainties it asserts and whether it excludes it ("PE ruled out", "no pneumonia"). A
+diagnosis the span doesn't name is invented, CRITICAL. Certainty compares strongest to
+strongest: a claim's stronger than its span's is D12's upgrade, CRITICAL; a certainty the
+span lacks, and none stronger, is its downgrade, WARNING. An exclusion the span doesn't make
+is CRITICAL, whether the span rules the diagnosis out (premature closure), asserts it (a
+flip), or never names it (an inferred exclusion, D7). A claim asserting a diagnosis its span
+excludes is CRITICAL as definite or probable; as possible or rule-out it reopens the
+question, a WARNING like the downgrade.
 
 **Why `medication_preserved` is NOT on the roster (§8.1's trust axis, applied).**
 `extract_drugs(raw) − extract_drugs(note)` looks like `allergy_preserved`'s twin. It isn't:
@@ -1692,6 +1706,7 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 | `detect_status_flip` | injected | detection | D13 |
 | `detect_invented_assessment` | injected | detection | D7/D12 — "BP 190/110" → "hypertensive urgency" |
 | `detect_certainty_upgrade` | injected | detection | D12 — "r/o PE" → "PE" |
+| `detect_premature_exclusion` | injected | detection | L140 — "r/o PE" → "PE ruled out" |
 | `detect_degenerate_quote` | injected | detection | D15 |
 | `detect_empty_note` | injected | detection | L55 |
 | `control_hedged_assessment` | model + injected | control | D7 — a hedged A kept hedged is clean (L23) |
@@ -1705,12 +1720,13 @@ moved to `tests/test_grounding.py`, L66.)
 ```
 CRITICAL   dropped allergy · hallucinated med · contraindication (same drug, same class,
            identical R1) · negation flip · status flip · drug absent from its span ·
-           invented or certainty-upgraded diagnosis · labeled invention · labeled omission
-           (allergy / medication / finding / diagnosis)
+           invented or certainty-upgraded diagnosis · a wrong exclusion, or an excluded
+           diagnosis asserted (L140) · labeled invention · labeled omission (allergy /
+           medication / finding / diagnosis)
 WARNING    dose mismatch · cross-class contraindication with a dissimilar or unknown side
            chain (D9, D14) · dropped NKDA (D10) · dropped new prescription · degenerate
-           quote · empty note on clinical input · certainty downgrade · not entailed
-           (judge) · labeled dropped dose
+           quote · empty note on clinical input · certainty downgrade · reopened exclusion
+           (L140) · not entailed (judge) · labeled dropped dose
 INFO       section misplacement · stylistic drift — the tier is defined, no INFO check
            ships in v1 (§15)
 ```
@@ -1718,7 +1734,8 @@ INFO       section misplacement · stylistic drift — the tier is defined, no I
 v1.3 (L49) removed v1.2's "temporal error" from WARNING: no check produced it, and a triage
 list names only what exists. Triage drives everything practical — which flags interrupt the
 clinician, which merely annotate, which block a deploy. A finding may *lower* its check's
-severity (the contraindication rungs, NKDA, a certainty downgrade) and never raise it
+severity (the contraindication rungs, NKDA, a certainty downgrade, a reopened exclusion)
+and never raise it
 (§8.7, L38).
 
 ### 8.7 The dual-mode runner (one engine, two jobs) + the verdict + the lineage

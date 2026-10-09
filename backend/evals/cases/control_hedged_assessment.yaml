@@ -1,0 +1,12 @@
+id: control_hedged_assessment
+species: control
+raw_text: |
+  Productive cough and fever for 3 days, crackles at the right base.
+  Likely pneumonia; will obtain CXR.
+trap: null
+draft:
+  claims:
+    - text: "Likely pneumonia"
+      section: A
+      source_quote: "Likely pneumonia; will obtain CXR"
+expected_flags: []

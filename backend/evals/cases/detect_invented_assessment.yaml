@@ -1,0 +1,12 @@
+id: detect_invented_assessment
+species: detection
+raw_text: |
+  Asymptomatic, here for a medication refill.
+  BP 190/110 on arrival; recheck in 30 minutes.
+trap: "a claim names a diagnosis its source span only measures (D7, D12)"
+draft:
+  claims:
+    - text: "Hypertensive urgency"
+      section: A
+      source_quote: "BP 190/110 on arrival"
+expected_flags: [diagnosis_in_quote]
