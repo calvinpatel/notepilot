@@ -1,4 +1,4 @@
-"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D12, D13, L35, L136-L140)."""
+"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D12, D13, L35, L136-L141)."""
 
 import os
 import subprocess
@@ -7,9 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from backend.clinical.lexicons import DIAGNOSES, FINDINGS, GENERIC_DRUGS
+from backend.clinical.lexicons import (
+    DIAGNOSES,
+    DOSE_MASS_UG,
+    DOSE_UNITS,
+    FINDINGS,
+    GENERIC_DRUGS,
+)
 from backend.evals.checks import (
     check_diagnosis_in_quote,
+    check_dose_consistency,
     check_drug_in_quote,
     check_hallucinated_medication,
     check_med_status_consistency,
@@ -601,6 +608,135 @@ def test_diagnosis_in_quote_finds_each_diagnosis_once_in_name_order() -> None:
     note, raw = _note((", ".join(sorted(DIAGNOSES, reverse=True)), "Assessment deferred"))
     findings = check_diagnosis_in_quote(note, raw)
     assert _named(findings) == sorted(DIAGNOSES)
+    assert {f.claim_ids for f in findings} == {(0,)}
+
+
+# --- dose_consistency (§8.4, D1, L141) ----------------------------------------------------
+
+
+def test_dose_consistency_is_a_reference_free_warning() -> None:
+    check = REGISTRY["dose_consistency"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.WARNING,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_dose_consistency_fires_on_a_tenfold_dose() -> None:
+    note, raw = _note(("Continue lisinopril 100 mg daily", "lisinopril 10 mg daily"))
+    findings = check_dose_consistency(note, raw)
+    assert [f.detail for f in findings] == [
+        "lisinopril: 100 mg daily in the claim, 10 mg daily in its source span"
+    ]
+    assert (findings[0].claim_ids, findings[0].severity) == ((0,), None)
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Continue lisinopril 10 mg daily", "lisinopril 10 mg daily"),
+        ("Acetaminophen 1 g q6h", "acetaminophen 1000 mg q6h"),
+        ("Acetaminophen 1.005 g", "acetaminophen 1005 mg"),
+        ("Metformin 500 mg", "metformin 500 mg bid"),
+        ("Metformin 1000 mg", "metformin 500 mg, then 1000 mg"),
+    ],
+    ids=["same", "grams-as-milligrams", "exact-arithmetic", "no-frequency", "one-of-a-titration"],
+)
+def test_dose_consistency_passes_a_dose_the_span_charts(text: str, span: str) -> None:
+    # L141: mass compares in micrograms, exactly (in floats, 1.005 * 1000 is 1004.999...), and
+    # a dose the claim charts without a frequency matches the span's at any
+    note, raw = _note((text, span))
+    assert check_dose_consistency(note, raw) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Amoxicillin 5 ml", "amoxicillin 5 mg"),
+        ("Metformin 500 mg bid", "metformin 500 mg"),
+        ("Metformin 500 mg tid", "metformin 500 mg bid"),
+        ("Continue metformin 1000 mg bid", "continue metformin"),
+        ("Metformin 500 mg, then 2000 mg", "metformin 500 mg"),
+    ],
+    ids=["volume-for-mass", "a-frequency-the-span-lacks", "another-frequency", "no-dose", "beside"],
+)
+def test_dose_consistency_fires_on_a_dose_the_span_doesnt_chart(text: str, span: str) -> None:
+    note, raw = _note((text, span))
+    assert len(check_dose_consistency(note, raw)) == 1
+
+
+def test_dose_consistency_names_a_missing_dose() -> None:
+    note, raw = _note(("Continue metformin 1000 mg bid", "continue metformin"))
+    assert [f.detail for f in check_dose_consistency(note, raw)] == [
+        "metformin: 1000 mg bid in the claim, no dose in its source span"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Acetaminophen 1 g", "acetaminophen 1000 mg"),
+        ("Acetaminophen 1 mg", "acetaminophen 1000 μg"),
+        ("Acetaminophen 1 g", "acetaminophen 1000000 μg"),
+    ],
+    ids=["g-as-mg", "mg-as-ug", "g-as-ug"],
+)
+def test_each_mass_unit_charts_the_same_dose_as_the_others(text: str, span: str) -> None:
+    # facts, not the table read back: each pair pins two of DOSE_MASS_UG's three sizes
+    note, raw = _note((text, span))
+    assert check_dose_consistency(note, raw) == []
+
+
+def test_only_ml_and_units_carry_no_mass() -> None:
+    # a canonical unit outside DOSE_MASS_UG compares only to itself (L141)
+    assert set(DOSE_UNITS.values()) - DOSE_MASS_UG.keys() == {"ml", "unit"}
+    assert DOSE_MASS_UG.keys() <= set(DOSE_UNITS.values())
+
+
+def test_dose_consistency_leaves_a_drug_the_span_doesnt_name_to_presence() -> None:
+    note, raw = _note(("Start amoxicillin 500 mg", "Will start antibiotics"))
+    assert _named(check_drug_in_quote(note, raw)) == ["amoxicillin"]
+    assert check_dose_consistency(note, raw) == []
+
+
+def test_dose_consistency_reads_the_claims_own_span_not_the_raw_text() -> None:
+    note, raw = _note(
+        ("Metformin 500 mg bid", "metformin 500 mg bid"),
+        ("Metformin 500 mg bid", "metformin 850 mg bid"),
+    )
+    # the first claim's span charts 500 mg, so only a check reading the raw text passes both
+    assert [f.claim_ids for f in check_dose_consistency(note, raw)] == [(1,)]
+
+
+def test_dose_consistency_reads_the_span_never_the_quote() -> None:
+    # invariant 14: the quote agrees with the claim; the span it grounded to doesn't (L35)
+    raw = "lisinopril 10 mg daily"
+    claim = ClinicalClaim(
+        id=0,
+        text="Lisinopril 100 mg daily",
+        section="P",
+        source_quote="lisinopril 100 mg daily",
+        source_span=(0, len(raw)),
+        flags=(SafetyFlag.PARAPHRASED,),
+    )
+    assert _named(check_dose_consistency(SOAPNote(claims=(claim,)), raw)) == ["lisinopril"]
+
+
+def test_dose_consistency_skips_a_claim_that_grounds_nowhere() -> None:
+    note, raw = _note(("Lisinopril 100 mg daily", None))
+    assert check_dose_consistency(note, raw) == []
+
+
+def test_dose_consistency_finds_each_drug_once_in_name_order() -> None:
+    # the whole vocabulary, in reverse: name order has to come from the check's sort
+    drugs = sorted(GENERIC_DRUGS, reverse=True)
+    text = ", ".join(f"{d} 20 mg" for d in drugs)
+    span = ", ".join(f"{d} 10 mg" for d in drugs)
+    note, raw = _note((text, span))
+    findings = check_dose_consistency(note, raw)
+    assert _named(findings) == sorted(GENERIC_DRUGS)
     assert {f.claim_ids for f in findings} == {(0,)}
 
 

@@ -4,17 +4,21 @@ A claim-local check runs one extractor over a claim's text and its source span a
 the two (L35). Registration is this module's import side effect: runner.py imports it (§8.7).
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from decimal import Decimal
 from typing import get_args
 
 from backend.clinical.extract import (
     Certainty,
+    Dose,
     MedStatus,
     extract_diagnoses,
+    extract_doses,
     extract_excluded_diagnoses,
     extract_findings,
     extract_med_status,
 )
+from backend.clinical.lexicons import DOSE_MASS_UG
 from backend.evals.registry import Finding, register_check
 from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
@@ -169,7 +173,7 @@ _SAID: Mapping[Certainty, str] = {
 
 
 def _diagnosis_readings(text: str) -> dict[str, _Reading]:
-    """Each diagnosis text names, asserted ones in mention order, then the excluded rest."""
+    """Each diagnosis text names: asserted ones in mention order, then the rest in name order."""
     asserted, excluded = extract_diagnoses(text), extract_excluded_diagnoses(text)
     return {
         diagnosis: (asserted.get(diagnosis, set()), diagnosis in excluded)
@@ -231,15 +235,72 @@ def check_diagnosis_in_quote(
             continue
         in_text, in_span = _diagnosis_readings(claim.text), _diagnosis_readings(span)
         for diagnosis in sorted(in_text):
-            spanned = in_span.get(diagnosis, (set(), False))
-            severity = _diagnosis_severity(in_text[diagnosis], spanned)
+            span_reading = in_span.get(diagnosis, (set(), False))
+            severity = _diagnosis_severity(in_text[diagnosis], span_reading)
             if severity is not None:
                 findings.append(
                     Finding(
                         detail=f"{diagnosis}: {_describe(in_text[diagnosis])} in the claim, "
-                        f"{_describe(spanned)} in its source span",
+                        f"{_describe(span_reading)} in its source span",
                         claim_ids=(claim.id,),
                         severity=severity,
+                    )
+                )
+    return findings
+
+
+def _amount(dose: Dose) -> tuple[str, Decimal]:
+    """A dose's unit and amount, a mass in micrograms (L141): "1 g" and "1000 mg" compare equal.
+
+    Decimal from the value's shortest repr, so the arithmetic is exact: in floats, 1.005 g is
+    1004999.9999999999 μg.
+    """
+    value = Decimal(str(dose.value))
+    if dose.unit in DOSE_MASS_UG:
+        return "μg", value * DOSE_MASS_UG[dose.unit]
+    return dose.unit, value
+
+
+def _matches(claim_dose: Dose, span_dose: Dose) -> bool:
+    """The same amount, at the claim's frequency; a claim's dose without one matches any."""
+    return _amount(claim_dose) == _amount(span_dose) and (
+        claim_dose.freq is None or claim_dose.freq == span_dose.freq
+    )
+
+
+def _doses(doses: Iterable[Dose]) -> str:
+    """'500 mg bid', '500 mg and 1000 mg', or 'no dose', for a finding's detail."""
+    said = [
+        f"{Decimal(str(d.value)).normalize():f} {d.unit}" + (f" {d.freq}" if d.freq else "")
+        for d in sorted(doses, key=lambda d: (d.unit, d.value, d.freq or ""))
+    ]
+    return " and ".join(said) or "no dose"
+
+
+@register_check(name="dose_consistency", severity=Severity.WARNING)
+def check_dose_consistency(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per drug a claim and its span both name, at a dose the span doesn't chart.
+
+    doses(text) ⊆ doses(span), parsed (§8.4, D1): a mass compares in micrograms, exactly, and a
+    dose the claim charts without a frequency matches the span's at any (L141). A drug the span
+    doesn't name is drug_in_quote's. A claim with no span is skipped (§8.4).
+    """
+    findings: list[Finding] = []
+    for claim in note.claims:
+        span = span_text(claim, raw_text)
+        if span is None:
+            continue
+        in_text, in_span = extract_doses(claim.text), extract_doses(span)
+        for drug in sorted(in_text.keys() & named_drugs(span)):
+            spanned = in_span.get(drug, set())
+            if not all(any(_matches(d, s) for s in spanned) for d in in_text[drug]):
+                findings.append(
+                    Finding(
+                        detail=f"{drug}: {_doses(in_text[drug])} in the claim, "
+                        f"{_doses(spanned)} in its source span",
+                        claim_ids=(claim.id,),
                     )
                 )
     return findings

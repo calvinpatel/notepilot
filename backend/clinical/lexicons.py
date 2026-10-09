@@ -369,13 +369,13 @@ DIFFERENTIAL_CUES: dict[str, str] = {
     "versus": "possible",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-09.
 DOSE_UNITS: dict[str, str] = {
     # Milligrams, the commonest oral dose unit.
     "mg": "mg",
     # Spelled out.
     "milligrams": "mg",
-    # Grams ("ceftriaxone 1 g"), kept as grams: whether 1 g equals 1000 mg is 4c's call.
+    # Grams ("ceftriaxone 1 g"), kept as grams; DOSE_MASS_UG says what a gram weighs.
     "g": "g",
     # Spelled out.
     "gram": "g",
@@ -397,6 +397,18 @@ DOSE_UNITS: dict[str, str] = {
     "units": "unit",
     # The singular ("1 unit").
     "unit": "unit",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-09.
+# A mass unit's size in micrograms, so dose_consistency reads 1 g as 1000 mg. ml and units
+# carry no mass and compare only to themselves: mg to ml needs a concentration (L141).
+DOSE_MASS_UG: dict[str, int] = {
+    # A gram is a million micrograms: "acetaminophen 1 g" and "1000 mg" chart one dose.
+    "g": 1_000_000,
+    # A milligram is a thousand micrograms.
+    "mg": 1_000,
+    # The base unit: "levothyroxine 75 mcg" is 75 μg.
+    "μg": 1,
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-08.

@@ -1,0 +1,12 @@
+id: detect_tenfold_dose
+species: detection
+raw_text: |
+  Hypertension, BP 128/76 on lisinopril 10 mg daily.
+  Continue current dose.
+trap: "a claim charts ten times the dose its source span gives (§8.4)"
+draft:
+  claims:
+    - text: "Continue lisinopril 100 mg daily"
+      section: P
+      source_quote: "lisinopril 10 mg daily"
+expected_flags: [dose_consistency]

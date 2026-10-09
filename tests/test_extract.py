@@ -1,6 +1,6 @@
 """Pins extraction's scope engine and extractors.
 
-Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140.
+Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141.
 """
 
 import ast
@@ -470,7 +470,7 @@ def test_a_dose_takes_its_drug_whatever_the_drugs_status() -> None:
 
 
 def test_a_unit_is_canonical_but_never_converted() -> None:
-    # whether 1 g equals 1000 mg is dose_consistency's call (4c)
+    # extraction keeps the unit charted; dose_consistency reads 1 g as 1000 mg (L141)
     text = "acetaminophen 1 g every 6 hours"
     assert extract_doses(text) == {"acetaminophen": {Dose(1.0, "g", "q6h")}}
 

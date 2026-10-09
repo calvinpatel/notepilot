@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.28** (patch — exclusions, October 2026).
-Supersedes v1.3.27.
+**Spec version: v1.3.29** (patch — doses compared, October 2026).
+Supersedes v1.3.28.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1243,8 +1243,8 @@ is a dose, so a range changed to a fixed dose still differs from its source: a h
 a range whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and "to" joins one
 only after a number without a unit ("5 to 10 mg"), since "from 500 mg to 1000 mg" is a
 titration. A dose before its drug ("500 mg of amoxicillin") or in the next sentence reads as
-nothing, the accepted costs. Whether `dose_consistency` treats 1 g as 1000 mg, or a dose
-without a frequency as matching one with, is that check's to say (step 4c).
+nothing, the accepted costs. `dose_consistency` reads 1 g as 1000 mg through `DOSE_MASS_UG`,
+and a dose without a frequency as matching one with (§8.4, L141).
 
 **Diagnoses and certainty (L134, L135, L140).** `diagnosis_in_quote` compares keys, so a
 diagnosis needs every name it is charted by, as a drug does (L126): `DIAGNOSES` holds the
@@ -1295,6 +1295,7 @@ CROSS_REACTIVITY:  dict[tuple[str, str], str]
                                      # DISSIMILAR or UNKNOWN: ("penicillin", "cephalosporin") -> "warning"
 DOSE_UNITS:        dict[str, str]    # "mcg" -> "μg", "milligrams" -> "mg": the canonical unit (L131)
 DOSE_FREQUENCIES:  dict[str, str]    # "t.i.d." -> "tid", "twice daily" -> "bid" (L131)
+DOSE_MASS_UG:      dict[str, int]    # "g" -> 1_000_000: a mass unit's size in μg; ml, units none (L141)
 FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
 DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS; canonical names (L134)
 DIAGNOSIS_ALIASES: dict[str, str]    # "pe" -> "pulmonary embolism": every other charted name (L134)
@@ -1519,7 +1520,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13) | "continue" ↔ "discontinue" |
 | `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span), for findings in both (L139) | "denies" → "reports" |
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
-| `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed | 50 mg → 500 mg |
+| `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − drugs(note) (L41) | a started drug the note dropped |
 | `quote_informativeness` | WARNING | no | content tokens ≥ `min_quote_content_tokens`, or a lexicon entity (D15) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw yields any extracted entity (L55) | total omission reading green |
@@ -1721,8 +1722,8 @@ moved to `tests/test_grounding.py`, L66.)
 CRITICAL   dropped allergy · hallucinated med · contraindication (same drug, same class,
            identical R1) · negation flip · status flip · drug absent from its span ·
            invented or certainty-upgraded diagnosis · a wrong exclusion, or an excluded
-           diagnosis asserted (L140) · labeled invention · labeled omission (allergy /
-           medication / finding / diagnosis)
+           diagnosis asserted definite or probable (L140, L142) · labeled invention ·
+           labeled omission (allergy / medication / finding / diagnosis)
 WARNING    dose mismatch · cross-class contraindication with a dissimilar or unknown side
            chain (D9, D14) · dropped NKDA (D10) · dropped new prescription · degenerate
            quote · empty note on clinical input · certainty downgrade · reopened exclusion

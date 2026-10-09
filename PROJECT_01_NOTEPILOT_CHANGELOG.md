@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,35 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.29 — doses compared (patch)
+
+Theme: a fill decided while drafting step 4 lands with `dose_consistency`, and step 4a
+closes: the six claim-local checks are registered. A wording conflict L140 left in §8.6 is
+fixed with it. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L141 §7, §8.4 — doses compared.** Fill: §8.4's roster had `dose_consistency` compare
+  parsed doses, and L133 left it two questions: whether 1 g is 1000 mg, and whether a dose
+  charted without a frequency matches one charted with. Read strictly, "Acetaminophen 1 g"
+  against a span's "1000 mg" and "Metformin 500 mg" against "metformin 500 mg bid" both
+  fire on faithful claims. A mass now compares in micrograms through `DOSE_MASS_UG`, a
+  signed table of g, mg, and μg; ml and units stay outside it, since mg to ml needs a
+  concentration. The arithmetic runs in `Decimal`: in floats, 1.005 g is
+  1004999.9999999999 μg (measured). A dose the claim charts without a frequency matches
+  the span's at any; one charted with a frequency the span lacks still fires, since the
+  claim says more than its source. A drug the span doesn't name is `drug_in_quote`'s, as
+  presence is under D13. The step pointer L133 left ("4c") in §7, `lexicons.py`, and
+  `test_extract.py` becomes the answer, as L101 asks.
+
+**INFO**
+- **L142 §8.6 — the excluded-diagnosis line, narrowed.** Conflict: L140 put "an excluded
+  diagnosis asserted" in §8.6's CRITICAL list, while §8.4 makes that CRITICAL only as
+  definite or probable, and §8.6's own WARNING list holds the reopened exclusion, possible
+  or rule-out. The CRITICAL line now says definite or probable. Claude Code found it
+  reviewing 4a-v's commit.
 
 ---
 
