@@ -1,4 +1,4 @@
-"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D12, D13, L35, L136-L141)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D10, D12, D13, L35, L136-L144)."""
 
 import os
 import subprocess
@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from backend.clinical.lexicons import (
+    ALLERGY_ALIASES,
     DIAGNOSES,
     DOSE_MASS_UG,
     DOSE_UNITS,
@@ -15,6 +16,7 @@ from backend.clinical.lexicons import (
     GENERIC_DRUGS,
 )
 from backend.evals.checks import (
+    check_allergy_preserved,
     check_diagnosis_in_quote,
     check_dose_consistency,
     check_drug_in_quote,
@@ -25,7 +27,7 @@ from backend.evals.checks import (
     span_text,
 )
 from backend.evals.registry import REGISTRY, Finding
-from backend.schemas import ClinicalClaim, SafetyFlag, Severity, SOAPNote
+from backend.schemas import ClinicalClaim, SafetyFlag, Section, Severity, SOAPNote
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -738,6 +740,82 @@ def test_dose_consistency_finds_each_drug_once_in_name_order() -> None:
     findings = check_dose_consistency(note, raw)
     assert _named(findings) == sorted(GENERIC_DRUGS)
     assert {f.claim_ids for f in findings} == {(0,)}
+
+
+# --- allergy_preserved (§8.4, D10, D17, L144) ---------------------------------------------
+
+
+def test_allergy_preserved_is_a_reference_free_critical_check() -> None:
+    check = REGISTRY["allergy_preserved"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_allergy_preserved_fires_on_an_allergy_no_claim_states() -> None:
+    note, raw = _note(("Start azithromycin", "start azithromycin"))
+    findings = check_allergy_preserved(note, raw + " PCN allergy.")
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        ("penicillin: in the source, not the note", (), None)
+    ]
+
+
+def test_allergy_preserved_passes_an_allergy_a_claim_states_in_other_words() -> None:
+    note, raw = _note(("PCN allergy", "allergic to penicillin"))
+    assert check_allergy_preserved(note, raw) == []
+
+
+@pytest.mark.parametrize("section", ["S", "O", "A", "P"])
+def test_allergy_preserved_reads_a_claim_in_any_section(section: Section) -> None:
+    # invariant 5: the section is the model's judgment call, display-only
+    raw = "Allergic to sulfa."
+    claim = ClinicalClaim(
+        id=0, text="Sulfa allergy", section=section, source_quote=raw, source_span=(0, len(raw))
+    )
+    assert check_allergy_preserved(SOAPNote(claims=(claim,)), raw) == []
+
+
+def test_allergy_preserved_reads_a_claim_that_grounds_nowhere() -> None:
+    # the allergy is in the note; whether its claim grounds is the red badge's question
+    note, raw = _note(("Allergic to amoxicillin", None))
+    assert check_allergy_preserved(note, raw + "Allergic to amoxicillin.") == []
+
+
+def test_allergy_preserved_leaves_an_allergy_only_the_note_states() -> None:
+    note, raw = _note(("Sulfa allergy", None))
+    assert check_allergy_preserved(note, raw + "Start azithromycin.") == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "statement"),
+    [("NKDA.", "nkda"), ("No known allergies.", "nka"), ("Allergies: none", "nka")],
+)
+def test_allergy_preserved_lowers_a_dropped_statement_to_a_warning(
+    raw: str, statement: str
+) -> None:
+    # D10, L144: an undocumented allergy status prompts a re-ask
+    findings = check_allergy_preserved(SOAPNote(claims=()), raw)
+    assert [(f.detail, f.severity) for f in findings] == [
+        (f"{statement}: in the source, not the note", Severity.WARNING)
+    ]
+
+
+def test_allergy_preserved_keeps_nkda_and_nka_apart() -> None:
+    # D10: NKA says more than NKDA, so a note writing one for the other drops the source's
+    note, raw = _note(("No known allergies", None))
+    findings = check_allergy_preserved(note, raw + "NKDA.")
+    assert [f.detail for f in findings] == ["nkda: in the source, not the note"]
+
+
+def test_allergy_preserved_finds_each_allergy_once_in_name_order() -> None:
+    # every allergen the lexicon names, in reverse: name order has to come from the check's sort
+    allergens = (set(ALLERGY_ALIASES.values()) | GENERIC_DRUGS) - {"nkda", "nka"}
+    raw = "Allergies: " + ", ".join(sorted(allergens, reverse=True))
+    findings = check_allergy_preserved(SOAPNote(claims=()), raw)
+    assert [f.detail.partition(":")[0] for f in findings] == sorted(allergens)
 
 
 # --- registration -------------------------------------------------------------------------

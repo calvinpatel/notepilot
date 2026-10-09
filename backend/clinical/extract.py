@@ -115,7 +115,7 @@ _DRUG_POST = (
     | _cues("allergy", ALLERGY_POST)
 )
 # the statements of D10, allergy information that needs no allergy cue
-_NO_ALLERGY = frozenset({"nkda", "nka"})
+NO_ALLERGY_STATEMENTS = frozenset({"nkda", "nka"})
 # what joins a list an allergy post-cue reaches back over (L128)
 _JOINS = frozenset({(",",), ("and",), ("or",)})
 # the label each certainty a lexicon names becomes; a value it lacks fails at import (L135)
@@ -308,7 +308,7 @@ def extract_allergies(text: str) -> set[str]:
     return {
         name
         for name, label in _drug_mentions(text)
-        if label == "allergy" or (name in _NO_ALLERGY and label != "negated")
+        if label == "allergy" or (name in NO_ALLERGY_STATEMENTS and label != "negated")
     }
 
 

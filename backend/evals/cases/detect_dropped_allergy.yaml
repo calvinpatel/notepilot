@@ -1,0 +1,12 @@
+id: detect_dropped_allergy
+species: detection
+raw_text: |
+  Acute sinusitis, symptoms for 12 days. PCN allergy (hives).
+  Start azithromycin 500 mg daily, f/u 1 wk.
+trap: "the note drops the allergy its source states (D17)"
+draft:
+  claims:
+    - text: "Start azithromycin 500 mg daily"
+      section: P
+      source_quote: "Start azithromycin 500 mg daily"
+expected_flags: [allergy_preserved]

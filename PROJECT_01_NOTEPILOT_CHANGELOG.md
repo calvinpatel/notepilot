@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,43 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.31 — the dropped allergy (patch)
+
+Theme: step 4b opens with `allergy_preserved`. A fill it needed, a conflict and a fill it
+surfaced in §8.5, and a fill decided while drafting step 4 (#5) land with it. No invariant
+moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L144 §8.4, §8.6 — a dropped NKA is a WARNING, as a dropped NKDA.** Fill: §8.4's roster
+  lowers a dropped NKDA to a WARNING (D10) and says nothing of NKA, which D10 keeps a
+  separate fact, so `allergy_preserved`'s CRITICAL covered it by default. NKA is an
+  allergy status, as NKDA is, not an allergy: dropped, it prompts the same re-ask, and a
+  CRITICAL would be the false red D10 exists to prevent. Both lower to a WARNING, in
+  §8.4's table and note and §8.6's triage. The check reads the two from the set
+  `extract.py` already held as D10's statements, now public, so the extractor and the
+  check name them once.
+
+**INFO**
+- **L145 §8.5, §8.7, §14 — the dropped-allergy twin expects `allergy_preserved` until
+  2b.** Conflict: §8.5's fixture table gave `fidelity_dropped_allergy`'s injected twin the
+  answer key `[allergy_preserved, must_preserve]`, and §8.7 had it pass when both fire;
+  §14 schedules `must_preserve` for 2b, and the loader rejects an unregistered name
+  (§8.5). §14 wins, as L137 decided for the model clause: the twin,
+  `detect_dropped_allergy`, gets its own row and expects `[allergy_preserved]` in 2a, and
+  §14's 2b list adds `must_preserve` to its answer key.
+- **L146 §8.5 — the coverage rule's predicates for checks that compare no span.** Fill:
+  L138 said what exercising a check means for the claim-local family only, a key a claim's
+  text and its span both name. `hallucinated_medication` compares no span, and its test
+  predicate, a claim naming a drug, has gone unstated since the check registered.
+  `allergy_preserved` compares the raw text with the note, so a control exercises it when
+  the raw text and a claim both state an allergy. §8.5 names both.
+- **L147 §7, §8.5 — the terminator list names the line break.** Fill: §7's scope rule
+  listed five of `TERMINATORS`' entries and omitted the line break, which L143's §8.5
+  bullet cites §7 for. §7 names it and points at the table, the lexicon shape's comment
+  follows, and §8.5 cites `TERMINATORS`.
 
 ---
 

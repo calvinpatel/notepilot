@@ -1,7 +1,8 @@
 """The reference-free roster (spec §8.4), and the helpers its checks share.
 
 A claim-local check runs one extractor over a claim's text and its source span and compares
-the two (L35). Registration is this module's import side effect: runner.py imports it (§8.7).
+the two (L35); allergy_preserved compares the raw text with the whole note. Registration is
+this module's import side effect: runner.py imports it (§8.7).
 """
 
 from collections.abc import Callable, Iterable, Mapping
@@ -9,9 +10,11 @@ from decimal import Decimal
 from typing import get_args
 
 from backend.clinical.extract import (
+    NO_ALLERGY_STATEMENTS,
     Certainty,
     Dose,
     MedStatus,
+    extract_allergies,
     extract_diagnoses,
     extract_doses,
     extract_excluded_diagnoses,
@@ -304,3 +307,27 @@ def check_dose_consistency(
                     )
                 )
     return findings
+
+
+@register_check(name="allergy_preserved", severity=Severity.CRITICAL)
+def check_allergy_preserved(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per allergy the raw text states and no claim does (§8.4).
+
+    allergies(raw) − allergies(note), over every claim, grounded or not, whatever its section
+    (invariant 5). A dropped NKDA or NKA prompts a re-ask, not a missed allergy, so its
+    finding is a WARNING (D10, L144). An allergy only the note states isn't this check's. The
+    finding names no claim, since the allergy is in none.
+
+    Omission (D17): an omitted allergy is this check's subject, so it fires.
+    """
+    in_note = {allergen for claim in note.claims for allergen in extract_allergies(claim.text)}
+    return [
+        Finding(
+            detail=f"{allergen}: in the source, not the note",
+            claim_ids=(),
+            severity=Severity.WARNING if allergen in NO_ALLERGY_STATEMENTS else None,
+        )
+        for allergen in sorted(extract_allergies(raw_text) - in_note)
+    ]

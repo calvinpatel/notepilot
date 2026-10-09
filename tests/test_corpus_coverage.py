@@ -1,4 +1,4 @@
-"""§8.5's coverage rule, over the injected corpus (L42, L137, L138).
+"""§8.5's coverage rule, over the injected corpus (L42, L137, L138, L146).
 
 load_cases already holds two of §11's corpus checks: every case parses, and every
 expected_flags entry names a registered check.
@@ -9,6 +9,7 @@ from collections.abc import Callable
 import pytest
 
 from backend.clinical.extract import (
+    extract_allergies,
     extract_diagnoses,
     extract_excluded_diagnoses,
     extract_findings,
@@ -61,10 +62,16 @@ def _names_a_drug(note: SOAPNote, raw_text: str) -> bool:
     return any(named_drugs(claim.text) for claim in note.claims)
 
 
-# A control exercises a check when the check has something to compare on it (L138): for the
-# claim-local family, a key its extractor finds in both a claim's text and that claim's span;
-# for hallucinated_medication, a claim naming a drug, which grounding's flag then decides.
+def _keeps_an_allergy(note: SOAPNote, raw_text: str) -> bool:
+    return any(extract_allergies(claim.text) & extract_allergies(raw_text) for claim in note.claims)
+
+
+# A control exercises a check when the check has something to compare on it (L138, L146): for
+# the claim-local family, a key its extractor finds in both a claim's text and that claim's
+# span; for hallucinated_medication, a claim naming a drug, which grounding's flag then
+# decides; for allergy_preserved, an allergy the raw text and a claim both state.
 EXERCISES: dict[str, Callable[[SOAPNote, str], bool]] = {
+    "allergy_preserved": _keeps_an_allergy,
     "diagnosis_in_quote": _shares_a_diagnosis,
     "drug_in_quote": _shares_a_drug,
     "hallucinated_medication": _names_a_drug,

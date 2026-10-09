@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.30** (patch — case line breaks, October 2026).
-Supersedes v1.3.29.
+**Spec version: v1.3.31** (patch — the dropped allergy, October 2026).
+Supersedes v1.3.30.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1176,10 +1176,10 @@ what a cue governs. "Cue anywhere in the string" gets all of these wrong:
 The MVP rule is NegEx-shaped and deterministic: **token-level** cue matching; a
 **pre-negation** cue negates findings within `NEGATION_WINDOW` words after it; a
 **post-negation** cue negates the finding immediately before it; **terminators** ("but",
-"however", "although", ";", ".") close the window; **pseudo-negations** ("no increase",
-"no change", "not only") are matched first and suppress the cue. The same window machinery
-serves the order cues (L124, L125), allergy context (L128), and certainty (L135): one scope
-engine for every cue class.
+"however", "although", ";", ".", a line break; `TERMINATORS` lists the rest, L147) close the
+window; **pseudo-negations** ("no increase", "no change", "not only") are matched first and
+suppress the cue. The same window machinery serves the order cues (L124, L125), allergy
+context (L128), and certainty (L135): one scope engine for every cue class.
 
 **The scope rule, made exact (L121).** The engine's token is a word (a run of letters and
 digits; a decimal number is one word, so "38.5" ends no sentence), one punctuation mark, or
@@ -1273,7 +1273,7 @@ ALLERGY_POST:      set[str]          # "allergy", "allergies": after the allerge
 FINDING_NEG_PRE:   set[str]          # "denies", "no", "without", "negative for"
 FINDING_NEG_POST:  set[str]          # "denied", "absent", "negative"
 PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "not only"
-TERMINATORS:       set[str]          # "but", "however", "although", ";", "."
+TERMINATORS:       set[str]          # "but", "however", ";", ".", a line break, ... (L147)
 NEGATION_WINDOW:   int               # words a pre-cue governs — linguistic knowledge, so it lives here
 MED_STOP_CUES:     set[str]          # "discontinue", "d/c", "stop", "held", "hold"    (L31: split out)
 MED_STOP_POST:     set[str]          # "discontinued", "held": after the drug (L125)
@@ -1514,7 +1514,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | check | severity | ref? | compares | catches |
 |---|---|---|---|---|
 | `allergy_contraindication` | CRITICAL (rungs may lower) | no | allergies(raw ∪ note) vs drugs(note) ∪ new_prescriptions(raw) | prescribing into an allergy |
-| `allergy_preserved` | CRITICAL; NKDA → WARNING (D10) | **no** | allergies(raw) − allergies(note) | **a dropped allergy, live** |
+| `allergy_preserved` | CRITICAL; NKDA, NKA → WARNING (D10, L144) | **no** | allergies(raw) − allergies(note) | **a dropped allergy, live** |
 | `hallucinated_medication` | CRITICAL | no | `UNSUPPORTED` flag + named(text) (L136) | a drug in a claim that grounds nowhere |
 | `drug_in_quote` | CRITICAL | no | named(text) ⊆ named(span) (L136) | a drug the source span doesn't say |
 | `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13) | "continue" ↔ "discontinue" |
@@ -1539,8 +1539,8 @@ Four things to read off the table:
 1. **`allergy_preserved` is reference-free.** "Allergic to X" / "NKDA" is about the most
    explicit language in a clinical note, and the prompt says *never omit an allergy* — so
    the prompt and the check agree, and the single most dangerous omission gets a live check.
-   A dropped NKDA is a WARNING (D10): undocumented status prompts a re-ask; it is not a
-   missed allergy.
+   A dropped NKDA or NKA is a WARNING (D10, L144): undocumented status prompts a re-ask;
+   it is not a missed allergy.
 2. **The claim-local consistency family compares against the span (L35).** v1.2 compared
    `claim.text` to the model's `source_quote`. At Tier 3 those differ by definition:
 
@@ -1678,7 +1678,9 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   the danger visible?). A check nobody wrote a trap for is a check nobody knows works. A
   control exercises a check when the check has something to compare on it: for the
   claim-local family, an entity the check's extractor finds in both a claim's text and that
-  claim's span (L138). The test holds one such predicate per CRITICAL check, and fails when
+  claim's span (L138); for `hallucinated_medication`, a claim naming a drug, which
+  grounding's flag then decides; for `allergy_preserved`, an allergy the raw text and a claim
+  both state (L146). The test holds one such predicate per CRITICAL check, and fails when
   one is missing or when no CRITICAL check is registered, since a rule over no checks holds
   of nothing. The model clause joins the test in 2b, with the corpus's first model case
   (§14, L137); until then the test asserts the corpus holds none, so that case turns it red.
@@ -1689,11 +1691,11 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   entities that could trip the same check.** The residual gap is stated in §8.8; an `about:`
   field on expected flags is backlogged (§15).
 - **A case's raw text breaks lines only where its source would (L143).** A line break is a
-  terminator (§7: a templated line carries one statement), so it closes a cue's window like
-  a period. A case wrapped to fit a width changes what it means: "start" at a line's end,
-  with "azithromycin" on the next, reads no new prescription (measured). So a long sentence
-  stays on one line. Review enforces it, as it does D16: a section header over its list is a
-  break the source makes, and no test can tell that from a wrap.
+  terminator (§7, `TERMINATORS`: a templated line carries one statement), so it closes a
+  cue's window like a period. A case wrapped to fit a width changes what it means: "start"
+  at a line's end, with "azithromycin" on the next, reads no new prescription (measured). So
+  a long sentence stays on one line. Review enforces it, as it does D16: a section header
+  over its list is a break the source makes, and no test can tell that from a wrap.
 - **Tier-3 fixtures self-check.** An injected case meant to exercise the fuzzy tier
   (`detect_paraphrase_drug_swap`) asserts in its test that the claim actually grounded
   `PARAPHRASED` — otherwise a cutoff change silently turns it into a Tier 4 case testing
@@ -1706,7 +1708,8 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 | `control_pcn_allergy_azithro` | model + injected | control | allergy context read as a prescription (v1.2) |
 | `detect_drug_not_in_quote` | injected | detection | the text-vs-quote gap (v1.2) |
 | `detect_negation_flip` | injected | detection | "denies" → "reports" (v1.2) |
-| `fidelity_dropped_allergy` | model | fidelity | allergy omission (v1.2); its injected twin is a detection trap expecting `[allergy_preserved, must_preserve]` |
+| `fidelity_dropped_allergy` | model | fidelity | allergy omission (v1.2); its injected twin is `detect_dropped_allergy` |
+| `detect_dropped_allergy` | injected | detection | allergy omission (v1.2) — expects `[allergy_preserved]`; `must_preserve` joins in 2b (L145) |
 | `detect_same_drug_allergy` | model + injected | detection | L30 |
 | `detect_contra_omitted_rx` | injected | detection | L51 — the draft omits the amoxicillin the raw text starts |
 | `detect_paraphrase_drug_swap` | injected | detection | L35 — a Tier 3 quote with a swapped drug |
@@ -1731,9 +1734,9 @@ CRITICAL   dropped allergy · hallucinated med · contraindication (same drug, s
            diagnosis asserted definite or probable (L140, L142) · labeled invention ·
            labeled omission (allergy / medication / finding / diagnosis)
 WARNING    dose mismatch · cross-class contraindication with a dissimilar or unknown side
-           chain (D9, D14) · dropped NKDA (D10) · dropped new prescription · degenerate
-           quote · empty note on clinical input · certainty downgrade · reopened exclusion
-           (L140) · not entailed (judge) · labeled dropped dose
+           chain (D9, D14) · dropped NKDA or NKA (D10, L144) · dropped new prescription ·
+           degenerate quote · empty note on clinical input · certainty downgrade · reopened
+           exclusion (L140) · not entailed (judge) · labeled dropped dose
 INFO       section misplacement · stylistic drift — the tier is defined, no INFO check
            ships in v1 (§15)
 ```
@@ -1741,9 +1744,8 @@ INFO       section misplacement · stylistic drift — the tier is defined, no I
 v1.3 (L49) removed v1.2's "temporal error" from WARNING: no check produced it, and a triage
 list names only what exists. Triage drives everything practical — which flags interrupt the
 clinician, which merely annotate, which block a deploy. A finding may *lower* its check's
-severity (the contraindication rungs, NKDA, a certainty downgrade, a reopened exclusion)
-and never raise it
-(§8.7, L38).
+severity (the contraindication rungs, NKDA and NKA, a certainty downgrade, a reopened
+exclusion) and never raise it (§8.7, L38).
 
 ### 8.7 The dual-mode runner (one engine, two jobs) + the verdict + the lineage
 
@@ -1901,8 +1903,9 @@ and `errored_checks` record every severity: gate on CRITICAL, *watch* everything
 
 (`fidelity_dropped_allergy`, §8.5: `allergy_preserved` fires live and `must_preserve` fires
 in CI — two CRITICALs on a fidelity trap, so it fails, correctly, because the model dropped
-the allergy. Its injected twin, a detection trap expecting both names, passes when both
-fire. The answer key decides which question a case asks. That's the point of having one.)
+the allergy. Its injected twin, `detect_dropped_allergy`, a detection trap expecting both
+names from 2b (`allergy_preserved` alone in 2a, L145), passes when both fire. The answer key
+decides which question a case asks. That's the point of having one.)
 
 **The metrics (v1.3, L3).** One `pass_rate` blended three species: a clean control passing
 caught nothing, and a fidelity trap where the model dropped the allergy *and*
@@ -2740,7 +2743,8 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 □ one planted danger per trap (D16), enforced in review
 □ the coverage rule's model clause, with the corpus's first model case (L137)
 □ typed must_not_add, polarity-aware reference checks (L10, L36) · must_preserve /
-  must_not_add registered with requires_reference
+  must_not_add registered with requires_reference · must_preserve joins
+  detect_dropped_allergy's expected_flags (L145)
 □ corpus_version, over the cases 2a's loader reads (L116)
 □ score_corpus: concurrency · per-case catch parity + all-failed runs recorded (L46) ·
   k repeats + flaky_cases (D11) · failed-attempt usage counted (L49)

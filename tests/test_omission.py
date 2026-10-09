@@ -6,6 +6,7 @@ from collections.abc import Callable
 import pytest
 
 from backend.evals.checks import (
+    check_allergy_preserved,
     check_diagnosis_in_quote,
     check_drug_in_quote,
     check_hallucinated_medication,
@@ -27,7 +28,7 @@ FAMILY: dict[str, _CheckFn] = {
 }
 
 # every CRITICAL check a row below covers
-COVERED = set(FAMILY)
+COVERED = set(FAMILY) | {"allergy_preserved"}
 
 CRITICAL = sorted(name for name, c in REGISTRY.items() if c.severity is Severity.CRITICAL)
 
@@ -54,6 +55,22 @@ def test_an_omitted_claim_leaves_the_family_nothing_to_contradict(name: str) -> 
         flags=(SafetyFlag.UNSUPPORTED,),
     )
     assert FAMILY[name](SOAPNote(claims=(grounded, ungrounded)), raw, None) == []
+
+
+def test_an_omitted_allergy_is_allergy_preserveds_subject() -> None:
+    # §8.4's row for allergy_preserved: the model omits the allergy, and the check fires
+    raw = "PCN allergy. Will start azithromycin 500 mg daily."
+    start_order = "start azithromycin 500 mg daily"
+    start = raw.index(start_order)
+    claim = ClinicalClaim(
+        id=0,
+        text="Start azithromycin 500 mg daily",
+        section="P",
+        source_quote=start_order,
+        source_span=(start, start + len(start_order)),
+    )
+    findings = check_allergy_preserved(SOAPNote(claims=(claim,)), raw, None)
+    assert [f.detail for f in findings] == ["penicillin: in the source, not the note"]
 
 
 def test_every_critical_check_has_an_omission_row() -> None:
