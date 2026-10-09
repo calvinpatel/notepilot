@@ -42,6 +42,7 @@ def _names_a_drug(note: SOAPNote, raw_text: str) -> bool:
 EXERCISES: dict[str, Callable[[SOAPNote, str], bool]] = {
     "drug_in_quote": _shares_a_drug,
     "hallucinated_medication": _names_a_drug,
+    "med_status_consistency": _shares_a_drug,
 }
 
 

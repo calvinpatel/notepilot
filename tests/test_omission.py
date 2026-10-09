@@ -5,7 +5,11 @@ from collections.abc import Callable
 
 import pytest
 
-from backend.evals.checks import check_drug_in_quote, check_hallucinated_medication
+from backend.evals.checks import (
+    check_drug_in_quote,
+    check_hallucinated_medication,
+    check_med_status_consistency,
+)
 from backend.evals.registry import REGISTRY, Finding
 from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
@@ -15,6 +19,7 @@ type _CheckFn = Callable[[SOAPNote, str, EvalCase | None], list[Finding]]
 FAMILY: dict[str, _CheckFn] = {
     "drug_in_quote": check_drug_in_quote,
     "hallucinated_medication": check_hallucinated_medication,
+    "med_status_consistency": check_med_status_consistency,
 }
 
 # every CRITICAL check a row below covers

@@ -4,7 +4,7 @@ A claim-local check runs one extractor over a claim's text and its source span a
 the two (L35). Registration is this module's import side effect: runner.py imports it (§8.7).
 """
 
-from backend.clinical.extract import extract_med_status
+from backend.clinical.extract import MedStatus, extract_med_status
 from backend.evals.registry import Finding, register_check
 from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
@@ -67,4 +67,40 @@ def check_hallucinated_medication(
             findings.append(
                 Finding(detail=f"{drug}: in a claim that grounds nowhere", claim_ids=(claim.id,))
             )
+    return findings
+
+
+def _statuses(statuses: set[MedStatus]) -> str:
+    """'active', 'stopped', or 'active and stopped', for a finding's detail."""
+    return " and ".join(sorted(statuses))
+
+
+@register_check(name="med_status_consistency", severity=Severity.CRITICAL)
+def check_med_status_consistency(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per drug a claim and its span both name, at a status the span lacks (D13).
+
+    status(text) ⊆ status(span), per drug (§8.4): the claim may report part of what the span
+    says, and a negated mention reads as stopped (L124). A drug only one side names is
+    drug_in_quote's, so an error has one finding. A claim with no span is skipped (§8.4).
+
+    Omission (D17): an omitted claim leaves no drug in both to compare, so the check passes;
+    §8.4's omission table assigns that omission elsewhere.
+    """
+    findings: list[Finding] = []
+    for claim in note.claims:
+        span = span_text(claim, raw_text)
+        if span is None:
+            continue
+        in_text, in_span = extract_med_status(claim.text), extract_med_status(span)
+        for drug in sorted(in_text.keys() & in_span.keys()):
+            if not in_text[drug] <= in_span[drug]:
+                findings.append(
+                    Finding(
+                        detail=f"{drug}: {_statuses(in_text[drug])} in the claim, "
+                        f"{_statuses(in_span[drug])} in its source span",
+                        claim_ids=(claim.id,),
+                    )
+                )
     return findings

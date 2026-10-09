@@ -1,4 +1,4 @@
-"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, L35, L136)."""
+"""Pins the reference-free roster's helpers and checks (spec §8.4; D6, D13, L35, L136)."""
 
 import os
 import subprocess
@@ -11,6 +11,7 @@ from backend.clinical.lexicons import GENERIC_DRUGS
 from backend.evals.checks import (
     check_drug_in_quote,
     check_hallucinated_medication,
+    check_med_status_consistency,
     named_drugs,
     span_text,
 )
@@ -242,6 +243,120 @@ def test_the_presence_checks_split_a_note_by_whether_each_claim_grounds() -> Non
     note, raw = _note(("Start amoxicillin", "Will start antibiotics"), ("Start azithromycin", None))
     assert [f.claim_ids for f in check_drug_in_quote(note, raw)] == [(0,)]
     assert [f.claim_ids for f in check_hallucinated_medication(note, raw)] == [(1,)]
+
+
+# --- med_status_consistency (§8.4, D13, L124) ---------------------------------------------
+
+
+def test_med_status_consistency_is_a_reference_free_critical_check() -> None:
+    check = REGISTRY["med_status_consistency"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_med_status_consistency_fires_on_a_continued_drug_written_as_stopped() -> None:
+    # D13's dangerous direction
+    note, raw = _note(("Discontinue apixaban", "continue apixaban"))
+    findings = check_med_status_consistency(note, raw)
+    assert [f.detail for f in findings] == [
+        "apixaban: stopped in the claim, active in its source span"
+    ]
+    assert findings[0].claim_ids == (0,)
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Continue lisinopril", "lisinopril discontinued due to cough"),
+        ("Continue apixaban", "pt not on apixaban"),
+    ],
+    ids=["stopped-after-the-drug", "negated"],
+)
+def test_med_status_consistency_fires_on_a_stopped_drug_written_as_active(
+    text: str, span: str
+) -> None:
+    # a post-cue stop (L125) and a negation, which status reads as stopped (L124)
+    note, raw = _note((text, span))
+    assert len(check_med_status_consistency(note, raw)) == 1
+
+
+def test_med_status_consistency_passes_a_status_both_sides_assert() -> None:
+    note, raw = _note(("Hold metformin", "metformin held"))
+    assert check_med_status_consistency(note, raw) == []
+
+
+def test_med_status_consistency_passes_one_of_the_spans_statuses() -> None:
+    # status(text) ⊆ status(span): a claim may report part of what its span says
+    note, raw = _note(
+        ("Restart metformin in 48 hours", "metformin held, restart metformin in 48 hours")
+    )
+    assert check_med_status_consistency(note, raw) == []
+
+
+def test_med_status_consistency_fires_on_a_status_the_span_lacks_beside_one_it_has() -> None:
+    note, raw = _note(("Hold metformin, restart metformin in 48 hours", "restart metformin"))
+    findings = check_med_status_consistency(note, raw)
+    assert [f.detail for f in findings] == [
+        "metformin: active and stopped in the claim, active in its source span"
+    ]
+
+
+def test_med_status_consistency_reads_the_claims_own_span_not_the_raw_text() -> None:
+    note, raw = _note(
+        ("Continue apixaban", "continue apixaban"), ("Continue apixaban", "apixaban held")
+    )
+    assert [f.claim_ids for f in check_med_status_consistency(note, raw)] == [(1,)]
+
+
+def test_med_status_consistency_reads_the_span_never_the_quote() -> None:
+    # invariant 14: the quote agrees with the claim; the span it grounded to doesn't (L35)
+    raw = "discontinue apixaban 5 mg bid"
+    claim = ClinicalClaim(
+        id=0,
+        text="Continue apixaban 5 mg bid",
+        section="P",
+        source_quote="continue apixaban 5 mg bid",
+        source_span=(0, len(raw)),
+        flags=(SafetyFlag.PARAPHRASED,),
+    )
+    assert _named(check_med_status_consistency(SOAPNote(claims=(claim,)), raw)) == ["apixaban"]
+
+
+def test_med_status_consistency_skips_a_claim_that_grounds_nowhere() -> None:
+    note, raw = _note(("Discontinue apixaban", None))
+    assert check_med_status_consistency(note, raw) == []
+
+
+def test_med_status_consistency_finds_each_drug_once_in_name_order() -> None:
+    # the whole vocabulary, in reverse: name order has to come from the check's sort
+    drugs = sorted(GENERIC_DRUGS, reverse=True)
+    text = ", ".join(f"stop {d}" for d in drugs)
+    span = ", ".join(f"continue {d}" for d in drugs)
+    note, raw = _note((text, span))
+    findings = check_med_status_consistency(note, raw)
+    assert _named(findings) == sorted(GENERIC_DRUGS)
+    assert {f.claim_ids for f in findings} == {(0,)}
+
+
+@pytest.mark.parametrize(
+    ("text", "span", "presence", "status"),
+    [
+        ("Discontinue metformin", "discontinue lisinopril", ["metformin"], []),
+        ("Continue apixaban", "pt not on apixaban", [], ["apixaban"]),
+    ],
+    ids=["a-drug-the-span-lacks", "a-status-the-span-lacks"],
+)
+def test_presence_and_status_split_one_error_into_one_finding(
+    text: str, span: str, presence: list[str], status: list[str]
+) -> None:
+    # D13: a drug only one side names is presence's; a status on a drug both name is status's
+    note, raw = _note((text, span))
+    assert _named(check_drug_in_quote(note, raw)) == presence
+    assert _named(check_med_status_consistency(note, raw)) == status
 
 
 # --- registration -------------------------------------------------------------------------
