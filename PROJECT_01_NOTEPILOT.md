@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.23** (patch — allergies, October 2026).
-Supersedes v1.3.22.
+**Spec version: v1.3.24** (patch — doses, October 2026).
+Supersedes v1.3.23.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1225,6 +1225,22 @@ itself, and drug allergens come through `GENERIC_DRUGS` and `BRAND_TO_GENERIC`. 
 "nka" need no cue unless negated, "Allergies: none" is NKA, and a denied allergy ("not
 allergic to") is a negation cue. A CRLF line break is one token, which sections need.
 
+**Doses (L131, L133).** `lexicons.py` holds what a dose needs to know as data: `DOSE_UNITS`
+and `DOSE_FREQUENCIES` map each charted form to its canonical one ("mcg" -> "μg", "t.i.d."
+-> "tid"), and `extract.py` owns the grammar, so the lexicon still imports nothing and every
+unit and frequency carries its own sign-off. A dose is a number and a unit ("500 mg",
+"500mg", "1,000mg") after a listed drug, in that drug's sentence. It belongs to the most
+recent drug before it, whatever that mention's status, and a titration keeps both doses. It
+takes the first frequency charted after its unit, before the next dose, drug, or terminator,
+else none; a prn yields to an interval in that reach, so "q6h prn" and "prn q6h" both read
+q6h. Units are canonical but never converted ("1 g" stays grams). Neither number of a range
+is a dose, so a range changed to a fixed dose still differs from its source: a hyphen joins
+a range whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and "to" joins one
+only after a number without a unit ("5 to 10 mg"), since "from 500 mg to 1000 mg" is a
+titration. A dose before its drug ("500 mg of amoxicillin") or in the next sentence reads as
+nothing, the accepted costs. Whether `dose_consistency` treats 1 g as 1000 mg, or a dose
+without a frequency as matching one with, is that check's to say (step 4c).
+
 **`clinical/lexicons.py` — the shape (v1.3):**
 
 ```python
@@ -1258,7 +1274,8 @@ R1_GROUP:          dict[str, str]    # D9: generic -> R1 side-chain group, for d
 CROSS_REACTIVITY:  dict[tuple[str, str], str]
                                      # (allergen class, drug class) -> severity when the side chain is
                                      # DISSIMILAR or UNKNOWN: ("penicillin", "cephalosporin") -> "warning"
-DOSE_PATTERN:      re.Pattern        # number + unit + frequency token
+DOSE_UNITS:        dict[str, str]    # "mcg" -> "μg", "milligrams" -> "mg": the canonical unit (L131)
+DOSE_FREQUENCIES:  dict[str, str]    # "t.i.d." -> "tid", "twice daily" -> "bid" (L131)
 FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
 DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS
 ```
@@ -1307,8 +1324,9 @@ carries its rationale in a comment on the line above it. When a table gains or c
 entry, the line's date moves: it attests the table as it stands, and git history keeps each
 entry's own. A test holds the form.
 
-**MVP scope:** a small hand-curated lexicon + the scope engine + a dose-pattern regex +
-findings and diagnosis lists covering exactly the traps in *my* corpus.
+**MVP scope:** a small hand-curated lexicon + the scope engine + a dose grammar over the
+lexicon's units and frequencies (L131) + findings and diagnosis lists covering exactly the
+traps in *my* corpus.
 **v2:** medspaCy / NegEx / RxNorm for robust, ontology-derived extraction.
 
 ---
@@ -2524,7 +2542,7 @@ notepilot/
 │   ├── judge_client.py     ← EDGE (phase 2c). implements evals' Judge protocol over the API
 │   ├── grounding.py        ← DOMAIN. SOAPNoteDraft → SOAPNote (pure, the ladder)
 │   ├── clinical/           ← DOMAIN. imports nothing from the spine (L65)
-│   │   ├── extract.py      ← the extractors — imports ONLY lexicons.py
+│   │   ├── extract.py      ← extractors + their result types (sanctioned) — imports ONLY lexicons.py
 │   │   └── lexicons.py     ← imports nothing; severities as plain strings (§7)
 │   ├── evals/              ← DOMAIN
 │   │   ├── registry.py     ← Check + Finding (check-internal, sanctioned) · @register_check · stamp
@@ -2558,12 +2576,15 @@ DOMAIN / EDGE labels say where a vendor's format may appear (§0). `rag/` does n
 phase 4 — an empty module in the tree is a promise the code hasn't made. `alembic/` joins in
 phase 3 (D3). Each module lands in the phase whose exit criteria need it (§14), not before.
 
-**Shapes outside `schemas.py` — two sanctioned exceptions, nothing else.** New pipeline data
-shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`) live
-in `api.py`. Layer-internal shapes never cross a layer boundary and live in the layer that
-uses them (L104): `Finding` and `Check` in `evals/registry.py`, `NormalizedText` in
+**Shapes outside `schemas.py` — three sanctioned exceptions, nothing else.** New pipeline
+data shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`)
+live in `api.py`. Layer-internal shapes never cross a layer boundary and live in the layer
+that uses them (L104): `Finding` and `Check` in `evals/registry.py`, `NormalizedText` in
 `grounding.py` (§6.2), and the orchestrator's `SamplingBody` and `CallConfig` (§5.2).
-Anything else outside `schemas.py` is drift.
+Extraction's result types (`Dose`, `MedStatus`, `Certainty`) live in `clinical/extract.py`
+and cross into `evals/`, which imports them from there (L132): invariant 13 keeps `clinical/`
+from importing the spine, so they can't live in `schemas.py`. Anything else outside
+`schemas.py` is drift.
 
 ---
 

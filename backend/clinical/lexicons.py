@@ -148,6 +148,12 @@ FINDING_NEG_PRE: set[str] = {
     "denies allergy to",
     # As "no allergy to" ("no known allergy to sulfa").
     "no known allergy to",
+    # A denied allergy, plural: the drug named is no allergen ("no allergies to penicillin").
+    "no allergies to",
+    # As "no allergies to" ("no known allergies to sulfa"); without it, the NKA alias matches.
+    "no known allergies to",
+    # The patient's own denial, plural ("denies allergies to NSAIDs").
+    "denies allergies to",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-07.
@@ -303,6 +309,92 @@ MED_START_POST: set[str] = {
     "was started",
     # The copula form of "prescribed".
     "was prescribed",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+DOSE_UNITS: dict[str, str] = {
+    # Milligrams, the commonest oral dose unit.
+    "mg": "mg",
+    # Spelled out.
+    "milligrams": "mg",
+    # Grams ("ceftriaxone 1 g"), kept as grams: whether 1 g equals 1000 mg is 4c's call.
+    "g": "g",
+    # Spelled out.
+    "gram": "g",
+    # Spelled out, plural.
+    "grams": "g",
+    # Micrograms as charted ("levothyroxine 75 mcg"), folded to μg as §7's Dose does.
+    "mcg": "μg",
+    # The symbol; a micro sign casefolds to the same Greek mu.
+    "μg": "μg",
+    # The ASCII stand-in for μg.
+    "ug": "μg",
+    # Spelled out.
+    "micrograms": "μg",
+    # Milliliters, for liquids ("amoxicillin suspension 5 ml").
+    "ml": "ml",
+    # Spelled out.
+    "milliliters": "ml",
+    # Insulin and heparin units, spelled out; "U" is on ISMP's do-not-use list.
+    "units": "unit",
+    # The singular ("1 unit").
+    "unit": "unit",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+DOSE_FREQUENCIES: dict[str, str] = {
+    # Once a day.
+    "daily": "daily",
+    # As "daily".
+    "once daily": "daily",
+    # As "daily".
+    "once a day": "daily",
+    # Latin, on ISMP's do-not-use list and still charted.
+    "qd": "daily",
+    # As "daily".
+    "every day": "daily",
+    # Twice a day.
+    "bid": "bid",
+    # With its periods.
+    "b.i.d.": "bid",
+    # Spelled out.
+    "twice daily": "bid",
+    # Spelled out.
+    "twice a day": "bid",
+    # Three times a day.
+    "tid": "tid",
+    # With its periods.
+    "t.i.d.": "tid",
+    # Spelled out.
+    "three times daily": "tid",
+    # Spelled out.
+    "three times a day": "tid",
+    # Four times a day.
+    "qid": "qid",
+    # With its periods.
+    "q.i.d.": "qid",
+    # Spelled out.
+    "four times daily": "qid",
+    # At bedtime.
+    "qhs": "qhs",
+    # Spelled out.
+    "at bedtime": "qhs",
+    # Every 4 hours: an interval, kept apart from "qid", which follows waking hours.
+    "q4h": "q4h",
+    # Spelled out.
+    "every 4 hours": "q4h",
+    # Every 6 hours, kept apart from "qid" likewise.
+    "q6h": "q6h",
+    # Spelled out.
+    "every 6 hours": "q6h",
+    # Every 8 hours, kept apart from "tid" likewise.
+    "q8h": "q8h",
+    # Spelled out.
+    "every 8 hours": "q8h",
+    # As needed: the frequency only when no interval is charted with it (L133).
+    "prn": "prn",
+    # Spelled out.
+    "as needed": "prn",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-07.

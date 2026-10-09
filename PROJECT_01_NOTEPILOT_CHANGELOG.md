@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,39 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.24 — doses (patch)
+
+Theme: two conflicts and a fill for phase 2a's step 3d, the dose extractor and the dose
+lexicon, signed off by Cal, with three plural denied-allergy entries that 3c's review
+found. No invariant moves; CLAUDE.md's count of sanctioned exceptions moves with L132.
+
+**WARNING**
+- **L131 §7 — the dose pattern, split into signable tables.** Conflict: §7's shape typed
+  `DOSE_PATTERN` a `re.Pattern` and said `lexicons.py` imports nothing, and a regex gives
+  L120's sign-off no entries to attach to. `DOSE_UNITS` and `DOSE_FREQUENCIES` hold the
+  knowledge, each charted form under its canonical one, and the number grammar lives in
+  `extract.py`. The lexicon still imports nothing, as 3a's import test holds.
+- **L133 §7 — the dose rules.** Fill: §7 says doses are parsed and that a titration keeps
+  both, not how a dose finds its drug or its frequency. A dose is a number and a unit
+  after a listed drug, in that drug's sentence; it belongs to the most recent drug,
+  whatever its status. It takes the first frequency charted after its unit, before the
+  next dose, drug, or terminator, and a prn yields to an interval in that reach (measured:
+  as a plain first-phrase entry, prn made "prn q6h" and "q6h prn" read differently). Units
+  are canonical, never converted. Neither number of a range is a dose; a hyphen joins a
+  range, units or not, and "to" joins one only after a number without a unit, since "from
+  500 mg to 1000 mg" is a titration. Costs: a dose before its drug, or in the next
+  sentence, reads as nothing. Unit equivalence and a missing frequency are
+  `dose_consistency`'s, in step 4c.
+
+**INFO**
+- **L132 §13 — extraction's result types, sanctioned.** Conflict: §13 allowed two kinds of
+  shape outside `schemas.py`, and §7 puts `Dose` in `clinical/extract.py`, where
+  invariant 13 keeps it, though `dose_consistency` reads it in `evals/`. A third
+  exception: `Dose`, `MedStatus`, and `Certainty` live in `clinical/extract.py`, and
+  `evals/` imports them from there. CLAUDE.md's count of the exceptions moves with it.
 
 ---
 

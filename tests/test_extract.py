@@ -1,4 +1,4 @@
-"""Pins extraction's scope engine and its extractors (spec §7, §11; D10, L31, L33, L120-L129)."""
+"""Pins extraction's scope engine and extractors (spec §7, §11; D1, D10, L31, L33, L120-L133)."""
 
 import ast
 import itertools
@@ -9,8 +9,10 @@ from pathlib import Path
 import pytest
 
 from backend.clinical.extract import (
+    Dose,
     _phrases,
     extract_allergies,
+    extract_doses,
     extract_drugs,
     extract_findings,
     extract_med_status,
@@ -21,6 +23,8 @@ from backend.clinical.lexicons import (
     ALLERGY_CUES,
     ALLERGY_POST,
     BRAND_TO_GENERIC,
+    DOSE_FREQUENCIES,
+    DOSE_UNITS,
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
@@ -394,10 +398,131 @@ def test_a_denied_allergy_names_no_allergen() -> None:
     assert extract_allergies("Not allergic to amoxicillin; denies allergy to penicillin") == set()
 
 
+@pytest.mark.parametrize(
+    "text",
+    ["no allergies to penicillin", "no known allergies to sulfa", "denies allergies to NSAIDs"],
+)
+def test_a_denied_allergy_in_the_plural_names_no_allergen_and_no_nka(text: str) -> None:
+    # without the plurals, the NKA aliases matched, or "allergies to" replaced the denial
+    assert extract_allergies(text) == set()
+
+
 def test_an_order_cue_closes_an_allergy_window() -> None:
     text = "allergic to amoxicillin, start azithromycin"
     assert extract_allergies(text) == {"amoxicillin"}
     assert new_prescriptions(text) == {"azithromycin"}
+
+
+# --- doses (D1, L33, L131, L133) -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text", ["Amoxicillin 500 mg TID", "amoxicillin 500mg tid", "AMOXICILLIN 500 MG t.i.d."]
+)
+def test_parsed_doses_compare_equal_across_spacing_and_case(text: str) -> None:
+    # §11's case (L33)
+    assert extract_doses(text) == {"amoxicillin": {Dose(500.0, "mg", "tid")}}
+
+
+def test_a_titration_keeps_both_doses() -> None:
+    text = "metformin 500 mg daily, increase to 1000 mg daily"
+    assert extract_doses(text) == {
+        "metformin": {Dose(500.0, "mg", "daily"), Dose(1000.0, "mg", "daily")}
+    }
+
+
+def test_a_frequency_reaches_no_further_than_the_next_dose() -> None:
+    text = "metformin 500 mg, increase to 1000 mg bid"
+    assert extract_doses(text) == {
+        "metformin": {Dose(500.0, "mg", None), Dose(1000.0, "mg", "bid")}
+    }
+
+
+def test_a_dose_belongs_to_the_most_recent_drug_before_it() -> None:
+    assert extract_doses("metformin 500 mg and lisinopril 10 mg daily") == {
+        "metformin": {Dose(500.0, "mg", None)},
+        "lisinopril": {Dose(10.0, "mg", "daily")},
+    }
+
+
+@pytest.mark.parametrize("text", ["Tylenol 1,000 mg q6h", "Tylenol 1,000mg q6h"])
+def test_a_thousands_comma_joins_the_number(text: str) -> None:
+    # with the unit fused, "000mg" alone once read as a zero dose
+    assert extract_doses(text) == {"acetaminophen": {Dose(1000.0, "mg", "q6h")}}
+
+
+def test_a_terminator_ends_a_doses_reach_for_a_frequency() -> None:
+    assert extract_doses("lisinopril 10 mg; daily") == {"lisinopril": {Dose(10.0, "mg", None)}}
+
+
+def test_a_dose_takes_its_drug_whatever_the_drugs_status() -> None:
+    assert extract_doses("discontinue lisinopril 10 mg") == {"lisinopril": {Dose(10.0, "mg", None)}}
+
+
+def test_a_unit_is_canonical_but_never_converted() -> None:
+    # whether 1 g equals 1000 mg is dose_consistency's call (4c)
+    text = "acetaminophen 1 g every 6 hours"
+    assert extract_doses(text) == {"acetaminophen": {Dose(1.0, "g", "q6h")}}
+
+
+def test_a_micro_sign_reads_as_mu() -> None:
+    # the micro sign, U+00B5, casefolds to the Greek mu the table holds
+    assert extract_doses("metformin 75 µg daily") == {"metformin": {Dose(75.0, "μg", "daily")}}
+
+
+@pytest.mark.parametrize("text", ["acetaminophen 650 mg q6h prn", "acetaminophen 650 mg prn q6h"])
+def test_prn_yields_to_an_interval_in_either_order(text: str) -> None:
+    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", "q6h")}}
+
+
+def test_prn_is_the_frequency_when_no_interval_is_charted() -> None:
+    text = "acetaminophen 650 mg as needed"
+    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", "prn")}}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "acetaminophen 5-10 mg q4h",
+        "acetaminophen 5 to 10 mg q4h",
+        "acetaminophen 5mg-10mg q4h",
+        "acetaminophen 5 mg - 10 mg q4h",
+    ],
+)
+def test_a_range_reads_as_no_dose(text: str) -> None:
+    # so a range changed to a fixed dose still differs from its source (L133)
+    assert extract_doses(text) == {}
+
+
+def test_a_hyphen_before_a_number_without_a_unit_joins_no_range() -> None:
+    text = "lisinopril 10 mg - 1 tab daily"
+    assert extract_doses(text) == {"lisinopril": {Dose(10.0, "mg", "daily")}}
+
+
+@pytest.mark.parametrize(
+    "text", ["metformin from 500 mg to 1000 mg daily", "metformin from 500mg to 1000mg daily"]
+)
+def test_two_doses_joined_by_to_are_a_titration(text: str) -> None:
+    # "to" joins a range only after a number without a unit (L133)
+    assert extract_doses(text) == {
+        "metformin": {Dose(500.0, "mg", None), Dose(1000.0, "mg", "daily")}
+    }
+
+
+@pytest.mark.parametrize("text", ["metformin 500", "metformin 1,000 daily"])
+def test_a_number_without_a_unit_is_no_dose(text: str) -> None:
+    assert extract_doses(text) == {}
+
+
+def test_a_dose_before_its_drug_reads_as_nothing() -> None:
+    # L133's accepted cost
+    assert extract_doses("500 mg of amoxicillin") == {}
+
+
+def test_a_dose_in_the_next_sentence_reads_as_nothing() -> None:
+    # L133's accepted cost
+    text = "Metformin 500 mg daily. Increase to 1000 mg daily next week."
+    assert extract_doses(text) == {"metformin": {Dose(500.0, "mg", "daily")}}
 
 
 # --- every lexicon entry, in its role --------------------------------------------
@@ -477,6 +602,16 @@ def test_allergen_names_mean_classes_and_d10s_statements_never_a_listed_drug() -
     assert {"nkda", "nka"} <= set(ALLERGY_ALIASES.values())
 
 
+@pytest.mark.parametrize(("name", "unit"), sorted(DOSE_UNITS.items()))
+def test_every_dose_unit_reads_as_its_canonical_unit(name: str, unit: str) -> None:
+    assert extract_doses(f"metformin 5 {name}") == {"metformin": {Dose(5.0, unit, None)}}
+
+
+@pytest.mark.parametrize(("name", "freq"), sorted(DOSE_FREQUENCIES.items()))
+def test_every_frequency_reads_as_its_canonical_frequency(name: str, freq: str) -> None:
+    assert extract_doses(f"metformin 5 mg {name}") == {"metformin": {Dose(5.0, "mg", freq)}}
+
+
 @pytest.mark.parametrize("cue", sorted(MED_START_CUES))
 def test_every_start_cue_starts_the_drug_after_it(cue: str) -> None:
     assert extract_med_status(f"{cue} metformin") == {"metformin": {"active"}}
@@ -497,6 +632,8 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "allergen": set(ALLERGY_ALIASES),
         "allergy": ALLERGY_CUES,
         "allergy, post": ALLERGY_POST,
+        "dose unit": set(DOSE_UNITS),
+        "frequency": set(DOSE_FREQUENCIES),
         "negation": FINDING_NEG_PRE,
         "negation, post": FINDING_NEG_POST,
         "stop": MED_STOP_CUES,

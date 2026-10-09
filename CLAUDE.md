@@ -227,7 +227,7 @@ tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests u
 
 - Conventional commits, atomic. History is part of the portfolio. One tag per phase.
 - Pydantic models: draft/enriched family per spec §4. New pipeline data shapes go in
-  `schemas.py`; the two sanctioned exceptions are in spec §13. Flag anything else.
+  `schemas.py`; the three sanctioned exceptions are in spec §13. Flag anything else.
 - Type hints everywhere; mypy clean before commit.
 - Secrets: `.env` (gitignored), `.env.example` (committed). API key never in code —
   clinical-adjacent repo, zero tolerance.

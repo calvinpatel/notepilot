@@ -14,17 +14,25 @@ is a post-cue there and a pre-cue anywhere else. A terminator closes the window.
 A finding sees one class of cue, negation. A drug sees four at once: negation, stop, start, and
 allergy (L124, L125, L128). Allergy context reaches further than the others (L128): a header at
 a line's start opens a section, and an allergy post-cue reaches back over a list.
+
+Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
+drug, in the drug's sentence, and the frequency charted after it.
+
+Dose and MedStatus are extraction's result types. They live here and evals imports them from
+here, since clinical/ may not import the spine (§13's third exception, L132).
 """
 
 import re
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from backend.clinical.lexicons import (
     ALLERGY_ALIASES,
     ALLERGY_CUES,
     ALLERGY_POST,
     BRAND_TO_GENERIC,
+    DOSE_FREQUENCIES,
+    DOSE_UNITS,
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
@@ -37,6 +45,13 @@ from backend.clinical.lexicons import (
     PSEUDO_NEGATIONS,
     TERMINATORS,
 )
+
+
+class Dose(NamedTuple):
+    value: float  # parsed, so "500mg TID" == "500 mg tid" (L33)
+    unit: str  # canonical: "mg", "μg" (folded), "ml" ...
+    freq: str | None  # canonical: "tid", "bid", "daily" ...
+
 
 MedStatus = Literal["active", "stopped"]
 
@@ -94,6 +109,10 @@ _DRUG_POST = (
 _NO_ALLERGY = frozenset({"nkda", "nka"})
 # what joins a list an allergy post-cue reaches back over (L128)
 _JOINS = frozenset({(",",), ("and",), ("or",)})
+_UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
+_FREQUENCIES = {tuple(_tokens(name)): freq for name, freq in DOSE_FREQUENCIES.items()}
+# a number, and any letters fused to it ("500mg"); a decimal is one token already (L121)
+_NUMBER = re.compile(r"(\d+(?:\.\d+)?)([^\W\d_]*)")
 
 
 def _is_word(token: str) -> bool:
@@ -254,6 +273,110 @@ def extract_allergies(text: str) -> set[str]:
         for name, label in _drug_mentions(text)
         if label == "allergy" or (name in _NO_ALLERGY and label != "negated")
     }
+
+
+def _number_at(phrases: Sequence[_Phrase], i: int) -> tuple[str, str | None, int] | None:
+    """The number that starts at phrases[i]: its digits, the unit fused to it or written after
+    it (None if neither), and how many phrases it spans; None if no number starts there. A
+    thousands comma joins, with or without a unit fused to the last group ("1,000mg")."""
+    number = _NUMBER.fullmatch(phrases[i][0]) if len(phrases[i]) == 1 else None
+    if number is None:
+        return None
+    digits, fused = number.groups()
+    width = 1
+    while not fused and (group := _thousands(phrases[i + width : i + width + 2])) is not None:
+        digits += group.group(1)
+        fused = group.group(2)
+        width += 2
+    if fused:
+        return digits, _UNITS.get((fused,)), width
+    unit = _UNITS.get(phrases[i + width]) if i + width < len(phrases) else None
+    return digits, unit, width if unit is None else width + 1
+
+
+def _thousands(pair: Sequence[_Phrase]) -> re.Match[str] | None:
+    """After a thousands comma, its three digits and any letters fused to them; else None."""
+    if len(pair) != 2 or pair[0] != (",",) or len(pair[1]) != 1:
+        return None
+    group = _NUMBER.fullmatch(pair[1][0])
+    return (
+        group
+        if group is not None and len(group.group(1)) == 3 and group.group(1).isdecimal()
+        else None
+    )
+
+
+def _dose_at(phrases: Sequence[_Phrase], i: int) -> tuple[float, str, int] | None:
+    """The dose that starts at phrases[i] (L133): its value, its unit, and how many phrases it
+    spans; None if none starts there. Neither number of a range is a dose: a hyphen joins one
+    whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and "to" joins one only
+    after a number without a unit ("5 to 10 mg"), since "from 500 mg to 1000 mg" is a
+    titration."""
+    number = _number_at(phrases, i)
+    if number is None:
+        return None
+    digits, unit, width = number
+    if unit is None:
+        return None
+    first = _number_at(phrases, i - 2) if i >= 2 else None
+    ends = i >= 2 and (
+        (phrases[i - 1] == ("-",) and (first is not None or phrases[i - 2] in _UNITS))
+        or (phrases[i - 1] == ("to",) and first is not None and first[1] is None)
+    )
+    second = _number_at(phrases, i + width + 1) if i + width + 1 < len(phrases) else None
+    starts = (
+        phrases[i + width : i + width + 1] == [("-",)]
+        and second is not None
+        and second[1] is not None
+    )
+    if ends or starts:
+        return None
+    return float(digits), unit, width
+
+
+def extract_doses(text: str) -> dict[str, set[Dose]]:
+    """drug -> parsed doses. A set, so a titration keeps both (D1, L33).
+
+    A dose belongs to the most recent drug before it in the same sentence, whatever that
+    mention's status, and takes the first frequency charted after its unit before the next
+    dose, drug, or terminator; a prn yields to an interval in that reach (L133).
+    """
+    phrases = [p for _, p in _split(_tokens(text), (_TERMINATORS, _NAMES, _UNITS, _FREQUENCIES))]
+    doses: dict[str, set[Dose]] = {}
+    drug: str | None = None  # the most recent drug in this sentence
+    pending: tuple[str, float, str] | None = None  # a dose still reaching for its frequency
+    prn = False  # a prn charted in the pending dose's reach
+
+    def settle(freq: str | None) -> None:
+        nonlocal pending, prn
+        if pending is not None:
+            name, value, unit = pending
+            doses.setdefault(name, set()).add(Dose(value, unit, freq or ("prn" if prn else None)))
+        pending, prn = None, False
+
+    i = 0
+    while i < len(phrases):
+        phrase = phrases[i]
+        if phrase in _FREQUENCIES and pending is not None:
+            if _FREQUENCIES[phrase] == "prn":
+                prn = True
+            else:
+                settle(_FREQUENCIES[phrase])
+        elif phrase in _TERMINATORS:
+            settle(None)
+            drug = None
+        elif _NAMES.get(phrase) in GENERIC_DRUGS:
+            settle(None)
+            drug = _NAMES[phrase]
+        elif (dose := _dose_at(phrases, i)) is not None:
+            settle(None)
+            value, unit, width = dose
+            pending = None if drug is None else (drug, value, unit)
+            i += width
+            continue
+        i += 1
+    settle(None)
+    return doses
 
 
 def extract_findings(text: str) -> dict[str, set[bool]]:
