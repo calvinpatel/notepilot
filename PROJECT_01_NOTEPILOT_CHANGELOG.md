@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,41 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.32 — classes and side chains (patch)
+
+Theme: step 4b's second sub-step lands D9's ladder as a pure function, with the tables it
+reads: three fills decided while drafting step 4 (#5), each entry signed by Cal. No
+invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L149 §7, §8.8 — the vocabulary's classes and side chains.** Fill: D9's ladder reads
+  `DRUG_CLASS` and `R1_GROUP`, and §7's shape gave examples but no table held the
+  vocabulary's entries. `DRUG_CLASS`: amoxicillin, amoxicillin-clavulanate, and ampicillin
+  are penicillins, cephalexin a cephalosporin, azithromycin a macrolide, ibuprofen an
+  NSAID, lisinopril an ACE inhibitor; acetaminophen, apixaban, and metformin have no
+  entry. Class names are lowercase, as allergen keys are, and a class name is its own
+  class, so no listed drug may share one. `R1_GROUP`: ampicillin with cephalexin, and
+  amoxicillin with amoxicillin-clavulanate, a group no listed cephalosporin shares; it is
+  D9's named pair, and it pins the class rung ahead of the side-chain rung for an
+  Augmentin allergy and an amoxicillin order. D9 compares identical side chains, so
+  amoxicillin's and cephalexin's, similar but not identical, read as not shared, a
+  WARNING; §8.8 states it beside reaction type.
+- **L150 §7 — cross-reactivity both ways, and rung 4's detail.** Fill:
+  `CROSS_REACTIVITY` holds (penicillin, cephalosporin) and (cephalosporin, penicillin),
+  each a WARNING (D9, D14). D14 worded the detail for an unspecified allergy and not for
+  an allergy to a specific drug: that one reads "R1 side chain not shared". "Dissimilar"
+  would misdescribe a similar side chain, and a drug without an `R1_GROUP` entry shares
+  none across classes, so only a class allergy leaves the side chain unknown.
+
+**INFO**
+- **L148 §7 — ampicillin joins the vocabulary.** Fill: as listed, amoxicillin's and
+  cephalexin's R1 side chains differ, so D9's identical-side-chain rung could fire on no
+  pair. Ampicillin, whose side chain is cephalexin's, joins `GENERIC_DRUGS` with no other
+  names: its brand is discontinued, "amp" reads as an ampule, and Unasyn is
+  ampicillin-sulbactam, another product.
 
 ---
 

@@ -1,4 +1,4 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D10, D12, D13, L35, L136-L144)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D14, L35, L136-L150)."""
 
 import os
 import subprocess
@@ -23,6 +23,7 @@ from backend.evals.checks import (
     check_hallucinated_medication,
     check_med_status_consistency,
     check_negation_consistency,
+    contraindication,
     named_drugs,
     span_text,
 )
@@ -816,6 +817,93 @@ def test_allergy_preserved_finds_each_allergy_once_in_name_order() -> None:
     raw = "Allergies: " + ", ".join(sorted(allergens, reverse=True))
     findings = check_allergy_preserved(SOAPNote(claims=()), raw)
     assert [f.detail.partition(":")[0] for f in findings] == sorted(allergens)
+
+
+# --- contraindication (§7; D9, D14) -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("allergen", "drug"),
+    [("amoxicillin", "amoxicillin"), ("metformin", "metformin")],
+)
+def test_contraindication_is_critical_for_the_allergen_itself(allergen: str, drug: str) -> None:
+    # rung 1, ahead of rung 2: amoxicillin is also its own class's
+    assert contraindication(allergen, drug) == (Severity.CRITICAL, "the allergen itself")
+
+
+@pytest.mark.parametrize(
+    ("allergen", "drug", "drug_class"),
+    [
+        ("penicillin", "amoxicillin", "penicillin"),
+        ("amoxicillin", "ampicillin", "penicillin"),
+        ("amoxicillin-clavulanate", "amoxicillin", "penicillin"),
+        ("nsaid", "ibuprofen", "nsaid"),
+    ],
+)
+def test_contraindication_is_critical_within_the_allergens_class(
+    allergen: str, drug: str, drug_class: str
+) -> None:
+    # rung 2: a class allergy names its class, and Augmentin's amoxicillin shares amoxicillin's
+    # side chain too, so the class rung has to come first
+    assert contraindication(allergen, drug) == (
+        Severity.CRITICAL,
+        f"in the allergen's class ({drug_class})",
+    )
+
+
+@pytest.mark.parametrize(
+    ("allergen", "drug"), [("ampicillin", "cephalexin"), ("cephalexin", "ampicillin")]
+)
+def test_contraindication_is_critical_on_a_side_chain_shared_across_classes(
+    allergen: str, drug: str
+) -> None:
+    # rung 3, D9: cephalexin's R1 side chain is ampicillin's
+    assert contraindication(allergen, drug) == (
+        Severity.CRITICAL,
+        "shares the allergen's R1 side chain (aminobenzyl)",
+    )
+
+
+@pytest.mark.parametrize(
+    ("allergen", "drug", "allergen_class", "drug_class"),
+    [
+        ("amoxicillin", "cephalexin", "penicillin", "cephalosporin"),
+        ("amoxicillin-clavulanate", "cephalexin", "penicillin", "cephalosporin"),
+        ("cephalexin", "amoxicillin", "cephalosporin", "penicillin"),
+    ],
+)
+def test_contraindication_warns_across_classes_without_a_shared_side_chain(
+    allergen: str, drug: str, allergen_class: str, drug_class: str
+) -> None:
+    # rung 4, D9: amoxicillin's side chain differs from cephalexin's by a hydroxyl
+    assert contraindication(allergen, drug) == (
+        Severity.WARNING,
+        f"cross-reactive with {allergen_class} ({drug_class}); R1 side chain not shared",
+    )
+
+
+def test_contraindication_asks_an_unspecified_penicillin_allergy_for_the_drug() -> None:
+    # rung 4, D14: "PCN allergy" names no side chain, so every cephalosporin is a WARNING
+    assert contraindication("penicillin", "cephalexin") == (
+        Severity.WARNING,
+        "cross-reactive with penicillin (cephalosporin); specify the penicillin to refine the risk",
+    )
+
+
+@pytest.mark.parametrize(
+    ("allergen", "drug"),
+    [
+        ("penicillin", "azithromycin"),
+        ("cephalexin", "azithromycin"),
+        ("amoxicillin", "lisinopril"),
+        ("nsaid", "acetaminophen"),
+        ("sulfa", "amoxicillin"),
+        ("metformin", "apixaban"),
+    ],
+)
+def test_contraindication_finds_nothing_between_unrelated_drugs(allergen: str, drug: str) -> None:
+    # rung 5: classes with no cross-reactivity, or no class on one side
+    assert contraindication(allergen, drug) is None
 
 
 # --- registration -------------------------------------------------------------------------

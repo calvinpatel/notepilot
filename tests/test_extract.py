@@ -30,11 +30,13 @@ from backend.clinical.lexicons import (
     BRAND_TO_GENERIC,
     CERTAINTY_CUES,
     CERTAINTY_POST,
+    CROSS_REACTIVITY,
     DIAGNOSES,
     DIAGNOSIS_ALIASES,
     DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
     DOSE_UNITS,
+    DRUG_CLASS,
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
@@ -45,6 +47,7 @@ from backend.clinical.lexicons import (
     MED_STOP_POST,
     NEGATION_WINDOW,
     PSEUDO_NEGATIONS,
+    R1_GROUP,
     TERMINATORS,
 )
 
@@ -697,6 +700,15 @@ def test_every_allergen_name_means_its_class_or_statement(name: str, key: str) -
     # L129: a class needs an allergy cue; NKDA and NKA are allergy statements by themselves
     text = name if key in {"nkda", "nka"} else f"{name} allergy"
     assert extract_allergies(text) == {key}
+
+
+def test_the_class_tables_key_listed_drugs_and_name_classes_apart_from_them() -> None:
+    # L126: DRUG_CLASS keys are drawn from GENERIC_DRUGS, as R1_GROUP's are; a class name is
+    # its own class (D9), so no listed drug may share one
+    assert DRUG_CLASS.keys() <= GENERIC_DRUGS
+    assert R1_GROUP.keys() <= GENERIC_DRUGS
+    assert not set(DRUG_CLASS.values()) & GENERIC_DRUGS
+    assert {c for pair in CROSS_REACTIVITY for c in pair} <= set(DRUG_CLASS.values())
 
 
 def test_allergen_names_mean_classes_and_d10s_statements_never_a_listed_drug() -> None:

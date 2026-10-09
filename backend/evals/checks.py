@@ -21,7 +21,7 @@ from backend.clinical.extract import (
     extract_findings,
     extract_med_status,
 )
-from backend.clinical.lexicons import DOSE_MASS_UG
+from backend.clinical.lexicons import CROSS_REACTIVITY, DOSE_MASS_UG, DRUG_CLASS, R1_GROUP
 from backend.evals.registry import Finding, register_check
 from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
@@ -331,3 +331,46 @@ def check_allergy_preserved(
         )
         for allergen in sorted(extract_allergies(raw_text) - in_note)
     ]
+
+
+# a class name is its own class (D9)
+_CLASSES: frozenset[str] = frozenset(DRUG_CLASS.values())
+
+# CROSS_REACTIVITY's severities as the spine's; a value Severity lacks fails at import
+_CROSS_REACTIVITY: Mapping[tuple[str, str], Severity] = {
+    pair: Severity(call) for pair, call in CROSS_REACTIVITY.items()
+}
+
+
+def _drug_class(name: str) -> str | None:
+    """A drug's class, a class name's own, or None."""
+    return name if name in _CLASSES else DRUG_CLASS.get(name)
+
+
+def contraindication(allergen: str, drug: str) -> tuple[Severity, str] | None:
+    """D9's ladder for one allergen and one drug: the first rung that matches, or None.
+
+    1. the same drug, CRITICAL; 2. the same class, CRITICAL; 3. an identical R1 side chain
+    across classes, CRITICAL; 4. CROSS_REACTIVITY's call for the two classes. The second value
+    says why, for a finding's detail. An allergy to a class names no side chain, so rung 4
+    asks for the specific drug (D14).
+    """
+    if allergen == drug:
+        return Severity.CRITICAL, "the allergen itself"
+    allergen_class, drug_class = _drug_class(allergen), _drug_class(drug)
+    if allergen_class is not None and allergen_class == drug_class:
+        return Severity.CRITICAL, f"in the allergen's class ({drug_class})"
+    side_chain = R1_GROUP.get(allergen)
+    if side_chain is not None and side_chain == R1_GROUP.get(drug):
+        return Severity.CRITICAL, f"shares the allergen's R1 side chain ({side_chain})"
+    if allergen_class is None or drug_class is None:
+        return None
+    call = _CROSS_REACTIVITY.get((allergen_class, drug_class))
+    if call is None:
+        return None
+    refine = (
+        f"specify the {allergen} to refine the risk"
+        if allergen in _CLASSES
+        else "R1 side chain not shared"
+    )
+    return call, f"cross-reactive with {allergen_class} ({drug_class}); {refine}"

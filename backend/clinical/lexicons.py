@@ -4,7 +4,7 @@ Imports nothing (invariant 13). Each definition here is headed by a clinical sig
 and each entry carries its rationale on the line above it (L120).
 """
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-09.
 GENERIC_DRUGS: set[str] = {
     # An analgesic charted by brand ("Tylenol") as often as by name.
     "acetaminophen",
@@ -12,6 +12,9 @@ GENERIC_DRUGS: set[str] = {
     "amoxicillin",
     # The combination product, matched as one name ahead of "amoxicillin" alone.
     "amoxicillin-clavulanate",
+    # D9's identical-side-chain rung: cephalexin shares its R1 side chain, so a cephalexin order
+    # on an ampicillin allergy is CRITICAL.
+    "ampicillin",
     # D13's example: an anticoagulant whose continue/discontinue swap is the dangerous one.
     "apixaban",
     # §8.4's Tier 3 example: the drug a fabricated amoxicillin is read against.
@@ -367,6 +370,52 @@ DIFFERENTIAL_CUES: dict[str, str] = {
     "vs.": "possible",
     # Spelled out.
     "versus": "possible",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-09.
+# A drug's class, for D9's ladder; a class name is its own class. Acetaminophen, apixaban, and
+# metformin have no entry: no class allergy covers them.
+DRUG_CLASS: dict[str, str] = {
+    # An aminopenicillin: a penicillin allergy covers it.
+    "amoxicillin": "penicillin",
+    # Amoxicillin with a beta-lactamase inhibitor: the penicillin is what an allergy reacts to.
+    "amoxicillin-clavulanate": "penicillin",
+    # An aminopenicillin, as amoxicillin.
+    "ampicillin": "penicillin",
+    # A macrolide: no beta-lactam ring, so a penicillin allergy doesn't reach it.
+    "azithromycin": "macrolide",
+    # A first-generation cephalosporin: D9's cross-class case against a penicillin allergy.
+    "cephalexin": "cephalosporin",
+    # An NSAID. An NSAID allergy is read as the class: the common reaction, through COX-1
+    # inhibition, recurs across NSAIDs.
+    "ibuprofen": "nsaid",
+    # An ACE inhibitor: angioedema on one is a reason to avoid the class.
+    "lisinopril": "ace inhibitor",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-09.
+# A drug's R1 side chain, for drugs sharing an identical one across classes (D9). A drug with
+# no entry shares its side chain with no drug of another class.
+R1_GROUP: dict[str, str] = {
+    # Amoxicillin's side chain, identical to cefadroxil's and cefprozil's.
+    "amoxicillin": "amino-hydroxybenzyl",
+    # The same amoxicillin: clavulanate leaves its side chain as it is.
+    "amoxicillin-clavulanate": "amino-hydroxybenzyl",
+    # Ampicillin's side chain, identical to cephalexin's and cefaclor's.
+    "ampicillin": "aminobenzyl",
+    # D9's example: ampicillin's side chain, which amoxicillin's differs from by a hydroxyl.
+    "cephalexin": "aminobenzyl",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-09.
+# (allergen class, drug class) -> severity when no R1 side chain is shared (D9, D14).
+CROSS_REACTIVITY: dict[tuple[str, str], str] = {
+    # About 1-2% of penicillin-allergic patients react to a cephalosporin, concentrated in shared
+    # side chains; the old 10% reflected manufacturing-era contamination. Worth a look, not a
+    # stop (D9, D14).
+    ("penicillin", "cephalosporin"): "warning",
+    # The reverse direction: as low, and driven by side chains the same way.
+    ("cephalosporin", "penicillin"): "warning",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-09.

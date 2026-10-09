@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.31** (patch — the dropped allergy, October 2026).
-Supersedes v1.3.30.
+**Spec version: v1.3.32** (patch — classes and side chains, October 2026).
+Supersedes v1.3.31.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1258,6 +1258,21 @@ excluded ones (L140). "Cannot rule out" and "not ruled out" are possible. A diff
 governs that one, and the window after it, so "PNA vs PE" reads both as possible. "PE" also
 charts the physical exam, so "PE: lungs clear" reads a pulmonary embolism, an accepted cost.
 
+**Classes and side chains (L148, L149, L150).** D9's ladder reads three tables, and
+`contraindication` in `evals/checks.py` walks it. `DRUG_CLASS` classes the vocabulary:
+amoxicillin, amoxicillin-clavulanate, and ampicillin are penicillins, cephalexin a
+cephalosporin, azithromycin a macrolide, ibuprofen an NSAID, and lisinopril an ACE
+inhibitor; acetaminophen, apixaban, and metformin have no entry, since no class allergy
+covers them. A class name is its own class, so a class allergy ("PCN allergy") reaches its
+drugs at rung 2, and no listed drug is named like a class. `R1_GROUP` puts ampicillin and
+cephalexin in one group and amoxicillin and amoxicillin-clavulanate in another, which no
+listed cephalosporin shares; a drug without an entry shares its side chain with no drug of
+another class. Ampicillin joins the vocabulary so the identical-side-chain rung has a drug
+on each side (L148). `CROSS_REACTIVITY` holds penicillin to cephalosporin and cephalosporin
+to penicillin, each a WARNING (D14). A rung-4 finding says why: "R1 side chain not shared"
+for an allergy to a specific drug, and D14's "specify the penicillin to refine the risk" for
+a class allergy, which names no side chain.
+
 **`clinical/lexicons.py` — the shape (v1.3):**
 
 ```python
@@ -2034,6 +2049,8 @@ know, stated plainly (v1.3):
 - **Judge quality.** Measured only indirectly, through model cases; never against a
   clinician.
 - **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.
+  Side chains are compared for identity only (D9, L149): amoxicillin's and cephalexin's,
+  similar but not identical, read as not shared, a WARNING.
 - **Wrong-reason passes** (D16). Expected flags match on check name; the authoring rule
   narrows the gap, it doesn't close it.
 - **Small n** (D11). 24+ model cases × k repeats is a regression tripwire, not an accuracy
