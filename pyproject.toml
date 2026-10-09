@@ -27,6 +27,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# an empty parametrize fails at collection instead of reporting a skip: an empty corpus, or
+# a roster with no CRITICAL check, can't pass quietly
+empty_parameter_set_mark = "fail_at_collect"
 
 [tool.ruff]
 line-length = 100

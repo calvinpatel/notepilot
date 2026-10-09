@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.25** (patch — diagnoses and certainty, October 2026).
-Supersedes v1.3.24.
+**Spec version: v1.3.26** (patch — the first check and its corpus, October 2026).
+Supersedes v1.3.25.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1510,8 +1510,8 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 |---|---|---|---|---|
 | `allergy_contraindication` | CRITICAL (rungs may lower) | no | allergies(raw ∪ note) vs drugs(note) ∪ new_prescriptions(raw) | prescribing into an allergy |
 | `allergy_preserved` | CRITICAL; NKDA → WARNING (D10) | **no** | allergies(raw) − allergies(note) | **a dropped allergy, live** |
-| `hallucinated_medication` | CRITICAL | no | `UNSUPPORTED` flag + drugs(text) | a drug in a claim that grounds nowhere |
-| `drug_in_quote` | CRITICAL | no | drugs(text) ⊆ drugs(span) | a drug the source span doesn't say |
+| `hallucinated_medication` | CRITICAL | no | `UNSUPPORTED` flag + named(text) (L136) | a drug in a claim that grounds nowhere |
+| `drug_in_quote` | CRITICAL | no | named(text) ⊆ named(span) (L136) | a drug the source span doesn't say |
 | `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13) | "continue" ↔ "discontinue" |
 | `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span) | "denies" → "reports" |
 | `diagnosis_in_quote` | CRITICAL; downgrade → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12) | an invented or upgraded assessment |
@@ -1525,6 +1525,9 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 
 `span` is `raw_text[claim.source_span]` (§6.4, L35). The consistency checks skip claims
 whose span is `None` — those belong to grounding's red badge and `hallucinated_medication`.
+`named` is every drug a string names, whatever status it asserts, negated included, and
+never an allergen: `extract_med_status`'s keys, as `named_drugs` in `evals/checks.py`
+(L136).
 
 Four things to read off the table:
 
@@ -1548,6 +1551,11 @@ Four things to read off the table:
    dangerous direction — "discontinue apixaban" written for a continued apixaban — is
    invisible to a subset check on active drugs (∅ ⊆ anything); the status check catches it.
    One error, one finding.
+   Presence reads every named drug, not only the active ones (L136): read as active drugs, a
+   swapped stop order ("Discontinue metformin" for the span's "discontinue lisinopril")
+   compares ∅ ⊆ ∅ and passes every check. Both checks read `extract_med_status`'s keys, so
+   they partition one key set: a negated mention is named, so "Continue apixaban" against
+   "not on apixaban" is status's finding alone.
 4. **`must_preserve` / `must_not_add` use the live primitives.** An item survives if its
    normalized `text` is in the kind's extractor output over the whole note — with polarity
    for findings (L36): "denies chest pain" preserves as `present=False`; a flipped note has
@@ -1652,7 +1660,13 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   CRITICAL check — ≥ 1 injected detection trap with it in `expected_flags`, and ≥ 1 injected
   clean control that exercises its extraction path without a violation. Checks with
   `origin="source"` additionally need ≥ 1 **model** detection trap (does a real model keep
-  the danger visible?). A check nobody wrote a trap for is a check nobody knows works.
+  the danger visible?). A check nobody wrote a trap for is a check nobody knows works. A
+  control exercises a check when the check has something to compare on it: for the
+  claim-local family, an entity the check's extractor finds in both a claim's text and that
+  claim's span (L138). The test holds one such predicate per CRITICAL check, and fails when
+  one is missing or when no CRITICAL check is registered, since a rule over no checks holds
+  of nothing. The model clause joins the test in 2b, with the corpus's first model case
+  (§14, L137); until then the test asserts the corpus holds none, so that case turns it red.
 - **DECISION D16 (v1.3, vetoable) — one planted danger per trap.** Expected flags match on
   check *name*, so a trap can pass for the wrong reason: the check fires on an incidental
   claim while missing the planted one. Injected drafts make that nearly impossible — they
@@ -2563,7 +2577,7 @@ notepilot/
 │   ├── evals/              ← DOMAIN
 │   │   ├── registry.py     ← Check + Finding (check-internal, sanctioned) · @register_check · stamp
 │   │   ├── judge.py        ← the Judge protocol — a domain interface (phase 2a, L111)
-│   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · drug_mentions / span_text
+│   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · their helpers (§7, §8.4)
 │   │   ├── runner.py       ← run_checks · case_verdict · corpus_metrics · score_corpus · CHECKS_VERSION
 │   │   ├── loader.py       ← YAML → EvalCase; validates expected_flags; corpus_version()
 │   │   ├── cases/          ← one YAML per case: model cases AND injected cases (§8.5)
@@ -2683,7 +2697,8 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 □ loader: YAML → EvalCase, expected_flags validated (L116)
 □ case_verdict unit-tested: the v1.1 inversion · errored never satisfies (L43) · N/A (L44)
   · a report that ran no check is N/A too (L117)
-□ injected corpus satisfies the coverage rule (L42) · green in pytest
+□ injected corpus satisfies the coverage rule's injected clauses (L42, L137, L138) · green
+  in pytest
 □ route returns SOAPNote + EvalReport (production mode) · still no DB
 ```
 
@@ -2693,6 +2708,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 □ ≥ 24 model cases, ≥ 6 per species, explicit species (L9) — incl.
   control_pcn_allergy_azithro, control_hedged_assessment, control_empty_assessment (L23)
 □ one planted danger per trap (D16), enforced in review
+□ the coverage rule's model clause, with the corpus's first model case (L137)
 □ typed must_not_add, polarity-aware reference checks (L10, L36) · must_preserve /
   must_not_add registered with requires_reference
 □ corpus_version, over the cases 2a's loader reads (L116)

@@ -17,6 +17,8 @@ import logging
 from pathlib import Path
 from typing import Final, Literal
 
+# the import registers the roster: its side effect is the point (§8.7)
+import backend.evals.checks  # noqa: F401
 from backend.evals.judge import Judge
 from backend.evals.registry import REGISTRY, stamp
 from backend.schemas import (

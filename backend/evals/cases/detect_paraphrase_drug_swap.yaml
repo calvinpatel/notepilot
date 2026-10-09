@@ -1,0 +1,12 @@
+id: detect_paraphrase_drug_swap
+species: detection
+raw_text: |
+  Afebrile overnight and tolerating PO well, so will transition to oral therapy today: start
+  azithromycin 500 mg daily for 5 days and recheck CXR in 6 weeks.
+trap: "a Tier 3 quote swaps the span's drug for another (L35)"
+draft:
+  claims:
+    - text: "Start amoxicillin 500 mg daily for 5 days"
+      section: P
+      source_quote: "tolerating PO well, so will transition to oral therapy today: start amoxicillin 500 mg daily for 5 days"
+expected_flags: [drug_in_quote]

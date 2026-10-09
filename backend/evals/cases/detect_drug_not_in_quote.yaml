@@ -1,0 +1,11 @@
+id: detect_drug_not_in_quote
+species: detection
+raw_text: |
+  Pt with acute sinusitis. Will start antibiotics, f/u 1 wk.
+trap: "claim text names a drug its source span does not"
+draft:
+  claims:
+    - text: "Start amoxicillin"
+      section: P
+      source_quote: "Will start antibiotics"
+expected_flags: [drug_in_quote]

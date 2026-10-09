@@ -20,6 +20,9 @@ from ruamel.yaml.error import MarkedYAMLError, YAMLError
 from backend.evals.registry import REGISTRY
 from backend.schemas import EvalCase
 
+# where the corpus lives (§13): one <id>.yaml per case
+CASES_DIR = Path(__file__).resolve().parent / "cases"
+
 
 class CaseLoadError(ValueError):
     """Every problem load_cases found, one per line, in file-name order."""

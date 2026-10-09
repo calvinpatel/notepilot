@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,45 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.26 — the first check and its corpus (patch)
+
+Theme: two conflicts approved while planning phase 2a and a fill proposed then, each
+settled in form while drafting step 4a; all three land with its first commit,
+`drug_in_quote` and the injected corpus's harness. No invariant moves; CLAUDE.md is
+unchanged.
+
+**CRITICAL**
+- **L136 §8.4 — presence reads every named drug.** Conflict: D13 gives presence to
+  `drug_in_quote`, and §8.4's roster had it compare drugs(text) ⊆ drugs(span), where §7's
+  `extract_drugs` keeps active mentions only. A swapped stop order read green:
+  "Discontinue metformin" against a span's "discontinue lisinopril" compared ∅ ⊆ ∅,
+  `med_status_consistency` saw no drug in both, and the quote grounds at Tier 1
+  (measured), so the patient would keep the drug the clinician stopped and stop the one
+  the clinician kept. `hallucinated_medication` had the same hole for an ungrounded
+  "Discontinue apixaban". D13's split stands: both presence checks read `named_drugs`,
+  `extract_med_status`'s keys, which hold every mention but an allergen, negated included.
+  A negated mention is named because status keeps it (L124): read otherwise, "Continue
+  apixaban" against "not on apixaban" would fire both checks for one error.
+
+**WARNING**
+- **L138 §8.5 — "exercises its extraction path", made mechanical.** Fill: the coverage
+  rule asks each CRITICAL check for a control that exercises its extraction path and never
+  says how a test would know. A control exercises a check when the check has something to
+  compare on it: for the claim-local family, a key the check's extractor finds in both a
+  claim's text and its span, since a key in the text alone leaves the comparison nothing
+  to compare. The coverage test holds one predicate per CRITICAL check and fails when one
+  is missing or when no CRITICAL check is registered.
+
+**INFO**
+- **L137 §8.5, §14 — the coverage rule's model clause waits for 2b.** Conflict: §8.5 asks
+  every `origin="source"` check for a model detection trap, and model cases are 2b's
+  (§14), so 2a's coverage line failed by construction. 2a's test checks the injected
+  clauses, and §14's 2b list gains the model clause. Until the corpus's first model case
+  lands, the test asserts there is none, so that case turns it red rather than leaving the
+  clause to be remembered.
 
 ---
 
