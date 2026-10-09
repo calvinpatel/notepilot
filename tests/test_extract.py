@@ -1,4 +1,4 @@
-"""Pins extraction's scope engine and extractors (spec §7, §11; D1, D10, L31, L33, L120-L133)."""
+"""Pins extraction's scope engine and extractors (spec §7, §11; D1, D10, D12, L31, L120-L135)."""
 
 import ast
 import itertools
@@ -12,6 +12,7 @@ from backend.clinical.extract import (
     Dose,
     _phrases,
     extract_allergies,
+    extract_diagnoses,
     extract_doses,
     extract_drugs,
     extract_findings,
@@ -23,6 +24,11 @@ from backend.clinical.lexicons import (
     ALLERGY_CUES,
     ALLERGY_POST,
     BRAND_TO_GENERIC,
+    CERTAINTY_CUES,
+    CERTAINTY_POST,
+    DIAGNOSES,
+    DIAGNOSIS_ALIASES,
+    DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
     DOSE_UNITS,
     FINDING_NEG_POST,
@@ -525,6 +531,71 @@ def test_a_dose_in_the_next_sentence_reads_as_nothing() -> None:
     assert extract_doses(text) == {"metformin": {Dose(500.0, "mg", "daily")}}
 
 
+# --- diagnoses and certainty (D7, D12, L134, L135) -------------------------------
+
+
+def test_a_diagnosis_no_cue_governs_is_definite() -> None:
+    assert extract_diagnoses("hypertensive urgency") == {"hypertensive urgency": {"definite"}}
+
+
+def test_a_rule_out_and_its_upgrade_read_apart() -> None:
+    # D12's trap: "r/o PE" written as "PE"
+    assert extract_diagnoses("r/o PE") == {"pulmonary embolism": {"rule_out"}}
+    assert extract_diagnoses("PE") == {"pulmonary embolism": {"definite"}}
+
+
+@pytest.mark.parametrize("text", ["likely pneumonia", "pneumonia likely"])
+def test_a_certainty_cue_governs_before_or_after_its_diagnosis(text: str) -> None:
+    assert extract_diagnoses(text) == {"pneumonia": {"probable"}}
+
+
+@pytest.mark.parametrize("text", ["PE ruled out", "no pneumonia", "negative for PE"])
+def test_a_negated_diagnosis_is_not_asserted(text: str) -> None:
+    # "PE ruled out" says it was excluded; "rule out PE" is a plan to exclude it
+    assert extract_diagnoses(text) == {}
+
+
+@pytest.mark.parametrize("text", ["cannot rule out PE", "PE not ruled out"])
+def test_a_diagnosis_not_excluded_is_possible(text: str) -> None:
+    assert extract_diagnoses(text) == {"pulmonary embolism": {"possible"}}
+
+
+@pytest.mark.parametrize("text", ["PNA vs PE", "pneumonia versus pulmonary embolism"])
+def test_a_differential_cue_governs_both_its_sides(text: str) -> None:
+    # L135: as a pre-cue alone, "PNA vs PE" read pneumonia as definite
+    assert extract_diagnoses(text) == {
+        "pneumonia": {"possible"},
+        "pulmonary embolism": {"possible"},
+    }
+
+
+def test_a_differential_cue_leaves_a_governed_diagnosis_before_it() -> None:
+    text = "likely PNA vs PE"
+    assert extract_diagnoses(text) == {
+        "pneumonia": {"probable"},
+        "pulmonary embolism": {"possible"},
+    }
+
+
+def test_a_comma_keeps_a_certainty_cue_off_the_diagnosis_before_it() -> None:
+    text = "PE, likely pneumonia"
+    assert extract_diagnoses(text) == {
+        "pulmonary embolism": {"definite"},
+        "pneumonia": {"probable"},
+    }
+
+
+def test_a_vital_sign_names_no_diagnosis() -> None:
+    # D7 and D12's trap: "BP 190/110" written as "hypertensive urgency"
+    assert extract_diagnoses("BP 190/110") == {}
+
+
+def test_an_exam_header_reads_as_pulmonary_embolism() -> None:
+    # L134's accepted cost: "PE" also charts the physical exam
+    text = "PE: lungs clear, no edema"
+    assert extract_diagnoses(text) == {"pulmonary embolism": {"definite"}}
+
+
 # --- every lexicon entry, in its role --------------------------------------------
 
 
@@ -612,6 +683,48 @@ def test_every_frequency_reads_as_its_canonical_frequency(name: str, freq: str) 
     assert extract_doses(f"metformin 5 mg {name}") == {"metformin": {Dose(5.0, "mg", freq)}}
 
 
+@pytest.mark.parametrize("diagnosis", sorted(DIAGNOSES))
+def test_every_diagnosis_extracts_as_itself(diagnosis: str) -> None:
+    assert extract_diagnoses(diagnosis) == {diagnosis: {"definite"}}
+
+
+@pytest.mark.parametrize(("name", "diagnosis"), sorted(DIAGNOSIS_ALIASES.items()))
+def test_every_other_diagnosis_name_extracts_as_its_diagnosis(name: str, diagnosis: str) -> None:
+    assert extract_diagnoses(name) == {diagnosis: {"definite"}}
+
+
+def test_every_other_diagnosis_name_means_a_listed_diagnosis_and_none_is_one() -> None:
+    # L134: DIAGNOSES is the vocabulary, and DIAGNOSIS_ALIASES maps onto it
+    assert set(DIAGNOSIS_ALIASES.values()) <= DIAGNOSES
+    assert not DIAGNOSES & set(DIAGNOSIS_ALIASES)
+
+
+@pytest.mark.parametrize(("cue", "certainty"), sorted(CERTAINTY_CUES.items()))
+def test_every_certainty_cue_governs_the_diagnosis_after_it(cue: str, certainty: str) -> None:
+    assert extract_diagnoses(f"{cue} pneumonia") == {"pneumonia": {certainty}}
+
+
+@pytest.mark.parametrize(("cue", "certainty"), sorted(CERTAINTY_POST.items()))
+def test_every_post_certainty_cue_governs_the_diagnosis_before_it(cue: str, certainty: str) -> None:
+    assert extract_diagnoses(f"pneumonia {cue}") == {"pneumonia": {certainty}}
+
+
+@pytest.mark.parametrize(("cue", "certainty"), sorted(DIFFERENTIAL_CUES.items()))
+def test_every_differential_cue_governs_both_its_sides(cue: str, certainty: str) -> None:
+    text = f"pneumonia {cue} pulmonary embolism"
+    assert extract_diagnoses(text) == {"pneumonia": {certainty}, "pulmonary embolism": {certainty}}
+
+
+@pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE))
+def test_every_pre_negation_cue_negates_the_diagnosis_after_it(cue: str) -> None:
+    assert extract_diagnoses(f"{cue} pneumonia") == {}
+
+
+@pytest.mark.parametrize("cue", sorted(FINDING_NEG_POST))
+def test_every_post_negation_cue_negates_the_diagnosis_before_it(cue: str) -> None:
+    assert extract_diagnoses(f"pneumonia {cue}") == {}
+
+
 @pytest.mark.parametrize("cue", sorted(MED_START_CUES))
 def test_every_start_cue_starts_the_drug_after_it(cue: str) -> None:
     assert extract_med_status(f"{cue} metformin") == {"metformin": {"active"}}
@@ -634,6 +747,10 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "allergy, post": ALLERGY_POST,
         "dose unit": set(DOSE_UNITS),
         "frequency": set(DOSE_FREQUENCIES),
+        "diagnosis": DIAGNOSES | set(DIAGNOSIS_ALIASES),
+        "certainty": set(CERTAINTY_CUES),
+        "certainty, post": set(CERTAINTY_POST),
+        "differential": set(DIFFERENTIAL_CUES),
         "negation": FINDING_NEG_PRE,
         "negation, post": FINDING_NEG_POST,
         "stop": MED_STOP_CUES,
@@ -648,6 +765,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         {"stop", "stop, post"},
         {"start", "start, post"},
         {"allergy", "allergy, post"},
+        {"certainty", "certainty, post"},
     ]
     shared = {
         (a, b, phrase)

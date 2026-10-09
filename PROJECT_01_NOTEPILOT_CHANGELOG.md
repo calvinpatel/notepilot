@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,33 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.25 — diagnoses and certainty (patch)
+
+Theme: two fills for phase 2a's step 3e, the diagnosis extractor and the certainty
+lexicon, signed off by Cal; step 3, extraction, is complete. No invariant moves; CLAUDE.md
+is unchanged.
+
+**WARNING**
+- **L134 §7 — diagnosis names.** Fill: §7 keys diagnoses by surface form, like `FINDINGS`,
+  and `diagnosis_in_quote` compares keys, so a claim's "pulmonary embolism" against a
+  span's "PE" would fire a CRITICAL on a faithful claim (L126's lesson). `DIAGNOSES` holds
+  canonical names, `DIAGNOSIS_ALIASES` maps the other charted names onto them, and a test
+  holds its values in `DIAGNOSES`; §7's example key becomes "pulmonary embolism". "PE"
+  also charts the physical exam, an accepted cost a test pins; "CAP" stays out, since it
+  also charts a capsule.
+- **L135 §7 — certainty, negated diagnoses, and differentials.** Fill: §7 names
+  `CERTAINTY_CUES` and its values, not the cues' reach, what a negated diagnosis asserts,
+  or how "vs", the prompt's own certainty marker, reaches. Certainty cues work before a
+  diagnosis (`CERTAINTY_CUES`) and after it (`CERTAINTY_POST`), a diagnosis no cue governs
+  is definite, and a negated one isn't asserted; "ruled out" joins the negation cues. A
+  differential cue governs the diagnosis immediately before it, unless another cue governs
+  that one, and the window after it (measured: as a pre-cue alone, "PNA vs PE" read
+  pneumonia as definite, so a note that dropped the differential would hide the upgrade).
+  §7's sentence counting three cue classes, stale since L128, now names the classes the
+  engine serves.
 
 ---
 

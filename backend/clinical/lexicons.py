@@ -156,7 +156,7 @@ FINDING_NEG_PRE: set[str] = {
     "denies allergies to",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-07.
+# Clinical sign-off: Calvin Patel, 2026-10-08.
 FINDING_NEG_POST: set[str] = {
     # ROS template order ("Chest pain: denied").
     "denied",
@@ -170,6 +170,10 @@ FINDING_NEG_POST: set[str] = {
     "is absent",
     # Exam order ("chest pain not present").
     "not present",
+    # Excluded, after the diagnosis ("PE ruled out"), unlike "rule out PE", a plan to exclude.
+    "ruled out",
+    # The copula form of "ruled out".
+    "was ruled out",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-07.
@@ -312,6 +316,60 @@ MED_START_POST: set[str] = {
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-08.
+CERTAINTY_CUES: dict[str, str] = {
+    # §7's example: the commonest hedge ("likely pneumonia").
+    "likely": "probable",
+    # As "likely".
+    "probable": "probable",
+    # As "likely".
+    "probably": "probable",
+    # Treated as the working diagnosis, not yet confirmed ("presumed pneumonia").
+    "presumed": "probable",
+    # The prompt's own example: findings fit it, short of confirmation.
+    "consistent with": "probable",
+    # Under consideration, not yet favored ("suspected PE").
+    "suspected": "possible",
+    # §7's example.
+    "possible": "possible",
+    # As "possible".
+    "possibly": "possible",
+    # Raised as a possibility ("concern for PE").
+    "concern for": "possible",
+    # As "concern for".
+    "concerning for": "possible",
+    # As "possible" ("may have pneumonia").
+    "may have": "possible",
+    # Not excluded: a possibility, not a plan to exclude; longer than "rule out", so it wins.
+    "cannot rule out": "possible",
+    # §7's example: a diagnosis to be excluded ("r/o PE").
+    "r/o": "rule_out",
+    # Spelled out.
+    "rule out": "rule_out",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+CERTAINTY_POST: dict[str, str] = {
+    # After the diagnosis ("pneumonia likely").
+    "likely": "probable",
+    # After the diagnosis ("PE suspected").
+    "suspected": "possible",
+    # After the diagnosis ("pneumonia possible").
+    "possible": "possible",
+    # Not yet excluded; longer than the negation cue "not", so it wins.
+    "not ruled out": "possible",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+DIFFERENTIAL_CUES: dict[str, str] = {
+    # A differential: both sides are possibilities ("CAP vs PE") (L135).
+    "vs": "possible",
+    # With its period.
+    "vs.": "possible",
+    # Spelled out.
+    "versus": "possible",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
 DOSE_UNITS: dict[str, str] = {
     # Milligrams, the commonest oral dose unit.
     "mg": "mg",
@@ -411,4 +469,26 @@ FINDINGS: set[str] = {
     "nausea",
     # GI ROS, usually charted with nausea ("denies nausea or vomiting").
     "vomiting",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+DIAGNOSES: set[str] = {
+    # D12's certainty trap: "r/o PE" written as "PE".
+    "pulmonary embolism",
+    # D7 and D12's invented-assessment trap: "BP 190/110" written as this.
+    "hypertensive urgency",
+    # The commonest hedged assessment ("likely pneumonia"), for D7's hedged control.
+    "pneumonia",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-08.
+DIAGNOSIS_ALIASES: dict[str, str] = {
+    # §7's example: PE as charted.
+    "pe": "pulmonary embolism",
+    # The singular clot.
+    "pulmonary embolus": "pulmonary embolism",
+    # As charted.
+    "htn urgency": "hypertensive urgency",
+    # Pneumonia's charted abbreviation.
+    "pna": "pneumonia",
 }

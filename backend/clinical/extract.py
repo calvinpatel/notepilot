@@ -13,13 +13,14 @@ is a post-cue there and a pre-cue anywhere else. A terminator closes the window.
 
 A finding sees one class of cue, negation. A drug sees four at once: negation, stop, start, and
 allergy (L124, L125, L128). Allergy context reaches further than the others (L128): a header at
-a line's start opens a section, and an allergy post-cue reaches back over a list.
+a line's start opens a section, and an allergy post-cue reaches back over a list. A diagnosis
+sees negation and certainty, and a differential cue ("vs") governs both its sides (L135).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
 drug, in the drug's sentence, and the frequency charted after it.
 
-Dose and MedStatus are extraction's result types. They live here and evals imports them from
-here, since clinical/ may not import the spine (§13's third exception, L132).
+Dose, MedStatus, and Certainty are extraction's result types. They live here and evals imports
+them from here, since clinical/ may not import the spine (§13's third exception, L132).
 """
 
 import re
@@ -31,6 +32,11 @@ from backend.clinical.lexicons import (
     ALLERGY_CUES,
     ALLERGY_POST,
     BRAND_TO_GENERIC,
+    CERTAINTY_CUES,
+    CERTAINTY_POST,
+    DIAGNOSES,
+    DIAGNOSIS_ALIASES,
+    DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
     DOSE_UNITS,
     FINDING_NEG_POST,
@@ -54,12 +60,15 @@ class Dose(NamedTuple):
 
 
 MedStatus = Literal["active", "stopped"]
+Certainty = Literal["definite", "probable", "possible", "rule_out"]  # strongest first
 
 # A decimal number whole, so "38.5" ends no sentence; a word; a line break; one mark.
 _TOKEN = re.compile(r"\d+(?:\.\d+)+|[^\W_]+|\n|[^\w\s]")
 
 type _Phrase = tuple[str, ...]
-type _Label = Literal["negated", "stopped", "started", "allergy"]
+type _Label = Literal[
+    "negated", "stopped", "started", "allergy", "probable", "possible", "rule_out"
+]
 type _Cues = Mapping[_Phrase, _Label]
 
 
@@ -109,6 +118,26 @@ _DRUG_POST = (
 _NO_ALLERGY = frozenset({"nkda", "nka"})
 # what joins a list an allergy post-cue reaches back over (L128)
 _JOINS = frozenset({(",",), ("and",), ("or",)})
+# the label each certainty a lexicon names becomes; a value it lacks fails at import (L135)
+_CERTAINTY: Mapping[str, _Label] = {
+    "probable": "probable",
+    "possible": "possible",
+    "rule_out": "rule_out",
+}
+
+
+def _certainty_cues(table: Mapping[str, str]) -> dict[_Phrase, _Label]:
+    """Each certainty cue under its tokens, labeled with the certainty it asserts (L135)."""
+    return {tuple(_tokens(cue)): _CERTAINTY[certainty] for cue, certainty in table.items()}
+
+
+_DIAGNOSES = _phrases(DIAGNOSES) | {
+    tuple(_tokens(name)): diagnosis for name, diagnosis in DIAGNOSIS_ALIASES.items()
+}
+_DX_PRE = _NEG_PRE | _certainty_cues(CERTAINTY_CUES)
+_DX_POST = _NEG_POST | _certainty_cues(CERTAINTY_POST)
+_DIFFERENTIAL = _certainty_cues(DIFFERENTIAL_CUES)
+_NO_CUES: _Cues = {}
 _UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
 _FREQUENCIES = {tuple(_tokens(name)): freq for name, freq in DOSE_FREQUENCIES.items()}
 # a number, and any letters fused to it ("500mg"); a decimal is one token already (L121)
@@ -178,12 +207,16 @@ def _sections(
 
 
 def _scope(
-    text: str, entities: Mapping[_Phrase, str], pre: _Cues, post: _Cues
+    text: str,
+    entities: Mapping[_Phrase, str],
+    pre: _Cues,
+    post: _Cues,
+    differential: _Cues = _NO_CUES,
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
-    None if none does (L31, L121, L122, L124, L128)."""
+    None if none does (L31, L121, L122, L124, L128, L135)."""
     tokens = _tokens(text)
-    phrases = list(_split(tokens, (_PSEUDO, _TERMINATORS, entities, pre, post)))
+    phrases = list(_split(tokens, (_PSEUDO, _TERMINATORS, entities, pre, post, differential)))
     sections = _sections(tokens, phrases, entities, pre)
     mentions: list[tuple[str, _Label | None]] = []
     window = 0  # the words the open pre-cue still governs
@@ -196,6 +229,10 @@ def _scope(
         window = max(window - words, 0)
         if phrase in _TERMINATORS:
             window = 0
+        elif phrase in differential:  # both sides: the mention before, unless governed, and after
+            if before is not None and mentions[before][1] is None:
+                mentions[before] = (mentions[before][0], differential[phrase])
+            window, label = NEGATION_WINDOW, differential[phrase]
         elif phrase in post and before is not None:  # tested ahead of pre, per L121
             reach = run if post[phrase] == "allergy" else [before]
             for m in reach:  # a list's earlier mentions only where no other cue governs
@@ -377,6 +414,29 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
         i += 1
     settle(None)
     return doses
+
+
+# what each label asserts of a diagnosis: no cue is a definite one, and a negated one isn't
+# asserted at all, so "negated" has no entry (L135)
+_ASSERTED: Mapping[_Label | None, Certainty] = {
+    None: "definite",
+    "probable": "probable",
+    "possible": "possible",
+    "rule_out": "rule_out",
+}
+
+
+def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
+    """diagnosis -> certainties asserted (D12). "r/o PE" -> {"pulmonary embolism": {"rule_out"}}.
+
+    Names resolve to their canonical diagnosis (L134). A diagnosis no cue governs is definite,
+    and a negated one ("PE ruled out") isn't asserted (L135).
+    """
+    certainties: dict[str, set[Certainty]] = {}
+    for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _DIFFERENTIAL):
+        if label in _ASSERTED:
+            certainties.setdefault(diagnosis, set()).add(_ASSERTED[label])
+    return certainties
 
 
 def extract_findings(text: str) -> dict[str, set[bool]]:

@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.24** (patch — doses, October 2026).
-Supersedes v1.3.23.
+**Spec version: v1.3.25** (patch — diagnoses and certainty, October 2026).
+Supersedes v1.3.24.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1143,8 +1143,9 @@ def extract_findings(text: str) -> dict[str, set[bool]]:
     Scoped negation (below). A set, so a mixed statement keeps both (L33)."""
 
 def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
-    """v1.3 (D12): diagnosis → certainties asserted. "r/o PE" → {"pe": {"rule_out"}}.
-    Lexicon is corpus-driven (MVP), like FINDINGS."""
+    """v1.3 (D12): diagnosis → certainties asserted. "r/o PE" →
+    {"pulmonary embolism": {"rule_out"}} (L134). Lexicon is corpus-driven (MVP), like
+    FINDINGS."""
 ```
 
 Callers add the claim linkage themselves. These two helpers live in `evals/` — they touch
@@ -1173,8 +1174,8 @@ The MVP rule is NegEx-shaped and deterministic: **token-level** cue matching; a
 **post-negation** cue negates the finding immediately before it; **terminators** ("but",
 "however", "although", ";", ".") close the window; **pseudo-negations** ("no increase",
 "no change", "not only") are matched first and suppress the cue. The same window machinery
-serves `MED_STOP_CUES` / `MED_START_CUES` and `CERTAINTY_CUES` — one scope engine, three cue
-classes.
+serves the order cues (L124, L125), allergy context (L128), and certainty (L135): one scope
+engine for every cue class.
 
 **The scope rule, made exact (L121).** The engine's token is a word (a run of letters and
 digits; a decimal number is one word, so "38.5" ends no sentence), one punctuation mark, or
@@ -1241,6 +1242,18 @@ titration. A dose before its drug ("500 mg of amoxicillin") or in the next sente
 nothing, the accepted costs. Whether `dose_consistency` treats 1 g as 1000 mg, or a dose
 without a frequency as matching one with, is that check's to say (step 4c).
 
+**Diagnoses and certainty (L134, L135).** `diagnosis_in_quote` compares keys, so a diagnosis
+needs every name it is charted by, as a drug does (L126): `DIAGNOSES` holds the canonical
+names, and `DIAGNOSIS_ALIASES` maps the others onto them ("PE" -> "pulmonary embolism").
+Certainty is a cue class a diagnosis sees beside negation: `CERTAINTY_CUES` before it and
+`CERTAINTY_POST` after it, each cue naming the `Certainty` it asserts, and a diagnosis no
+cue governs is definite. A negated diagnosis isn't asserted, so "PE ruled out" (excluded)
+and "r/o PE" (to be excluded) read apart, and "cannot rule out" and "not ruled out" are
+possible. A differential cue ("vs") governs both its sides: the diagnosis immediately before
+it, unless another cue governs that one, and the window after it, so "PNA vs PE" reads both
+as possible. "PE" also charts the physical exam, so "PE: lungs clear" reads a pulmonary
+embolism, an accepted cost.
+
 **`clinical/lexicons.py` — the shape (v1.3):**
 
 ```python
@@ -1263,6 +1276,8 @@ MED_STOP_POST:     set[str]          # "discontinued", "held": after the drug (L
 MED_START_CUES:    set[str]          # "start", "begin", "initiate", "prescribe", "rx" (L41)
 MED_START_POST:    set[str]          # "started", "prescribed": after the drug (L125)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
+CERTAINTY_POST:    dict[str, str]    # "likely" -> "probable": after the diagnosis (L135)
+DIFFERENTIAL_CUES: dict[str, str]    # "vs" -> "possible": both its sides (L135)
 DRUG_CLASS:        dict[str, str]    # "amoxicillin" -> "penicillin", "cephalexin" -> "cephalosporin",
                                      # "ibuprofen" -> "nsaid". v1.3 (L67): ONE direction. v1.2 kept
                                      # ALLERGY_CLASSES (class → members) AND DRUG_CLASSES (member →
@@ -1277,7 +1292,8 @@ CROSS_REACTIVITY:  dict[tuple[str, str], str]
 DOSE_UNITS:        dict[str, str]    # "mcg" -> "μg", "milligrams" -> "mg": the canonical unit (L131)
 DOSE_FREQUENCIES:  dict[str, str]    # "t.i.d." -> "tid", "twice daily" -> "bid" (L131)
 FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
-DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS
+DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS; canonical names (L134)
+DIAGNOSIS_ALIASES: dict[str, str]    # "pe" -> "pulmonary embolism": every other charted name (L134)
 ```
 
 **DECISION D9 (v1.3, vetoable) — cross-reactivity is keyed on the R1 side chain.** The
