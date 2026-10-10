@@ -1,0 +1,15 @@
+id: detect_shared_side_chain
+species: detection
+raw_text: |
+  Cellulitis of the right forearm. Allergic to ampicillin (hives).
+  Start cephalexin 500 mg qid x 7 days.
+trap: "the source starts cephalexin on an ampicillin allergy, an identical R1 side chain (D9)"
+draft:
+  claims:
+    - text: "Allergic to ampicillin (hives)"
+      section: S
+      source_quote: "Allergic to ampicillin (hives)"
+    - text: "Start cephalexin 500 mg qid x 7 days"
+      section: P
+      source_quote: "Start cephalexin 500 mg qid x 7 days"
+expected_flags: [allergy_contraindication]

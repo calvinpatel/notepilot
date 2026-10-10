@@ -1,0 +1,15 @@
+id: detect_contra_omitted_rx
+species: detection
+raw_text: |
+  Sore throat for 3 days, rapid strep positive. PCN allergy (hives).
+  Start amoxicillin 500 mg bid x 10 days.
+trap: "the note drops a prescription the source starts into an allergy (L51)"
+draft:
+  claims:
+    - text: "Rapid strep positive"
+      section: O
+      source_quote: "rapid strep positive"
+    - text: "PCN allergy (hives)"
+      section: S
+      source_quote: "PCN allergy (hives)"
+expected_flags: [allergy_contraindication]

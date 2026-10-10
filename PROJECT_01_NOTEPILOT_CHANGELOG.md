@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,44 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.33 — the contraindication (patch)
+
+Theme: step 4b's third sub-step registers `allergy_contraindication`, the showpiece. A
+conflict in its own example code, two fills to §8.5, a limitation measured while drafting
+it, and a gloss L150 left stale land with it. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L151 §8.4 — a drug no claim names puts its finding on the banner.** Conflict: §8.4's
+  showpiece docstring, D17's omission table, and §9.7 say a contraindication whose drug
+  only the raw text starts is note-level (`claim_ids=()`) and goes to the banner; the
+  showpiece's code added the allergy claim's id whenever a claim stated the allergy, which
+  put that finding on the allergy claim's card instead (`detect_contra_omitted_rx`). The
+  three statements win: the banner is where §9.7 shows what the note hides. The allergy
+  claim's id joins a finding only when the drug has a claim (L37), and the showpiece's
+  code says so.
+
+**INFO**
+- **L152 §8.5 — `allergy_contraindication`'s exercise predicate.** Fill: a control
+  exercises it when the raw text or a claim states an allergy, other than D10's
+  statements, and a claim or the raw text's new prescriptions name a drug, so the ladder
+  has a pair to resolve; `control_pcn_allergy_azithro` satisfies it, and §8.5 names it
+  beside L146's.
+- **L153 §8.5 — the identical-side-chain trap joins the fixture table.** Fill:
+  `detect_shared_side_chain`, cephalexin started on an ampicillin allergy, freezes a v1.2
+  bug: the class-level table read it as a WARNING, as it read ceftriaxone (D9).
+- **L154 §8.8 — a drug after an allergy post-cue.** Fill: measured while drafting step
+  4b-iii, "PCN allergy (amoxicillin)" and "PCN allergy - amoxicillin" read the amoxicillin
+  as active, since §7's post-cue labels only the mentions before it, so a faithful copy
+  fires `allergy_contraindication`; "PCN allergy: amoxicillin" matches "allergy:" as a
+  header and loses the penicillin. Both follow §7 as written, so the fix changes a stated
+  rule and waits for v1.4 (#1); §8.8 states the cost, and the corpus avoids the phrasing.
+- **L155 §7 — the shape's `CROSS_REACTIVITY` comment follows L150.** Fill: the comment
+  still glossed the table as applying when the side chain is "dissimilar or unknown", the
+  wording L150 retired; it now reads "when no R1 side chain is shared". Found in review of
+  step 4b-ii.
 
 ---
 

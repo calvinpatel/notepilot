@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.32** (patch — classes and side chains, October 2026).
-Supersedes v1.3.31.
+**Spec version: v1.3.33** (patch — the contraindication, October 2026).
+Supersedes v1.3.32.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1306,8 +1306,8 @@ R1_GROUP:          dict[str, str]    # D9: generic -> R1 side-chain group, for d
                                      # amoxicillin with cefadroxil/cefprozil). Each entry commented
                                      # with its rationale.
 CROSS_REACTIVITY:  dict[tuple[str, str], str]
-                                     # (allergen class, drug class) -> severity when the side chain is
-                                     # DISSIMILAR or UNKNOWN: ("penicillin", "cephalosporin") -> "warning"
+                                     # (allergen class, drug class) -> severity when no R1 side chain
+                                     # is shared (L150, L155): ("penicillin", "cephalosporin") -> "warning"
 DOSE_UNITS:        dict[str, str]    # "mcg" -> "μg", "milligrams" -> "mg": the canonical unit (L131)
 DOSE_FREQUENCIES:  dict[str, str]    # "t.i.d." -> "tid", "twice daily" -> "bid" (L131)
 DOSE_MASS_UG:      dict[str, int]    # "g" -> 1_000_000: a mass unit's size in μg; ml, units none (L141)
@@ -1491,9 +1491,10 @@ def check_allergy_contraindication(note: SOAPNote, raw_text: str,
             if hit is None:                                            #   pure, unit-tested
                 continue                                               #   rung by rung
             severity, why = hit
-            ids = drug_ids + ((allergy_claim[allergen],) if allergen in allergy_claim else ())
-            findings.append(Finding(                                   # L37: the allergy
-                detail=f"{allergen} allergy on record; {drug}: {why}",  #   claim's id too
+            allergy_ids = (allergy_claim[allergen],) if allergen in allergy_claim else ()
+            ids = drug_ids + allergy_ids if drug_ids else ()           # L151: no drug claim →
+            findings.append(Finding(                                   #   the banner; else L37,
+                detail=f"{allergen} allergy on record; {drug}: {why}",  #   the allergy claim too
                 claim_ids=ids,
                 severity=severity,                                     # ≤ CRITICAL (L38)
             ))
@@ -1695,9 +1696,10 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   claim-local family, an entity the check's extractor finds in both a claim's text and that
   claim's span (L138); for `hallucinated_medication`, a claim naming a drug, which
   grounding's flag then decides; for `allergy_preserved`, an allergy the raw text and a claim
-  both state (L146). The test holds one such predicate per CRITICAL check, and fails when
-  one is missing or when no CRITICAL check is registered, since a rule over no checks holds
-  of nothing. The model clause joins the test in 2b, with the corpus's first model case
+  both state (L146); for `allergy_contraindication`, an allergy and a drug for the ladder to
+  pair (L152). The test holds one such predicate per CRITICAL check, and fails when one is
+  missing or when no CRITICAL check is registered, since a rule over no checks holds of
+  nothing. The model clause joins the test in 2b, with the corpus's first model case
   (§14, L137); until then the test asserts the corpus holds none, so that case turns it red.
 - **DECISION D16 (v1.3, vetoable) — one planted danger per trap.** Expected flags match on
   check *name*, so a trap can pass for the wrong reason: the check fires on an incidental
@@ -1727,6 +1729,7 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 | `detect_dropped_allergy` | injected | detection | allergy omission (v1.2) — expects `[allergy_preserved]`; `must_preserve` joins in 2b (L145) |
 | `detect_same_drug_allergy` | model + injected | detection | L30 |
 | `detect_contra_omitted_rx` | injected | detection | L51 — the draft omits the amoxicillin the raw text starts |
+| `detect_shared_side_chain` | injected | detection | D9 — cephalexin on an ampicillin allergy, an identical R1 side chain v1.2 read as a WARNING (L153) |
 | `detect_paraphrase_drug_swap` | injected | detection | L35 — a Tier 3 quote with a swapped drug |
 | `detect_status_flip` | injected | detection | D13 |
 | `detect_invented_assessment` | injected | detection | D7/D12 — "BP 190/110" → "hypertensive urgency" |
@@ -2040,6 +2043,12 @@ know, stated plainly (v1.3):
   check, which then passes over it. Recall on an unlisted drug is zero, not unmeasured. An
   allergen that isn't a drug (latex, a food) is never extracted, so `allergy_preserved`
   can't see one dropped.
+- **A drug after an allergy post-cue** (L154). "PCN allergy (amoxicillin)" and "PCN allergy -
+  amoxicillin" read the amoxicillin as an active drug, since a post-cue labels only what comes
+  before it (§7), so a faithful claim copying either fires `allergy_contraindication`. "PCN
+  allergy: amoxicillin" reads "allergy:" as a header and loses the penicillin, so a note
+  writing "PCN allergy" reads as dropping the amoxicillin, which `allergy_preserved` reports.
+  Both fail loud.
 - **Findings both sides name** (L139). `negation_consistency` compares polarity only for a
   finding the claim and its span both name, and `FINDINGS` lists no other names. A flip
   behind a name it lacks ("denies CP" → "reports chest pain") reads nothing; so does a

@@ -6,6 +6,7 @@ from collections.abc import Callable
 import pytest
 
 from backend.evals.checks import (
+    check_allergy_contraindication,
     check_allergy_preserved,
     check_diagnosis_in_quote,
     check_drug_in_quote,
@@ -28,7 +29,7 @@ FAMILY: dict[str, _CheckFn] = {
 }
 
 # every CRITICAL check a row below covers
-COVERED = set(FAMILY) | {"allergy_preserved"}
+COVERED = set(FAMILY) | {"allergy_contraindication", "allergy_preserved"}
 
 CRITICAL = sorted(name for name, c in REGISTRY.items() if c.severity is Severity.CRITICAL)
 
@@ -71,6 +72,39 @@ def test_an_omitted_allergy_is_allergy_preserveds_subject() -> None:
     )
     findings = check_allergy_preserved(SOAPNote(claims=(claim,)), raw, None)
     assert [f.detail for f in findings] == ["penicillin: in the source, not the note"]
+
+
+def _claim(raw: str, quote: str, claim_id: int = 0) -> ClinicalClaim:
+    """A claim quoting quote, grounded to its first place in raw."""
+    start = raw.index(quote)
+    return ClinicalClaim(
+        id=claim_id,
+        text=quote,
+        section="P",
+        source_quote=quote,
+        source_span=(start, start + len(quote)),
+    )
+
+
+def test_an_omitted_allergy_still_reaches_the_contraindication() -> None:
+    # §8.4's row for allergy_contraindication: the allergy is read from the raw text
+    raw = "Allergic to amoxicillin. Start amoxicillin 500 mg tid."
+    note = SOAPNote(claims=(_claim(raw, "Start amoxicillin 500 mg tid"),))
+    assert [f.claim_ids for f in check_allergy_contraindication(note, raw, None)] == [(0,)]
+
+
+def test_an_omitted_new_drug_still_reaches_the_contraindication_at_the_banner() -> None:
+    # §8.4's row: the drug is read through new_prescriptions(raw_text) (L51)
+    raw = "PCN allergy. Start amoxicillin 500 mg tid."
+    note = SOAPNote(claims=(_claim(raw, "PCN allergy"),))
+    assert [f.claim_ids for f in check_allergy_contraindication(note, raw, None)] == [()]
+
+
+def test_an_omitted_continued_home_medication_is_a_ci_only_gap() -> None:
+    # §8.4's row: no live check sees it; must_preserve(kind="medication") covers it in CI
+    raw = "NSAID allergy. Continue ibuprofen 400 mg prn."
+    note = SOAPNote(claims=(_claim(raw, "NSAID allergy"),))
+    assert check_allergy_contraindication(note, raw, None) == []
 
 
 def test_every_critical_check_has_an_omission_row() -> None:

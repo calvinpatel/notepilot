@@ -1,4 +1,4 @@
-"""§8.5's coverage rule, over the injected corpus (L42, L137, L138, L146).
+"""§8.5's coverage rule, over the injected corpus (L42, L137, L138, L146, L152).
 
 load_cases already holds two of §11's corpus checks: every case parses, and every
 expected_flags entry names a registered check.
@@ -9,12 +9,14 @@ from collections.abc import Callable
 import pytest
 
 from backend.clinical.extract import (
+    NO_ALLERGY_STATEMENTS,
     extract_allergies,
     extract_diagnoses,
     extract_excluded_diagnoses,
     extract_findings,
+    new_prescriptions,
 )
-from backend.evals.checks import named_drugs, span_text
+from backend.evals.checks import drug_mentions, named_drugs, span_text
 from backend.evals.loader import CASES_DIR, load_cases
 from backend.evals.registry import REGISTRY
 from backend.grounding import ground
@@ -66,11 +68,20 @@ def _keeps_an_allergy(note: SOAPNote, raw_text: str) -> bool:
     return any(extract_allergies(claim.text) & extract_allergies(raw_text) for claim in note.claims)
 
 
-# A control exercises a check when the check has something to compare on it (L138, L146): for
-# the claim-local family, a key its extractor finds in both a claim's text and that claim's
-# span; for hallucinated_medication, a claim naming a drug, which grounding's flag then
-# decides; for allergy_preserved, an allergy the raw text and a claim both state.
+def _pairs_an_allergy_with_a_drug(note: SOAPNote, raw_text: str) -> bool:
+    texts = [raw_text, *(claim.text for claim in note.claims)]
+    allergens = {a for text in texts for a in extract_allergies(text)} - NO_ALLERGY_STATEMENTS
+    drugs = {drug for drug, _ in drug_mentions(note)} | new_prescriptions(raw_text)
+    return bool(allergens and drugs)
+
+
+# A control exercises a check when the check has something to compare on it (L138, L146,
+# L152): for the claim-local family, a key its extractor finds in both a claim's text and that
+# claim's span; for hallucinated_medication, a claim naming a drug, which grounding's flag then
+# decides; for allergy_preserved, an allergy the raw text and a claim both state; for
+# allergy_contraindication, an allergy and a drug for the ladder to pair.
 EXERCISES: dict[str, Callable[[SOAPNote, str], bool]] = {
+    "allergy_contraindication": _pairs_an_allergy_with_a_drug,
     "allergy_preserved": _keeps_an_allergy,
     "diagnosis_in_quote": _shares_a_diagnosis,
     "drug_in_quote": _shares_a_drug,

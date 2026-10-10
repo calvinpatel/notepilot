@@ -1,4 +1,4 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D14, L35, L136-L150)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L136-L154)."""
 
 import os
 import subprocess
@@ -16,6 +16,7 @@ from backend.clinical.lexicons import (
     GENERIC_DRUGS,
 )
 from backend.evals.checks import (
+    check_allergy_contraindication,
     check_allergy_preserved,
     check_diagnosis_in_quote,
     check_dose_consistency,
@@ -24,6 +25,7 @@ from backend.evals.checks import (
     check_med_status_consistency,
     check_negation_consistency,
     contraindication,
+    drug_mentions,
     named_drugs,
     span_text,
 )
@@ -904,6 +906,106 @@ def test_contraindication_asks_an_unspecified_penicillin_allergy_for_the_drug() 
 def test_contraindication_finds_nothing_between_unrelated_drugs(allergen: str, drug: str) -> None:
     # rung 5: classes with no cross-reactivity, or no class on one side
     assert contraindication(allergen, drug) is None
+
+
+# --- drug_mentions and allergy_contraindication (§8.4; D9, D14, L30, L37, L51) ------------
+
+
+def test_drug_mentions_names_each_active_drug_with_its_claim() -> None:
+    note, _ = _note(
+        ("Start metformin and apixaban", "start metformin and apixaban"),
+        ("Discontinue lisinopril", "discontinue lisinopril"),
+        ("Continue apixaban", "continue apixaban"),
+    )
+    # claims in order, drugs by name; a stopped drug is no mention
+    assert drug_mentions(note) == [("apixaban", (0,)), ("metformin", (0,)), ("apixaban", (2,))]
+
+
+def test_allergy_contraindication_is_a_reference_free_critical_check_of_the_source() -> None:
+    check = REGISTRY["allergy_contraindication"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "source",
+    )
+
+
+def test_allergy_contraindication_names_the_drug_claim_and_the_allergy_claim() -> None:
+    # L30, L37: an allergy to the very drug prescribed lands on both claims
+    note, raw = _note(
+        ("Allergic to amoxicillin", "allergic to amoxicillin"),
+        ("Start amoxicillin", "start amoxicillin"),
+    )
+    findings = check_allergy_contraindication(note, raw)
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        (
+            "amoxicillin allergy on record; amoxicillin: the allergen itself",
+            (1, 0),
+            Severity.CRITICAL,
+        )
+    ]
+
+
+def test_allergy_contraindication_reads_an_allergy_no_claim_states() -> None:
+    note, raw = _note(("Start amoxicillin", "start amoxicillin"))
+    findings = check_allergy_contraindication(note, raw + " PCN allergy.")
+    assert [f.claim_ids for f in findings] == [(0,)]
+
+
+def test_allergy_contraindication_puts_a_prescription_the_note_dropped_on_the_banner() -> None:
+    # L51, §9.7: the drug is in no claim, so the finding names none, the allergy claim included
+    note, raw = _note(("PCN allergy", "PCN allergy"))
+    findings = check_allergy_contraindication(note, raw + ". Start amoxicillin.")
+    assert [(f.detail, f.claim_ids) for f in findings] == [
+        ("penicillin allergy on record; amoxicillin: in the allergen's class (penicillin)", ())
+    ]
+
+
+def test_allergy_contraindication_carries_the_rungs_severity() -> None:
+    # D14: an unspecified penicillin allergy against a cephalosporin is a WARNING
+    note, raw = _note(("Start cephalexin", "start cephalexin"))
+    (finding,) = check_allergy_contraindication(note, raw + " PCN allergy.")
+    assert finding.severity is Severity.WARNING
+
+
+@pytest.mark.parametrize("text", ["Discontinue amoxicillin", "Not on amoxicillin"])
+def test_allergy_contraindication_passes_a_drug_no_claim_asserts_as_active(text: str) -> None:
+    # stopping the drug a patient is allergic to is the right order
+    note, raw = _note((text, text.lower()))
+    assert check_allergy_contraindication(note, raw + ". PCN allergy.") == []
+
+
+def test_allergy_contraindication_reads_a_drug_in_any_section() -> None:
+    # invariant 5: the section is the model's judgment call, display-only
+    raw = "Started amoxicillin. PCN allergy."
+    claim = ClinicalClaim(
+        id=0,
+        text="Started amoxicillin",
+        section="S",
+        source_quote="Started amoxicillin",
+        source_span=(0, len("Started amoxicillin")),
+    )
+    assert len(check_allergy_contraindication(SOAPNote(claims=(claim,)), raw)) == 1
+
+
+def test_allergy_contraindication_reads_an_allergy_only_a_claim_states() -> None:
+    note, raw = _note(("Sulfa and PCN allergies", None), ("Start ampicillin", "start ampicillin"))
+    findings = check_allergy_contraindication(note, raw)
+    assert [f.claim_ids for f in findings] == [(1, 0)]
+
+
+def test_allergy_contraindication_orders_findings_by_drug_then_allergen() -> None:
+    # every listed drug, started and listed as an allergy, each in reverse: order is the check's
+    drugs = sorted(GENERIC_DRUGS, reverse=True)
+    note, raw = _note(("Start " + ", ".join(drugs), "start " + ", ".join(drugs)))
+    findings = check_allergy_contraindication(note, raw + ". " + ", ".join(drugs) + " allergies")
+    pairs = [
+        (f.detail.split("; ")[1].partition(":")[0], f.detail.partition(" allergy")[0])
+        for f in findings
+    ]
+    assert {drug for drug, _ in pairs} == GENERIC_DRUGS
+    assert pairs == sorted(pairs)
 
 
 # --- registration -------------------------------------------------------------------------

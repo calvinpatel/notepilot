@@ -17,9 +17,11 @@ from backend.clinical.extract import (
     extract_allergies,
     extract_diagnoses,
     extract_doses,
+    extract_drugs,
     extract_excluded_diagnoses,
     extract_findings,
     extract_med_status,
+    new_prescriptions,
 )
 from backend.clinical.lexicons import CROSS_REACTIVITY, DOSE_MASS_UG, DRUG_CLASS, R1_GROUP
 from backend.evals.registry import Finding, register_check
@@ -29,6 +31,16 @@ from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPN
 def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:
     """The claim's source span in raw_text, or None for a claim that grounds nowhere (L35)."""
     return None if claim.source_span is None else raw_text[slice(*claim.source_span)]
+
+
+def drug_mentions(note: SOAPNote) -> list[tuple[str, tuple[int, ...]]]:
+    """Each active drug a claim names, with that claim's id: claims in order, drugs by name (§7).
+
+    Every claim, whatever its section (invariant 5).
+    """
+    return [
+        (drug, (claim.id,)) for claim in note.claims for drug in sorted(extract_drugs(claim.text))
+    ]
 
 
 def named_drugs(text: str) -> set[str]:
@@ -374,3 +386,46 @@ def contraindication(allergen: str, drug: str) -> tuple[Severity, str] | None:
         else "R1 side chain not shared"
     )
     return call, f"cross-reactive with {allergen_class} ({drug_class}); {refine}"
+
+
+@register_check(name="allergy_contraindication", severity=Severity.CRITICAL, origin="source")
+def check_allergy_contraindication(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per allergy and active drug that D9's ladder pairs (§8.4; D9, D14).
+
+    Allergies come from the raw text and every claim; drugs from every claim, then each new
+    prescription the raw text starts that no claim names (L51). A finding names the drug's
+    claim and the allergy's (L37), at the rung's severity; a drug no claim names has no claim
+    to hang on, so its finding names none and goes to the banner (§9.7).
+
+    Omission (D17):
+    - an omitted allergy is still read from the raw text, so the check fires.
+    - an omitted new drug is still read through new_prescriptions(raw_text), so the check
+      fires, at the banner.
+    - an omitted continued home medication is not seen live: a CI-only gap, which
+      must_preserve covers.
+    """
+    allergy_claim = {a: claim.id for claim in note.claims for a in extract_allergies(claim.text)}
+    allergens = (extract_allergies(raw_text) | allergy_claim.keys()) - NO_ALLERGY_STATEMENTS
+    drugs = drug_mentions(note)
+    in_note = {drug for drug, _ in drugs}
+    drugs += [(drug, ()) for drug in sorted(new_prescriptions(raw_text) - in_note)]
+    findings: list[Finding] = []
+    for drug, drug_ids in drugs:
+        for allergen in sorted(allergens):
+            hit = contraindication(allergen, drug)
+            if hit is None:
+                continue
+            severity, why = hit
+            allergy_ids = (
+                (allergy_claim[allergen],) if allergen in allergy_claim and drug_ids else ()
+            )
+            findings.append(
+                Finding(
+                    detail=f"{allergen} allergy on record; {drug}: {why}",
+                    claim_ids=drug_ids + allergy_ids,
+                    severity=severity,
+                )
+            )
+    return findings
