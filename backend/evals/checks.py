@@ -429,3 +429,21 @@ def check_allergy_contraindication(
                 )
             )
     return findings
+
+
+@register_check(name="new_prescription_preserved", severity=Severity.WARNING)
+def check_new_prescription_preserved(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per drug the raw text starts and no claim names (§8.4, L41).
+
+    new_prescriptions(raw) − named(note), over every claim, grounded or not, whatever its
+    section (invariant 5). A claim naming the drug at another status keeps it: the status is
+    med_status_consistency's (D13, L156). The finding names no claim, since the drug is in
+    none, so it goes to the banner (§9.7).
+    """
+    named = {drug for claim in note.claims for drug in named_drugs(claim.text)}
+    return [
+        Finding(detail=f"{drug}: started in the source, not the note", claim_ids=())
+        for drug in sorted(new_prescriptions(raw_text) - named)
+    ]

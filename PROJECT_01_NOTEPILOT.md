@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.33** (patch — the contraindication, October 2026).
-Supersedes v1.3.32.
+**Spec version: v1.3.34** (patch — the dropped prescription, October 2026).
+Supersedes v1.3.33.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1537,7 +1537,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span), for findings in both (L139) | "denies" → "reports" |
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141) | 50 mg → 500 mg |
-| `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − drugs(note) (L41) | a started drug the note dropped |
+| `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
 | `quote_informativeness` | WARNING | no | content tokens ≥ `min_quote_content_tokens`, or a lexicon entity (D15) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw yields any extracted entity (L55) | total omission reading green |
 | `text_entailment_judge` | WARNING | no (LLM) | text entailed by span, one batched call (D8) | drift no lexicon names |

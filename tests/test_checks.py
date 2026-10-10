@@ -1,4 +1,4 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L136-L154)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L136-L156)."""
 
 import os
 import subprocess
@@ -24,6 +24,7 @@ from backend.evals.checks import (
     check_hallucinated_medication,
     check_med_status_consistency,
     check_negation_consistency,
+    check_new_prescription_preserved,
     contraindication,
     drug_mentions,
     named_drugs,
@@ -1006,6 +1007,78 @@ def test_allergy_contraindication_orders_findings_by_drug_then_allergen() -> Non
     ]
     assert {drug for drug, _ in pairs} == GENERIC_DRUGS
     assert pairs == sorted(pairs)
+
+
+# --- new_prescription_preserved (§8.4; D13, L41, L156) -----------------------------------
+
+
+def test_new_prescription_preserved_is_a_reference_free_warning() -> None:
+    check = REGISTRY["new_prescription_preserved"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.WARNING,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_new_prescription_preserved_fires_on_a_start_no_claim_names() -> None:
+    note, raw = _note(("Follow up in one week", "follow up in one week"))
+    findings = check_new_prescription_preserved(note, raw + ". Start amoxicillin 500 mg tid.")
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        ("amoxicillin: started in the source, not the note", (), None)
+    ]
+
+
+def test_new_prescription_preserved_passes_a_start_a_claim_names_by_another_name() -> None:
+    note, raw = _note(("Start amoxicillin-clavulanate 875 mg bid", "start Augmentin 875 mg bid"))
+    assert check_new_prescription_preserved(note, raw) == []
+
+
+@pytest.mark.parametrize(
+    "text", ["Hold amoxicillin", "Discontinue amoxicillin", "Not on amoxicillin"]
+)
+def test_new_prescription_preserved_leaves_a_start_named_at_another_status(text: str) -> None:
+    # L156: the drug is in the note; its status is med_status_consistency's (D13)
+    note, raw = _note((text, None))
+    assert check_new_prescription_preserved(note, raw + "Start amoxicillin.") == []
+
+
+def test_new_prescription_preserved_fires_on_a_start_the_note_writes_as_an_allergy() -> None:
+    note, raw = _note(("Allergic to amoxicillin", None))
+    findings = check_new_prescription_preserved(note, raw + "Start amoxicillin.")
+    assert [f.detail for f in findings] == ["amoxicillin: started in the source, not the note"]
+
+
+def test_new_prescription_preserved_reads_a_claim_in_any_section() -> None:
+    # invariant 5: the section is the model's judgment call, display-only
+    raw = "Start amoxicillin."
+    claim = ClinicalClaim(
+        id=0, text="Start amoxicillin", section="S", source_quote=raw, source_span=(0, len(raw))
+    )
+    assert check_new_prescription_preserved(SOAPNote(claims=(claim,)), raw) == []
+
+
+def test_new_prescription_preserved_reads_a_claim_that_grounds_nowhere() -> None:
+    # the drug is in the note; whether its claim grounds is the red badge's question
+    note, raw = _note(("Start amoxicillin", None))
+    assert check_new_prescription_preserved(note, raw + "Start amoxicillin.") == []
+
+
+def test_new_prescription_preserved_leaves_drugs_the_source_doesnt_start() -> None:
+    # a continued drug the note keeps, or one only the note names, is no new prescription
+    note, raw = _note(
+        ("Continue metformin 500 mg bid", "continue metformin 500 mg bid"),
+        ("Start lisinopril", None),
+    )
+    assert check_new_prescription_preserved(note, raw) == []
+
+
+def test_new_prescription_preserved_finds_each_drug_once_in_name_order() -> None:
+    # the whole vocabulary started, in reverse: name order has to come from the check's sort
+    raw = ", ".join(f"{drug} started" for drug in sorted(GENERIC_DRUGS, reverse=True))
+    findings = check_new_prescription_preserved(SOAPNote(claims=()), raw)
+    assert [f.detail.partition(":")[0] for f in findings] == sorted(GENERIC_DRUGS)
 
 
 # --- registration -------------------------------------------------------------------------

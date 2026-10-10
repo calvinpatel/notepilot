@@ -1,0 +1,12 @@
+id: detect_dropped_prescription
+species: detection
+raw_text: |
+  New type 2 diabetes, A1c 7.8%. Start metformin 500 mg daily with dinner.
+  Follow up in 3 months with repeat A1c.
+trap: "the note drops a drug the source starts (L41)"
+draft:
+  claims:
+    - text: "Follow up in 3 months with repeat A1c"
+      section: P
+      source_quote: "Follow up in 3 months with repeat A1c"
+expected_flags: [new_prescription_preserved]
