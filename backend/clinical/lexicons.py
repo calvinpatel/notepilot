@@ -553,3 +553,89 @@ DIAGNOSIS_ALIASES: dict[str, str] = {
     # Pneumonia's charted abbreviation.
     "pna": "pneumonia",
 }
+
+# Clinical sign-off: Calvin Patel, 2026-10-10.
+# Words that name nothing alone, so a span counts none of them as content (D15, L160). A word
+# that carries meaning in a short span counts: modals hedge ("may represent PE"), "on" states
+# a drug taken ("on apixaban"), and "nor", "if", "then", and "per" negate, condition, or
+# schedule.
+FUNCTION_WORDS: set[str] = {
+    # Article: marks a noun and names nothing.
+    "a",
+    # Article, as "a".
+    "an",
+    # Article, as "a".
+    "the",
+    # Preposition: relates two words and names neither.
+    "of",
+    # Preposition, as "of".
+    "in",
+    # Preposition, as "of".
+    "at",
+    # Preposition, as "of".
+    "to",
+    # Preposition, as "of".
+    "for",
+    # Preposition, as "of".
+    "by",
+    # Preposition, as "of".
+    "from",
+    # Preposition, as "of".
+    "with",
+    # Preposition, as "of".
+    "as",
+    # Conjunction: joins two statements and makes neither.
+    "and",
+    # Conjunction, as "and".
+    "or",
+    # Copula: links a subject to what is said of it.
+    "is",
+    # Copula, as "is".
+    "are",
+    # Copula, as "is".
+    "was",
+    # Copula, as "is".
+    "were",
+    # Copula, as "is".
+    "be",
+    # Copula, as "is".
+    "been",
+    # Auxiliary: marks tense, and the verb after it carries the meaning.
+    "has",
+    # Auxiliary, as "has".
+    "have",
+    # Auxiliary, as "has".
+    "had",
+    # Auxiliary, as "has" ("do not stop": "not" and "stop" carry it).
+    "do",
+    # Auxiliary, as "has".
+    "does",
+    # Auxiliary, as "has".
+    "did",
+    # Pronoun: stands for a person the span doesn't name; quoted patient speech.
+    "i",
+    # Pronoun, as "i".
+    "my",
+    # Pronoun, as "i": the care team's voice ("we will start").
+    "we",
+    # Pronoun, as "i".
+    "he",
+    # Pronoun, as "i".
+    "his",
+    # Pronoun, as "i".
+    "she",
+    # Pronoun, as "i".
+    "her",
+    # Pronoun, as "i".
+    "they",
+    # Pronoun, as "i".
+    "their",
+    # Pronoun, as "i".
+    "it",
+    # Pronoun, as "i".
+    "its",
+    # Demonstrative: points at something the span doesn't name.
+    "this",
+    # Demonstrative, as "this".
+    "that",
+}

@@ -56,6 +56,7 @@ def _settings(
     sdk_transport_retries: int = 2,
     llm_timeout_s: float = 90.0,
     fuzzy_score_cutoff: float = 50.0,
+    min_quote_content_tokens: int = 2,
     model: str = "model-id-1",
     anthropic_api_key: SecretStr = _DUMMY_KEY,
 ) -> Settings:
@@ -70,6 +71,7 @@ def _settings(
         sdk_transport_retries=sdk_transport_retries,
         llm_timeout_s=llm_timeout_s,
         fuzzy_score_cutoff=fuzzy_score_cutoff,
+        min_quote_content_tokens=min_quote_content_tokens,
     )
 
 
@@ -206,6 +208,21 @@ def test_fuzzy_score_cutoff_rejects_non_finite(value: float) -> None:
 @pytest.mark.parametrize("value", [0.0, 100.0], ids=["0", "100"])
 def test_fuzzy_score_cutoff_accepts_the_bounds(value: float) -> None:
     assert _settings(fuzzy_score_cutoff=value).fuzzy_score_cutoff == value
+
+
+# --- min_quote_content_tokens: ge=1 (§8.4, §10; L161) ----------------------------
+
+
+def test_min_quote_content_tokens_rejects_zero() -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(min_quote_content_tokens=0)
+    (err,) = exc.value.errors()
+    assert err["type"] == "greater_than_equal"
+    assert err["loc"] == ("min_quote_content_tokens",)
+
+
+def test_min_quote_content_tokens_accepts_one() -> None:
+    assert _settings(min_quote_content_tokens=1).min_quote_content_tokens == 1
 
 
 # --- max_output_tokens: derived, checked against the ceiling (L16, L72, L94) ------

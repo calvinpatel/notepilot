@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,61 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.35 — the degenerate quote (patch)
+
+Theme: step 4c's first sub-step registers `quote_informativeness`. Its conflict with §6.5
+resolves for §6.5, it reads the span, the function words become a signed table, and the
+knob gets its default and domain. A limitation measured while drafting it is stated, and
+two fills ride along: injected controls fire nothing, and the roster's `drugs` is defined.
+No invariant moves; CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L157 §8.8 — a span that cuts off its cue.** Fill: measured while drafting step 4c, a
+  quote that is a bare name ("metformin" in "Hold metformin", "fever" in "Denies fever",
+  "PE" in "r/o PE" or "PE ruled out") grounds at Tier 1, and the claim-local family reads
+  the span alone (L35), so the name reads at its defaults: active, present, definite. A
+  flip away from stopped, denied, or hedged passes every deterministic check, the CRITICAL
+  ones included; a flip toward them fires. `quote_informativeness` covers a one-word span
+  at WARNING (L158), a two-word one ("chest pain" in "Denies chest pain") is uncovered,
+  and the judge can't gate a CRITICAL (invariant 7). Reading a span in its sentence
+  changes what L35 compares, so the fix waits for v1.4 (#1); §8.8 states the gap.
+
+**WARNING**
+- **L158 §6.5, §8.4 — a bare lexicon name is not informative.** Conflict: §6.5 calls
+  `quote="pain"` degenerate, and §8.4's roster passed any span holding a lexicon entity,
+  as "pain", a FINDINGS entry, is. §6.5 wins: a name alone grounds wherever the source
+  names it and drops the cue beside it (L157), the quote the check exists to flag. The
+  exception D15 named, "NKDA", stays: D10's statements, NKDA and NKA, say all they mean in
+  one word.
+- **L159 §8.4 — `quote_informativeness` reads the span.** Fill: the roster counted content
+  tokens and never said of what. The check reads the span, as the consistency family does
+  (L35): it is what the claim cites and what the card highlights. A claim with no span is
+  skipped, the red badge's.
+- **L160 §7 — `FUNCTION_WORDS` and `content_tokens`.** Fill: the roster counted content
+  tokens and no table said which words aren't. `FUNCTION_WORDS` lists closed-class words
+  that name nothing alone (articles, prepositions, conjunctions, copulas, auxiliaries,
+  pronouns, demonstratives), signed as a clinical table, since what it leaves out counts:
+  a modal hedges ("may represent PE"), and "on" states a drug taken. `content_tokens`
+  returns a text's words, numbers included, less those. A test holds the table apart from
+  every other table's phrases, so "but", a terminator, counts.
+- **L161 §10 — `min_quote_content_tokens` defaults to 2, `ge=1`.** Fill: the knob had no
+  default or domain. 2 flags a one-word span and passes a terse statement ("hold
+  metformin", "denies fever"); 3 would flag those. The injected controls' smallest span
+  has 3 (measured). Below 1 the check could never fire, so construction rejects it (L77).
+- **L162 §8.5, §8.7, §14 — an injected control fires no check.** Fill: §8.7 keeps the
+  verdict CRITICAL-scoped so a borderline WARNING can't fail a case, and §8.5 said nothing
+  of a WARNING on an injected control. An injected draft is authored and deterministic, so
+  nothing in it is borderline: a WARNING there is a false positive. A test holds each
+  injected control to no fired check at any severity; the verdict is unchanged.
+
+**INFO**
+- **L163 §8.4 — the roster's `drugs`.** Fill: the roster defined `named` (L136) and used
+  `drugs` undefined, three rows apart since L156. `drugs` is the active ones alone,
+  `extract_drugs`'s set, as `allergy_contraindication`'s row reads them. Found in review
+  of step 4b-iv.
 
 ---
 

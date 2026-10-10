@@ -1,0 +1,11 @@
+id: detect_degenerate_quote
+species: detection
+raw_text: |
+  Intermittent abdominal pain after meals for 2 weeks, worse with fatty foods.
+trap: "the claim cites a bare finding as its quote (D15, L158)"
+draft:
+  claims:
+    - text: "Abdominal pain after meals for 2 weeks"
+      section: S
+      source_quote: "pain"
+expected_flags: [quote_informativeness]

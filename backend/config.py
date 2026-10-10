@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # non-finite value a finite_number error; ge and le alone report nan as less_than_equal.
     fuzzy_score_cutoff: float = Field(90.0, ge=0, le=100, allow_inf_nan=False)
 
+    # quote_informativeness's floor (§8.4, L161): a span with fewer content tokens is
+    # degenerate. 2 flags a bare name ("pain") and passes a terse statement ("hold metformin").
+    min_quote_content_tokens: int = Field(2, ge=1)
+
     @property
     def max_output_tokens(self) -> int:
         """Derived, never a field (L94): a field could be set from the environment alone."""

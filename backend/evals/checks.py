@@ -14,6 +14,7 @@ from backend.clinical.extract import (
     Certainty,
     Dose,
     MedStatus,
+    content_tokens,
     extract_allergies,
     extract_diagnoses,
     extract_doses,
@@ -24,6 +25,7 @@ from backend.clinical.extract import (
     new_prescriptions,
 )
 from backend.clinical.lexicons import CROSS_REACTIVITY, DOSE_MASS_UG, DRUG_CLASS, R1_GROUP
+from backend.config import settings
 from backend.evals.registry import Finding, register_check
 from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
@@ -447,3 +449,31 @@ def check_new_prescription_preserved(
         Finding(detail=f"{drug}: started in the source, not the note", claim_ids=())
         for drug in sorted(new_prescriptions(raw_text) - named)
     ]
+
+
+@register_check(name="quote_informativeness", severity=Severity.WARNING)
+def check_quote_informativeness(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding per claim whose source span says too little to ground it (§8.4, D15).
+
+    A span is informative with settings.min_quote_content_tokens content tokens (L161), or
+    when it states NKDA or NKA, a statement in one word (L158). A bare lexicon name is not:
+    "pain" grounds wherever a source mentions pain (§6.5). The check reads the span, what the
+    claim cites, not the model's quote (L159); a claim with no span is skipped (§8.4).
+    """
+    minimum = settings.min_quote_content_tokens
+    findings: list[Finding] = []
+    for claim in note.claims:
+        span = span_text(claim, raw_text)
+        if span is None or extract_allergies(span) & NO_ALLERGY_STATEMENTS:
+            continue
+        count = len(content_tokens(span))
+        if count < minimum:
+            findings.append(
+                Finding(
+                    detail=f"content tokens in its span: {count}, fewer than {minimum}",
+                    claim_ids=(claim.id,),
+                )
+            )
+    return findings

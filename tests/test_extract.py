@@ -14,6 +14,7 @@ import pytest
 from backend.clinical.extract import (
     Dose,
     _phrases,
+    content_tokens,
     extract_allergies,
     extract_diagnoses,
     extract_doses,
@@ -40,6 +41,7 @@ from backend.clinical.lexicons import (
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
+    FUNCTION_WORDS,
     GENERIC_DRUGS,
     MED_START_CUES,
     MED_START_POST,
@@ -631,6 +633,14 @@ def test_an_exam_header_reads_as_pulmonary_embolism() -> None:
     assert extract_diagnoses(text) == {"pulmonary embolism": {"definite"}}
 
 
+# --- content tokens (D15, L160) --------------------------------------------------
+
+
+def test_content_tokens_keep_words_and_numbers_less_function_words() -> None:
+    # case folds, marks and line breaks drop, and a number counts as a word
+    assert content_tokens("The pain, 500 mg.\nIt is worse") == ["pain", "500", "mg", "worse"]
+
+
 # --- every lexicon entry, in its role --------------------------------------------
 
 
@@ -791,6 +801,12 @@ def test_every_post_start_cue_starts_the_drug_before_it(cue: str) -> None:
     assert new_prescriptions(f"metformin {cue}") == {"metformin"}
 
 
+@pytest.mark.parametrize("word", sorted(FUNCTION_WORDS))
+def test_every_function_word_is_one_word_and_no_content(word: str) -> None:
+    assert list(_phrases([word])) == [(word,)]
+    assert content_tokens(word) == []
+
+
 def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() -> None:
     # longest-first matching gives a phrase one role; L121 rules on a class's pre/post pair
     roles = {
@@ -813,6 +829,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "start, post": MED_START_POST,
         "pseudo": PSEUDO_NEGATIONS,
         "terminator": TERMINATORS,
+        "function word": FUNCTION_WORDS,
     }
     pairs = [
         {"negation", "negation, post"},

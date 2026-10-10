@@ -1,4 +1,4 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L136-L156)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L136-L161)."""
 
 import os
 import subprocess
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from backend import config
 from backend.clinical.lexicons import (
     ALLERGY_ALIASES,
     DIAGNOSES,
@@ -15,6 +16,7 @@ from backend.clinical.lexicons import (
     FINDINGS,
     GENERIC_DRUGS,
 )
+from backend.evals import checks
 from backend.evals.checks import (
     check_allergy_contraindication,
     check_allergy_preserved,
@@ -25,6 +27,7 @@ from backend.evals.checks import (
     check_med_status_consistency,
     check_negation_consistency,
     check_new_prescription_preserved,
+    check_quote_informativeness,
     contraindication,
     drug_mentions,
     named_drugs,
@@ -977,15 +980,17 @@ def test_allergy_contraindication_passes_a_drug_no_claim_asserts_as_active(text:
     assert check_allergy_contraindication(note, raw + ". PCN allergy.") == []
 
 
-def test_allergy_contraindication_reads_a_drug_in_any_section() -> None:
-    # invariant 5: the section is the model's judgment call, display-only
-    raw = "Started amoxicillin. PCN allergy."
+@pytest.mark.parametrize("section", ["S", "O", "A", "P"])
+def test_allergy_contraindication_reads_a_drug_in_any_section(section: Section) -> None:
+    # invariant 5: the section is the model's judgment call, display-only. The source
+    # continues the drug, starting nothing, so the check reaches it only through the claim.
+    raw = "Continue amoxicillin. PCN allergy."
     claim = ClinicalClaim(
         id=0,
-        text="Started amoxicillin",
-        section="S",
-        source_quote="Started amoxicillin",
-        source_span=(0, len("Started amoxicillin")),
+        text="Continue amoxicillin",
+        section=section,
+        source_quote="Continue amoxicillin",
+        source_span=(0, len("Continue amoxicillin")),
     )
     assert len(check_allergy_contraindication(SOAPNote(claims=(claim,)), raw)) == 1
 
@@ -1050,11 +1055,12 @@ def test_new_prescription_preserved_fires_on_a_start_the_note_writes_as_an_aller
     assert [f.detail for f in findings] == ["amoxicillin: started in the source, not the note"]
 
 
-def test_new_prescription_preserved_reads_a_claim_in_any_section() -> None:
+@pytest.mark.parametrize("section", ["S", "O", "A", "P"])
+def test_new_prescription_preserved_reads_a_claim_in_any_section(section: Section) -> None:
     # invariant 5: the section is the model's judgment call, display-only
     raw = "Start amoxicillin."
     claim = ClinicalClaim(
-        id=0, text="Start amoxicillin", section="S", source_quote=raw, source_span=(0, len(raw))
+        id=0, text="Start amoxicillin", section=section, source_quote=raw, source_span=(0, len(raw))
     )
     assert check_new_prescription_preserved(SOAPNote(claims=(claim,)), raw) == []
 
@@ -1079,6 +1085,92 @@ def test_new_prescription_preserved_finds_each_drug_once_in_name_order() -> None
     raw = ", ".join(f"{drug} started" for drug in sorted(GENERIC_DRUGS, reverse=True))
     findings = check_new_prescription_preserved(SOAPNote(claims=()), raw)
     assert [f.detail.partition(":")[0] for f in findings] == sorted(GENERIC_DRUGS)
+
+
+# --- quote_informativeness (§6.5, §8.4; D15, L158-L161) ----------------------------------
+
+
+def test_quote_informativeness_is_a_reference_free_warning() -> None:
+    check = REGISTRY["quote_informativeness"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.WARNING,
+        False,
+        False,
+        "model",
+    )
+
+
+@pytest.mark.parametrize("span", ["pain", "metformin", "PE"])
+def test_quote_informativeness_fires_on_a_bare_lexicon_name(span: str) -> None:
+    # L158: a name alone grounds wherever the source says it, and drops the words around it
+    note, raw = _note(("Abdominal pain after meals", span))
+    findings = check_quote_informativeness(note, raw)
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        ("content tokens in its span: 1, fewer than 2", (0,), None)
+    ]
+
+
+@pytest.mark.parametrize(("span", "count"), [("the", 0), ("pain in the", 1)])
+def test_quote_informativeness_counts_no_function_word(span: str, count: int) -> None:
+    note, raw = _note(("Abdominal pain after meals", span))
+    findings = check_quote_informativeness(note, raw)
+    assert [f.detail for f in findings] == [f"content tokens in its span: {count}, fewer than 2"]
+
+
+@pytest.mark.parametrize("span", ["chest pain", "hold metformin", "500 mg"])
+def test_quote_informativeness_passes_a_span_at_the_minimum(span: str) -> None:
+    note, raw = _note(("A claim", span))
+    assert check_quote_informativeness(note, raw) == []
+
+
+@pytest.mark.parametrize("span", ["NKDA", "NKA"])
+def test_quote_informativeness_passes_a_statement_in_one_word(span: str) -> None:
+    # L158: D10's statements say everything they mean in one word
+    note, raw = _note(("No known allergies", span))
+    assert check_quote_informativeness(note, raw) == []
+
+
+def test_quote_informativeness_reads_the_span_not_the_quote() -> None:
+    # invariant 14: at Tier 3 the quote is the model's claim about the source; the check
+    # counts the span (L159)
+    raw = "Denies chest pain at rest."
+    start = raw.index("pain")
+    claim = ClinicalClaim(
+        id=0,
+        text="Chest pain at rest",
+        section="S",
+        source_quote="denies chest pain at rest",
+        source_span=(start, start + len("pain")),
+        flags=(SafetyFlag.PARAPHRASED,),
+    )
+    findings = check_quote_informativeness(SOAPNote(claims=(claim,)), raw)
+    assert [f.claim_ids for f in findings] == [(0,)]
+
+
+def test_quote_informativeness_skips_a_claim_that_grounds_nowhere() -> None:
+    # a quote that grounds nowhere is the red badge's, however short
+    note, raw = _note(("Pain", None))
+    assert check_quote_informativeness(note, raw + "Pain.") == []
+
+
+def test_quote_informativeness_finds_each_claim_in_claim_order() -> None:
+    note, raw = _note(
+        ("Fever", "fever"),
+        ("Denies chest pain at rest", "denies chest pain at rest"),
+        ("Chills", "chills"),
+    )
+    findings = check_quote_informativeness(note, raw)
+    assert [f.claim_ids for f in findings] == [(0,), (2,)]
+
+
+def test_quote_informativeness_reads_its_minimum_from_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raised = config.settings.model_copy(update={"min_quote_content_tokens": 3})
+    monkeypatch.setattr(checks, "settings", raised)
+    note, raw = _note(("Chest pain", "chest pain"))
+    findings = check_quote_informativeness(note, raw)
+    assert [f.detail for f in findings] == ["content tokens in its span: 2, fewer than 3"]
 
 
 # --- registration -------------------------------------------------------------------------

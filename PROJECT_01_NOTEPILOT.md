@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.34** (patch — the dropped prescription, October 2026).
-Supersedes v1.3.33.
+**Spec version: v1.3.35** (patch — the degenerate quote, October 2026).
+Supersedes v1.3.34.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1055,7 +1055,9 @@ model corpus can retune it.
 - **Degenerate quote (v1.3, D15)** — `quote="the"` or `quote="pain"` is a clean Tier 1
   match almost anywhere; "the quote exists" proves nothing when the quote says nothing.
   Grounding is right to accept it (it *is* in the source); the finding belongs to evals:
-  `quote_informativeness` (§8.4), backed by the entailment judge.
+  `quote_informativeness` (§8.4), backed by the entailment judge. A bare lexicon name is as
+  degenerate as "the" (L158): it grounds wherever the source names it, and drops the cue
+  beside it, which is how a flip reads green (§8.8, L157).
 
 **Deliberate non-feature (v2):** locality-based duplicate resolution (pick the occurrence
 nearest where sibling claims matched). Real and satisfying; decorative before the pipeline
@@ -1150,6 +1152,10 @@ def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
 def extract_excluded_diagnoses(text: str) -> set[str]:
     """v1.3.28 (L140): the diagnoses text excludes, the negated mentions extract_diagnoses
     drops. "PE ruled out" → {"pulmonary embolism"}."""
+
+def content_tokens(text: str) -> list[str]:
+    """L160: text's words, numbers included, less FUNCTION_WORDS, in order. "The pain,
+    500 mg" → ["pain", "500", "mg"]. What quote_informativeness counts (§8.4)."""
 ```
 
 Callers add the claim linkage themselves. These two helpers live in `evals/` — they touch
@@ -1314,6 +1320,7 @@ DOSE_MASS_UG:      dict[str, int]    # "g" -> 1_000_000: a mass unit's size in �
 FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
 DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS; canonical names (L134)
 DIAGNOSIS_ALIASES: dict[str, str]    # "pe" -> "pulmonary embolism": every other charted name (L134)
+FUNCTION_WORDS:    set[str]          # "the", "of", "and", "is": words content_tokens drops (L160)
 ```
 
 **DECISION D9 (v1.3, vetoable) — cross-reactivity is keyed on the R1 side chain.** The
@@ -1538,7 +1545,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
-| `quote_informativeness` | WARNING | no | content tokens ≥ `min_quote_content_tokens`, or a lexicon entity (D15) | degenerate quotes |
+| `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `min_quote_content_tokens`, or NKDA or NKA (D15, L158, L159) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw yields any extracted entity (L55) | total omission reading green |
 | `text_entailment_judge` | WARNING | no (LLM) | text entailed by span, one batched call (D8) | drift no lexicon names |
 | `must_preserve` | by `PreserveItem.kind` | **yes** | labels vs extract_*(note), polarity-aware (L36) | any labeled omission |
@@ -1548,7 +1555,8 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 whose span is `None` — those belong to grounding's red badge and `hallucinated_medication`.
 `named` is every drug a string names, whatever status it asserts, negated included, and
 never an allergen: `extract_med_status`'s keys, as `named_drugs` in `evals/checks.py`
-(L136).
+(L136). `drugs` is the active ones alone, `extract_drugs`'s set, as
+`allergy_contraindication`'s row reads them (L163).
 
 Four things to read off the table:
 
@@ -1632,7 +1640,9 @@ Each case is a fixture carrying its own answer key (`EvalCase`, §4.2).
   (`expected_flags: ["allergy_contraindication"]`).
 - **Clean controls** — `trap: None`, `expected_flags: []`. Any CRITICAL that fires is a false
   positive and fails the case — a check that flags a perfect note is as broken as one that
-  misses a fabrication.
+  misses a fabrication. An injected control fires no check at any severity (L162): its draft
+  is authored, so a WARNING on it is a false positive too, and a test holds it. The verdict
+  stays CRITICAL-scoped (§8.7).
 
 **Two ways to run a case (v1.3, L42 — the largest structural change in this revision).**
 v1.2 made every case `raw_text` + an answer key, run through the real model. That works for
@@ -1918,6 +1928,8 @@ control     {}         fired {drug_in_quote} (C)        FAILED    FAIL  ← a fa
 **The verdict is CRITICAL-scoped, on purpose.** An unexpected WARNING doesn't fail a case — a
 corpus that fails on every borderline dose regex is one nobody trusts. But `unexpected_fired`
 and `errored_checks` record every severity: gate on CRITICAL, *watch* everything.
+An injected control is held harder by a test, not by the verdict: an authored draft can't be
+borderline, so it fires no check (§8.5, L162).
 
 (`fidelity_dropped_allergy`, §8.5: `allergy_preserved` fires live and `must_preserve` fires
 in CI — two CRITICALs on a fidelity trap, so it fails, correctly, because the model dropped
@@ -2055,6 +2067,15 @@ know, stated plainly (v1.3):
   finding the span never names, which is the judge's and `must_not_add`'s to catch. A span
   holding both polarities ("denies chest pain at rest, reports chest pain on exertion")
   passes a claim keeping either one, since qualifiers aren't extracted.
+- **A span that cuts off its cue** (L157). The claim-local family reads the span (L35), so a
+  cue outside it is invisible. A bare name grounds at Tier 1 and reads at the defaults
+  (active, present, definite), so a flip away from stopped, denied, or hedged passes every
+  check: "Continue metformin" citing "metformin" in "Hold metformin", "Fever" citing "fever"
+  in "Denies fever", "PE" citing "PE" in "r/o PE" or "PE ruled out" (measured). A flip
+  toward them fires, as does a dose its span lacks. `quote_informativeness` flags a one-word
+  span, a WARNING (L158); a two-word one passes it ("Reports chest pain" citing "chest pain"
+  in "Denies chest pain"), and the judge is WARNING-tier (invariant 7). The fix reads a span
+  in its sentence, which changes what L35 compares, so it waits for v1.4.
 - **Judge quality.** Measured only indirectly, through model cases; never against a
   clinician.
 - **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.
@@ -2484,15 +2505,16 @@ The result area is never blank, or the L81 smoke run can fail without saying so.
   read-only property, validated against the model's ceiling at boot, L16, L94);
   `max_validation_retries` (L5); `sdk_transport_retries`;
   `llm_timeout_s`, `judge_timeout_s` (L54); `fuzzy_score_cutoff`; `min_input_chars`;
-  `min_quote_content_tokens` (D15); `judge_enabled`; `persist_enabled`;
+  `min_quote_content_tokens` (D15; default 2, L161); `judge_enabled`; `persist_enabled`;
   `corpus_concurrency`; `corpus_repeats` (D11); `daily_token_budget`, `max_request_tokens`
   (L56); `rate_limit`; `forwarded_allow_ips` (L58); `runs_path`; CORS origins. Clinical
   knowledge — including `NEGATION_WINDOW` — lives in `clinical/lexicons.py`. The literal
   numbers in this spec's code samples are `settings.*` in the repo.
 - **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
   `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
-  `min_input_chars` `ge=1`, `fuzzy_score_cutoff` `ge=0, le=100` and finite (L105), and a
-  validator rejects `min_input_chars >= max_input_chars`. A negative
+  `min_input_chars` `ge=1`, `fuzzy_score_cutoff` `ge=0, le=100` and finite (L105),
+  `min_quote_content_tokens` `ge=1` (L161), and a validator rejects
+  `min_input_chars >= max_input_chars`. A negative
   `max_validation_retries` would make §5.4's loop run zero times and report a model failure
   the model never had the chance to cause. `tests/conftest.py` sets a dummy
   `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret, because no test
@@ -2757,7 +2779,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 □ case_verdict unit-tested: the v1.1 inversion · errored never satisfies (L43) · N/A (L44)
   · a report that ran no check is N/A too (L117)
 □ injected corpus satisfies the coverage rule's injected clauses (L42, L137, L138) · green
-  in pytest
+  in pytest · its controls fire no check (L162)
 □ route returns SOAPNote + EvalReport (production mode) · still no DB
 ```
 

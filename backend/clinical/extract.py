@@ -42,6 +42,7 @@ from backend.clinical.lexicons import (
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
+    FUNCTION_WORDS,
     GENERIC_DRUGS,
     MED_START_CUES,
     MED_START_POST,
@@ -461,3 +462,8 @@ def extract_findings(text: str) -> dict[str, set[bool]]:
     for finding, label in _scope(text, _FINDINGS, _NEG_PRE, _NEG_POST):
         polarities.setdefault(finding, set()).add(label is None)
     return polarities
+
+
+def content_tokens(text: str) -> list[str]:
+    """text's words, numbers included, less FUNCTION_WORDS, in order (§8.4, D15, L160)."""
+    return [token for token in _tokens(text) if _is_word(token) and token not in FUNCTION_WORDS]
