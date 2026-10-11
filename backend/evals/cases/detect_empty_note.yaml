@@ -1,0 +1,8 @@
+id: detect_empty_note
+species: detection
+raw_text: |
+  Follow-up visit. Denies chest pain or fever. BP 128/82. Continue lisinopril 10 mg daily.
+trap: "the note drops every fact its clinical source states (L55)"
+draft:
+  claims: []
+expected_flags: [empty_note_on_clinical_input]

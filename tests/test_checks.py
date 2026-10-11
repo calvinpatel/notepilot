@@ -1,4 +1,4 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L136-L161)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L55, L136-L165)."""
 
 import os
 import subprocess
@@ -23,6 +23,7 @@ from backend.evals.checks import (
     check_diagnosis_in_quote,
     check_dose_consistency,
     check_drug_in_quote,
+    check_empty_note_on_clinical_input,
     check_hallucinated_medication,
     check_med_status_consistency,
     check_negation_consistency,
@@ -1171,6 +1172,70 @@ def test_quote_informativeness_reads_its_minimum_from_settings(
     note, raw = _note(("Chest pain", "chest pain"))
     findings = check_quote_informativeness(note, raw)
     assert [f.detail for f in findings] == ["content tokens in its span: 2, fewer than 3"]
+
+
+# --- empty_note_on_clinical_input (§8.4, §10; L55, L164, L165) ----------------------------
+
+
+def test_empty_note_on_clinical_input_is_a_reference_free_warning() -> None:
+    check = REGISTRY["empty_note_on_clinical_input"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.WARNING,
+        False,
+        False,
+        "model",
+    )
+
+
+def test_empty_note_on_clinical_input_fires_on_an_empty_note_over_a_clinical_source() -> None:
+    raw = "Follow-up visit. Denies chest pain or fever. Continue lisinopril 10 mg daily."
+    findings = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw)
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        ("no claims; the source names: chest pain, fever, lisinopril", (), None)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("raw", "entity"),
+    [
+        ("Not taking ibuprofen.", "ibuprofen"),
+        ("NKDA.", "nkda"),
+        ("Denies fever.", "fever"),
+        ("Likely pneumonia.", "pneumonia"),
+        ("PE ruled out.", "pulmonary embolism"),
+    ],
+    ids=[
+        "a-negated-drug",
+        "an-allergy-statement",
+        "a-negated-finding",
+        "a-diagnosis",
+        "an-exclusion",
+    ],
+)
+def test_empty_note_on_clinical_input_counts_each_kind_of_entity(raw: str, entity: str) -> None:
+    # L164: a negated drug, a pertinent negative, or a statement is what a faithful note says
+    findings = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw)
+    assert [f.detail for f in findings] == [f"no claims; the source names: {entity}"]
+
+
+def test_empty_note_on_clinical_input_passes_a_note_with_any_claim() -> None:
+    # claims == () is the rule: a claim that grounds nowhere is the red badge's, not this
+    # check's
+    note, raw = _note(("Follow up in one week", None))
+    assert check_empty_note_on_clinical_input(note, raw + "Denies fever.") == []
+
+
+def test_empty_note_on_clinical_input_passes_a_source_naming_no_entity() -> None:
+    raw = "Please summarize this paragraph about the history of the printing press."
+    assert check_empty_note_on_clinical_input(SOAPNote(claims=()), raw) == []
+
+
+def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> None:
+    # every drug, finding, and diagnosis, in reverse: name order has to come from the sort
+    vocabulary = GENERIC_DRUGS | FINDINGS | DIAGNOSES
+    raw = ", ".join(sorted(vocabulary, reverse=True))
+    (finding,) = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw)
+    assert finding.detail == "no claims; the source names: " + ", ".join(sorted(vocabulary))
 
 
 # --- registration -------------------------------------------------------------------------

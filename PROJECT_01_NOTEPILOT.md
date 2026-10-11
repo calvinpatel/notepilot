@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.35** (patch — the degenerate quote, October 2026).
-Supersedes v1.3.34.
+**Spec version: v1.3.36** (patch — the empty note, October 2026).
+Supersedes v1.3.35.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1546,7 +1546,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
 | `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `min_quote_content_tokens`, or NKDA or NKA (D15, L158, L159) | degenerate quotes |
-| `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw yields any extracted entity (L55) | total omission reading green |
+| `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw names an entity: named(raw) ∪ allergies(raw) ∪ findings(raw) ∪ diagnoses(raw), asserted or excluded (L55, L164) | total omission reading green |
 | `text_entailment_judge` | WARNING | no (LLM) | text entailed by span, one batched call (D8) | drift no lexicon names |
 | `must_preserve` | by `PreserveItem.kind` | **yes** | labels vs extract_*(note), polarity-aware (L36) | any labeled omission |
 | `must_not_add` | CRITICAL | **yes** | labels vs extract_*(note), positive polarity only (L36) | a labeled invention |
@@ -2055,6 +2055,13 @@ know, stated plainly (v1.3):
   check, which then passes over it. Recall on an unlisted drug is zero, not unmeasured. An
   allergen that isn't a drug (latex, a food) is never extracted, so `allergy_preserved`
   can't see one dropped.
+- **An empty note on a source the lexicons can't read** (L165).
+  `empty_note_on_clinical_input` knows clinical input only by what the extractors read
+  (L164), so its recall is the vocabulary's. "HTN follow-up, BP 152/96 today. Start
+  amlodipine 5 mg daily, recheck in 4 weeks." names nothing the lexicons list (measured): an
+  empty note on it raises no WARNING and renders as non-clinical (§10). The other way, a
+  non-clinical paste naming a listed word ("pain") draws the WARNING, whose detail names the
+  word.
 - **A drug after an allergy post-cue** (L154). "PCN allergy (amoxicillin)" and "PCN allergy -
   amoxicillin" read the amoxicillin as an active drug, since a post-cue labels only what comes
   before it (§7), so a faithful claim copying either fires `allergy_contraindication`. "PCN

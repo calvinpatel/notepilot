@@ -477,3 +477,30 @@ def check_quote_informativeness(
                 )
             )
     return findings
+
+
+@register_check(name="empty_note_on_clinical_input", severity=Severity.WARNING)
+def check_empty_note_on_clinical_input(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+) -> list[Finding]:
+    """One finding when the note holds no claim and the raw text names an entity (§8.4, L55).
+
+    An entity is what five extractors read from the raw text (L164): a drug it names at any
+    status, an allergy or D10's statements, a finding of either polarity, and a diagnosis
+    asserted or excluded. The finding names them in name order and no claim, so it goes to
+    the banner (§9.7). A raw text naming nothing the lexicons list reads as non-clinical
+    (§8.8, L165).
+    """
+    if note.claims:
+        return []
+    entities = {
+        *named_drugs(raw_text),
+        *extract_allergies(raw_text),
+        *extract_findings(raw_text),
+        *extract_diagnoses(raw_text),
+        *extract_excluded_diagnoses(raw_text),
+    }
+    if not entities:
+        return []
+    names = ", ".join(sorted(entities))
+    return [Finding(detail=f"no claims; the source names: {names}", claim_ids=())]

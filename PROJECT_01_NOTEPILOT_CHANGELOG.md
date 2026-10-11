@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,31 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.36 — the empty note (patch)
+
+Theme: step 4c's second sub-step registers `empty_note_on_clinical_input`, which completes
+the reference-free roster but the judge. A fill says what counts as clinical input, and a
+limitation measured while drafting it is stated. No invariant moves; CLAUDE.md is
+unchanged.
+
+**WARNING**
+- **L164 §8.4 — clinical input is what five extractors read.** Fill: §8.4's row fired
+  while the raw text "yields any extracted entity" and never said which extractors. It
+  reads five: every drug the raw text names at any status (`named`, L136), its allergies
+  with D10's statements, its findings of either polarity, and its diagnoses, asserted or
+  excluded. Doses, starts, and active drugs add nothing, each a subset of `named`
+  (measured). A pertinent negative, a stopped drug, or a lone NKDA is something a faithful
+  note says, so each counts. The finding names the entities in name order, on the banner.
+- **L165 §8.8 — an empty note on a source the lexicons can't read.** Fill: measured while
+  drafting step 4c-ii, a clinical paste naming nothing the lexicons list ("HTN follow-up,
+  BP 152/96 today. Start amlodipine 5 mg daily") extracts nothing, so an empty note on it
+  raises no WARNING and renders as non-clinical (§10); a non-clinical paste naming a
+  listed word ("pain") draws the WARNING. The check's recall is the vocabulary's (L127).
+  §8.8 states the gap; the page's empty-state wording is step 5's (#5), and step 5's
+  vocabulary fill narrows it.
 
 ---
 
