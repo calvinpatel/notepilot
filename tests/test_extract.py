@@ -1,6 +1,6 @@
 """Pins extraction's scope engine and extractors.
 
-Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141.
+Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170.
 """
 
 import ast
@@ -161,7 +161,7 @@ def test_a_spent_post_cue_leaves_the_next_cue_free() -> None:
     }
 
 
-# --- tokens (L121, L123) ---------------------------------------------------------
+# --- tokens (L121, L123, L170) ---------------------------------------------------
 
 
 def test_matching_ignores_case() -> None:
@@ -207,7 +207,14 @@ def test_a_line_break_of_each_kind_reads_as_one(line_break: str) -> None:
     assert extract_findings(text) == {"fever": {False}, "chills": {True}}
 
 
-# --- drugs: status, active mentions, and starts (D13, L41, L124-L126) -------------
+@pytest.mark.parametrize("quote", ["\u2018", "\u2019"], ids=["left", "right"])
+def test_a_curly_single_quote_reads_as_the_apostrophe(quote: str) -> None:
+    # L170: as §6.2's normalizer reads it, so a table's apostrophe matches either curly quote
+    assert extract_med_status(f"lisinopril d/c{quote}d") == {"lisinopril": {"stopped"}}
+    assert extract_med_status(f"don{quote}t restart metformin") == {"metformin": {"stopped"}}
+
+
+# --- drugs: status, active mentions, and starts (D13, L41, L124-L126, L167, L169) --
 
 
 def test_a_drug_no_cue_governs_is_active() -> None:
@@ -255,6 +262,29 @@ def test_a_refused_stop_leaves_the_drug_active() -> None:
 def test_a_refused_start_leaves_the_drug_stopped_and_not_started() -> None:
     assert extract_med_status("do not start metformin") == {"metformin": {"stopped"}}
     assert new_prescriptions("do not start metformin") == set()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "do not restart metformin",
+        "do not resume metformin",
+        "don't start metformin",
+        "don't restart metformin",
+        "don't resume metformin",
+    ],
+)
+def test_a_refused_start_restart_or_resumption_stops_the_drug(text: str) -> None:
+    # L167: written out or contracted, a refusal of a start verb stops its drug
+    assert extract_med_status(text) == {"metformin": {"stopped"}}
+    assert new_prescriptions(text) == set()
+
+
+def test_a_resumption_starts_its_drug_and_ends_a_stop_window() -> None:
+    # L169: a start pre-cue replaces the stop's window, the job "resume" did as a terminator
+    text = "hold metformin, resume lisinopril"
+    assert extract_med_status(text) == {"metformin": {"stopped"}, "lisinopril": {"active"}}
+    assert new_prescriptions(text) == {"lisinopril"}
 
 
 def test_a_negated_drug_is_stopped_and_not_active() -> None:

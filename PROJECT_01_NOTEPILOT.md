@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.37** (patch — the 2a route, October 2026).
-Supersedes v1.3.36.
+**Spec version: v1.3.38** (patch — restart and resume, October 2026).
+Supersedes v1.3.37.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1191,15 +1191,17 @@ context (L128), and certainty (L135): one scope engine for every cue class.
 digits; a decimal number is one word, so "38.5" ends no sentence), one punctuation mark, or
 a line break, read from the casefolded text; a carriage return, alone or before a line feed,
 reads as one line break (L128), and an underscore, like whitespace, only separates words
-(L123). Lexicon phrases are tokenized the same way, so "d/c" matches as three tokens and
-"SI/HI" is two words. Phrases match left to right, longest first: a pseudo-negation, which
-contains its cue, is matched in the cue's place, and "negative for" wins over "negative".
-The window counts words only: punctuation spends none of it, and a finding is in scope when
-its first word is among the `NEGATION_WINDOW` words after the cue. "Immediately before"
-skips any mark but a comma or a terminator (L122): "chest pain: denied" negates chest pain,
-and "endorses chest pain, denied fever" negates the fever. A phrase in both cue classes
-("denied") is a post-cue when a finding is immediately before it and a pre-cue otherwise, so
-"pt denied chest pain" and "chest pain denied, fever" both read right.
+(L123). A curly single quote reads as the apostrophe, as §6.2's normalizer reads it (L170),
+so "d/c’d" matches the table's "d/c'd". Lexicon phrases are tokenized the same way, so "d/c"
+matches as three tokens and "SI/HI" is two words. Phrases match left to right, longest
+first: a pseudo-negation, which contains its cue, is matched in the cue's place, and
+"negative for" wins over "negative". The window counts words only: punctuation spends none
+of it, and a finding is in scope when its first word is among the `NEGATION_WINDOW` words
+after the cue. "Immediately before" skips any mark but a comma or a terminator (L122):
+"chest pain: denied" negates chest pain, and "endorses chest pain, denied fever" negates the
+fever. A phrase in both cue classes ("denied") is a post-cue when a finding is immediately
+before it and a pre-cue otherwise, so "pt denied chest pain" and "chest pain denied, fever"
+both read right.
 
 **Medication cues (L124, L125).** A drug mention sees three cue classes at once: negation
 (the `FINDING_NEG_*` tables, shared with findings), stop, and start. Each cue carries its
@@ -1215,7 +1217,10 @@ Narrative past tense ("started", "prescribed") counts as a start: read as nothin
 let a stop's window run on over the next drug ("held metformin, started apixaban"), and the
 cost, an old start ("metformin was started in 2019") in `new_prescriptions`, lands on a
 WARNING. Refused and continued orders ("do not stop", "continue") are lexicon entries, not a
-rule.
+rule. A restart or a resumption is a start (L169), so "resume" is a start cue; as a pre-cue
+it replaces a stop's open window, the job it did as a terminator. A refused start, restart,
+or resumption, written out or contracted ("do not restart", "don't resume"), is a stop
+(L167). A refusal the tables don't spell, and a cue the rule can't reach, are §8.8's (L168).
 
 **Allergy context (L128, L129).** Allergy is a fourth cue class a drug mention sees:
 `ALLERGY_CUES` before the allergen and `ALLERGY_POST` after it. A mention it governs is an
@@ -1298,7 +1303,7 @@ TERMINATORS:       set[str]          # "but", "however", ";", ".", a line break,
 NEGATION_WINDOW:   int               # words a pre-cue governs — linguistic knowledge, so it lives here
 MED_STOP_CUES:     set[str]          # "discontinue", "d/c", "stop", "held", "hold"    (L31: split out)
 MED_STOP_POST:     set[str]          # "discontinued", "held": after the drug (L125)
-MED_START_CUES:    set[str]          # "start", "begin", "initiate", "prescribe", "rx" (L41)
+MED_START_CUES:    set[str]          # "start", "restart", "resume", "prescribe", "rx" (L41, L169)
 MED_START_POST:    set[str]          # "started", "prescribed": after the drug (L125)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
 CERTAINTY_POST:    dict[str, str]    # "likely" -> "probable": after the diagnosis (L135)
@@ -1359,7 +1364,9 @@ missed match at worst.
 abbreviations, and spellings ("apap", "amox/clav"), and a test holds its values in
 `GENERIC_DRUGS`. A listed drug needs all its common names: when the source writes a name the
 table lacks and the claim writes the generic, `drug_in_quote` fires on a faithful claim.
-`DRUG_CLASS` keys are drawn from `GENERIC_DRUGS` too.
+`DRUG_CLASS` keys are drawn from `GENERIC_DRUGS` too. The vocabulary is closed in the MVP
+(L171): a drug joins it with the case that exercises it, carrying its common names and its
+`DRUG_CLASS` entry (L149). Breadth is v2's (RxNorm, below).
 
 **The sign-off (L120).** Each table in `lexicons.py`, and `NEGATION_WINDOW`, is headed by a
 `# Clinical sign-off: <name>, <date>.` line that covers the entries beneath it, and each entry
@@ -2083,6 +2090,13 @@ know, stated plainly (v1.3):
   span, a WARNING (L158); a two-word one passes it ("Reports chest pain" citing "chest pain"
   in "Denies chest pain"), and the judge is WARNING-tier (invariant 7). The fix reads a span
   in its sentence, which changes what L35 compares, so it waits for v1.4.
+- **A cue the scope rule can't reach** (L168). A mention takes one label, and a post-cue
+  reaches only the mention directly before it (§7, L122), so "Apixaban held, then restarted"
+  reads stopped: a faithful "Continue apixaban" fires `med_status_consistency`, a CRITICAL,
+  and "Hold apixaban", which drops the restart, passes it (measured). A negation before a
+  start form no table spells as a refusal reads as the start ("Not starting metformin"). The
+  fix reads a mention's last status cue in its clause and lets a negation govern a start
+  cue, which changes the scope rule, so it waits for v1.4.
 - **Judge quality.** Measured only indirectly, through model cases; never against a
   clinician.
 - **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.

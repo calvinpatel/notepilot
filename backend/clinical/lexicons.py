@@ -195,7 +195,7 @@ PSEUDO_NEGATIONS: set[str] = {
     "not only",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-10.
 TERMINATORS: set[str] = {
     # Contrast: what follows is asserted on its own ("no fever, but reports cough").
     "but",
@@ -222,8 +222,6 @@ TERMINATORS: set[str] = {
     "continue",
     # The charted past tense ("continued home lisinopril").
     "continued",
-    # A resumed drug is active, as "continue" ("resume metformin tomorrow").
-    "resume",
     # A refused stop is a continue order ("do not stop apixaban").
     "not stop",
     # As "not stop" ("do not discontinue apixaban").
@@ -238,7 +236,7 @@ TERMINATORS: set[str] = {
 # headache, or chest pain" puts chest pain at word 8.
 NEGATION_WINDOW: int = 8
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-10.
 MED_STOP_CUES: set[str] = {
     # The stop order, written before the drug ("discontinue lisinopril").
     "discontinue",
@@ -258,6 +256,16 @@ MED_STOP_CUES: set[str] = {
     "held",
     # A refused start leaves the drug inactive, not started ("do not start metformin").
     "not start",
+    # A refused restart, as "not start" ("do not restart metformin until creatinine improves").
+    "not restart",
+    # A refused resumption, as "not start" ("do not resume apixaban until cleared by surgery").
+    "not resume",
+    # The contraction of "do not start" ("don't start metformin").
+    "don't start",
+    # The contraction of "do not restart".
+    "don't restart",
+    # The contraction of "do not resume".
+    "don't resume",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-08.
@@ -280,7 +288,7 @@ MED_STOP_POST: set[str] = {
     "d/c'd",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-10.
 MED_START_CUES: set[str] = {
     # The plan verb of a start at this visit ("start metformin 500 mg daily").
     "start",
@@ -302,9 +310,19 @@ MED_START_CUES: set[str] = {
     "initiated",
     # The charted past tense of "prescribe".
     "prescribed",
+    # The charted past tense of "restart", written before the drug ("restarted metformin today").
+    "restarted",
+    # A restart being made ("restarting apixaban tomorrow").
+    "restarting",
+    # A held drug taken up again at this visit, as "restart" ("resume home metformin").
+    "resume",
+    # The charted past tense of "resume", written before the drug.
+    "resumed",
+    # A resumption being made ("resuming lisinopril at discharge").
+    "resuming",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-10.
 MED_START_POST: set[str] = {
     # After the drug ("amoxicillin started for otitis").
     "started",
@@ -316,6 +334,14 @@ MED_START_POST: set[str] = {
     "was started",
     # The copula form of "prescribed".
     "was prescribed",
+    # After the drug ("metformin restarted after contrast").
+    "restarted",
+    # The copula form of "restarted".
+    "was restarted",
+    # After the drug ("apixaban resumed on post-op day 2").
+    "resumed",
+    # The copula form of "resumed".
+    "was resumed",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-08.

@@ -65,6 +65,8 @@ Certainty = Literal["definite", "probable", "possible", "rule_out"]  # strongest
 
 # A decimal number whole, so "38.5" ends no sentence; a word; a line break; one mark.
 _TOKEN = re.compile(r"\d+(?:\.\d+)+|[^\W_]+|\n|[^\w\s]")
+# Curly single quotes read as the apostrophe, as §6.2's normalizer reads them (L170).
+_APOSTROPHES = str.maketrans({"\u2018": "'", "\u2019": "'"})
 
 type _Phrase = tuple[str, ...]
 type _Label = Literal[
@@ -77,9 +79,11 @@ def _tokens(text: str) -> list[str]:
     """text, casefolded, as tokens.
 
     A carriage return, alone or before a line feed, reads as one line break (L128). An
-    underscore, like whitespace, only separates words (L123).
+    underscore, like whitespace, only separates words (L123). A curly single quote reads as
+    the apostrophe (L170).
     """
-    return _TOKEN.findall(text.casefold().replace("\r\n", "\n").replace("\r", "\n"))
+    text = text.casefold().translate(_APOSTROPHES)
+    return _TOKEN.findall(text.replace("\r\n", "\n").replace("\r", "\n"))
 
 
 def _phrases(entries: Iterable[str]) -> dict[_Phrase, str]:

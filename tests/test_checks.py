@@ -1,4 +1,4 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L55, L136-L165)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L55, L136-L167)."""
 
 import os
 import subprocess
@@ -264,7 +264,7 @@ def test_the_presence_checks_split_a_note_by_whether_each_claim_grounds() -> Non
     assert [f.claim_ids for f in check_hallucinated_medication(note, raw)] == [(1,)]
 
 
-# --- med_status_consistency (§8.4, D13, L124) ---------------------------------------------
+# --- med_status_consistency (§8.4, D13, L124, L167) ---------------------------------------
 
 
 def test_med_status_consistency_is_a_reference_free_critical_check() -> None:
@@ -301,6 +301,24 @@ def test_med_status_consistency_fires_on_a_stopped_drug_written_as_active(
     # a post-cue stop (L125) and a negation, which status reads as stopped (L124)
     note, raw = _note((text, span))
     assert len(check_med_status_consistency(note, raw)) == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Restart apixaban", "do not restart apixaban"),
+        ("Resume apixaban", "do not resume apixaban"),
+    ],
+    ids=["restart", "resume"],
+)
+def test_med_status_consistency_fires_on_a_refused_restart_written_as_an_order(
+    text: str, span: str
+) -> None:
+    # L167: the refusal stops the drug, so the order is the flip
+    note, raw = _note((text, span))
+    assert [f.detail for f in check_med_status_consistency(note, raw)] == [
+        "apixaban: active in the claim, stopped in its source span"
+    ]
 
 
 def test_med_status_consistency_passes_a_status_both_sides_assert() -> None:

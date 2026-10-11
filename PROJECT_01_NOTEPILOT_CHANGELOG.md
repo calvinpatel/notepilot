@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,56 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.38 — restart and resume (patch)
+
+Theme: step 5b-i fills the restart cues. A refused restart read as a start, two signed
+tables read restart and resume apart and resolve for the start, the extractors' tokens
+fold curly single quotes as grounding does, a limitation no table entry can fix is stated,
+and the drug vocabulary's scope is filled. No invariant moves; CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L167 §7 — a refused restart or resumption stops the drug.** Fill: `MED_STOP_CUES` held
+  "not start", and no refusal of the restart `MED_START_CUES` listed. Measured, "Do not
+  restart apixaban" read the drug started and active, so "Restart apixaban" passed
+  `med_status_consistency` and the faithful "Hold apixaban" fired it. "Do not resume
+  apixaban" read active too, the terminator closing the negation's window, so "Resume
+  apixaban" passed the same way. "not restart" and "not resume" join, with the
+  contractions "don't start", "don't restart", and "don't resume" ("Don't start metformin"
+  read started).
+- **L168 §8.8 — a cue the scope rule can't reach.** Fill: measured while drafting L167, a
+  mention takes one label and a post-cue reaches only the mention directly before it
+  (L122), so "Apixaban held, then restarted" reads stopped. A faithful "Continue apixaban"
+  fires `med_status_consistency` and "Hold apixaban", which drops the restart, passes it.
+  A negation before a start participle no table spells reads as the start ("Not starting
+  metformin"). No table entry reaches either; the fix changes the scope rule, a minor
+  revision, so §8.8 states the gap and #1 carries the fix (entry 14).
+
+**WARNING**
+- **L169 §7 — restart and resume start a drug.** Conflict: `MED_START_CUES` read "restart"
+  as a start ("a drug restarted at this visit is started at this visit"), and
+  `TERMINATORS` read "resume" as "continue", two clinical synonyms read apart. The start
+  wins: taking a held drug up again changes it at this visit (invariant 18), and
+  `new_prescription_preserved` is the one check that sees one dropped. "resume" moves to
+  `MED_START_CUES`, where as a pre-cue it still ends a stop's window ("Hold metformin,
+  resume lisinopril", measured); "restarted", "restarting", "resumed", and "resuming" join
+  it, and "restarted", "was restarted", "resumed", and "was resumed" join
+  `MED_START_POST`. A restart phrasing already read active, so the entries move
+  `new_prescriptions` alone.
+- **L170 §7 — a curly single quote reads as the apostrophe.** Fill: §6.2's normalizer
+  folds U+2018 and U+2019 for grounding, and the extractors' tokens didn't, so "Lisinopril
+  d/c’d." read active (measured). `_tokens` folds both, one character for one, and L167's
+  contractions match either spelling.
+
+**INFO**
+- **L171 §7 — the drug vocabulary is closed.** Fill: #5 asked whether the vocabulary holds
+  the corpus's drugs only or also the common drugs a live paste names. Neither as worded:
+  no case names acetaminophen, amoxicillin-clavulanate, or ibuprofen (measured), and
+  breadth is v2's (§7's MVP scope, RxNorm). The vocabulary is closed in the MVP; a drug
+  joins with the case that exercises it, carrying its common names (L126) and its class
+  (L149).
 
 ---
 
