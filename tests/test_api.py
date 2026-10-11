@@ -1,5 +1,5 @@
 """Pins the /summarize HTTP boundary: its input, its error bodies, and its log lines (spec
-§9.1, §9.4, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99).
+§9.1, §9.4, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99, L166).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -29,6 +29,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, NamedTuple
+from uuid import UUID
 
 import httpx2
 import pytest
@@ -51,8 +52,11 @@ from starlette.types import Message as ASGIMessage
 
 from backend.api import CatchAllMiddleware, RequestIdMiddleware, SummarizeResponse, app
 from backend.config import Settings, settings
+from backend.evals.judge import Judge
+from backend.evals.registry import REGISTRY, Check, Finding, register_check
+from backend.evals.runner import CHECKS_VERSION
 from backend.orchestrator import PROMPT_VERSION, OrchestratorError, get_client
-from backend.schemas import TokenUsage
+from backend.schemas import EvalCase, Severity, SOAPNote, TokenUsage
 from tests.fakes import FakeLLMClient, text_message, tool_use_message
 
 _REPO_ROOT: Final = Path(__file__).resolve().parent.parent
@@ -139,23 +143,71 @@ def _route() -> APIRoute:
     return next(r for r in app.routes if isinstance(r, APIRoute) and r.path == "/summarize")
 
 
-# --- the happy path and the wire shape (§9.1; L76, L87) ------------------------------
+# --- the happy path and the wire shape (§9.1; L76, L87, L166) ------------------------
+
+# VALID_INPUT's quote behind leading whitespace: its span is an offset into the exact paste,
+# so a stripped paste shifts it. The content clears min_input_chars.
+GROUNDED_PASTE: Final = "  quote-1 " + "x" * (settings.min_input_chars + 10) + "  "
 
 
-def test_happy_path_returns_draft_and_metadata(client: TestClient, install_fake: Installer) -> None:
+def test_happy_path_returns_note_report_and_metadata(
+    client: TestClient, install_fake: Installer
+) -> None:
     fake = install_fake([tool_use_message(VALID_INPUT, input_tokens=123, output_tokens=456)])
-    raw = "  " + "x" * (settings.min_input_chars + 10) + "  "  # content clears min; padded
-    response = client.post("/summarize", json={"raw_text": raw})
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"draft", "metadata"}  # L76: exactly the phase-1 edge shape
-    assert body["draft"] == VALID_INPUT
+    assert set(body) == {"note_id", "note", "report", "metadata"}  # L166: the 2a edge shape
+    assert UUID(body["note_id"]).version == 4
+    (claim,) = body["note"]["claims"]
+    fields = ("id", "text", "section", "source_quote", "source_span", "flags")
+    assert [claim[f] for f in fields] == [0, "fact-1", "S", "quote-1", [2, 9], []]
+    report = body["report"]
+    assert set(report["checks_run"]) == set(REGISTRY)  # 2a: no check needs a reference or judge
+    assert report["checks_version"] == CHECKS_VERSION
+    assert report["all_critical_passed"] is True  # the verdict travels with the report (L102)
+    assert report["judge_usage"] == {"input_tokens": 0, "output_tokens": 0}  # no judge (L7)
     assert body["metadata"]["model"] == settings.model
     assert body["metadata"]["prompt_version"] == PROMPT_VERSION
     assert body["metadata"]["usage"] == {"input_tokens": 123, "output_tokens": 456}
     assert body["metadata"]["validation_attempts"] == 1
     assert len(fake.messages.calls) == 1
-    assert fake.messages.calls[0].messages[0]["content"] == raw  # L87: never mutated
+    assert fake.messages.calls[0].messages[0]["content"] == GROUNDED_PASTE  # L87: never mutated
+
+
+def _record_into(
+    seen: list[tuple[SOAPNote, str, EvalCase | None]],
+) -> Callable[[SOAPNote, str, EvalCase | None], list[Finding]]:
+    def record(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+        seen.append((note, raw_text, case))
+        return []
+
+    return record
+
+
+def _judged_clean(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+) -> list[Finding]:
+    return []
+
+
+def test_route_checks_the_note_it_returns_against_the_exact_paste(
+    client: TestClient, install_fake: Installer, registry: dict[str, Check]
+) -> None:
+    # registry is emptied for the test, so the route selects among these three alone
+    seen: list[tuple[SOAPNote, str, EvalCase | None]] = []
+    register_check(name="recorder", severity=Severity.WARNING)(_record_into(seen))
+    register_check(name="reference", severity=Severity.WARNING, requires_reference=True)(
+        _record_into(seen)
+    )
+    register_check(name="judged", severity=Severity.WARNING, needs_judge=True)(_judged_clean)
+    install_fake([tool_use_message(VALID_INPUT)])
+    body = client.post("/summarize", json={"raw_text": GROUNDED_PASTE}).json()
+    assert set(body["report"]["checks_run"]) == {"recorder"}  # production mode, no judge
+    ((note, raw_text, case),) = seen
+    assert note.model_dump(mode="json") == body["note"]
+    assert raw_text == GROUNDED_PASTE  # L87: never stripped
+    assert case is None
 
 
 def test_response_model_is_the_edge_shape() -> None:

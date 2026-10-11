@@ -41,11 +41,11 @@ function show(...nodes) {
   result.replaceChildren(...nodes);
 }
 
-function showResult({ draft, metadata }) {
+function showResult({ note, metadata }) {
   const nodes = [el("p", "DRAFT — unverified", "label")];
   for (const [section, heading] of SECTIONS) {
     nodes.push(el("h2", heading));
-    const claims = draft.claims.filter((claim) => claim.section === section);
+    const claims = note.claims.filter((claim) => claim.section === section);
     if (claims.length === 0) {
       nodes.push(el("p", "none stated", "none"));
       continue;
@@ -85,7 +85,7 @@ async function summarize() {
       return;
     }
     const body = await response.json().catch(() => null);
-    if (response.ok && body?.draft && body?.metadata) {
+    if (response.ok && body?.note && body?.metadata) {
       showResult(body);
     } else if (typeof body?.error === "string" && typeof body?.request_id === "string") {
       show(el("p", `status=${response.status} error=${body.error} request_id=${body.request_id}`, "error"));

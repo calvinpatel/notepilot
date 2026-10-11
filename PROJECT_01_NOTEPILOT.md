@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.36** (patch — the empty note, October 2026).
-Supersedes v1.3.35.
+**Spec version: v1.3.37** (patch — the 2a route, October 2026).
+Supersedes v1.3.36.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2164,8 +2164,16 @@ class SummarizeResponse(BaseModel):          # phase 1; becomes the shape above 
 
 The domain return type and the wire contract are different jobs: in phase 2a the edge shape
 becomes `note_id` + `note` + `report` + `metadata`, and nothing in `schemas.py` changes.
-*Test:* the happy-path route test asserts the body's top-level keys are exactly
+*Test:* in phase 1, the happy-path route test asserts the body's top-level keys are exactly
 `{"draft", "metadata"}`.
+
+**Phase 2a's route is the one above, less what later phases add (L166).** No judge until 2c,
+so `run_checks` selects no judged check; no `reserve_budget` and no `persist` until phase 3
+(§14). `note_id` is minted all the same: with nothing persisted it names no row, as §9.10
+says of `persist_enabled=false` (L58). *Test:* the happy-path route test asserts the keys
+are exactly `{"note_id", "note", "report", "metadata"}` and a span that offsets into a
+padded paste; a test that registers its own checks asserts the route checks the note it
+returns, against the exact paste, in production mode, with no judge.
 
 ### 9.2 Async, justified (amended v1.2)
 
@@ -2488,12 +2496,13 @@ source-of-truth") with nothing backing it. The contract, minimally:
 
 **Before the contract: the phase-1 display (L68).** §14's "minimal display" is a static
 page, not an early `frontend/`. `GET /` in `api.py` serves `backend/static/index.html`:
-textarea → `fetch("/summarize")` → `draft.claims` grouped by `section` client-side. All four
-sections always render; an empty one shows "none stated" (D7). Output is labeled "DRAFT —
-unverified" (invariant 12: nothing unchecked reads as checked). A one-line PHI warning sits
-above the textarea (the full banner is phase 3). Same-origin, so no CORS in phase 1. No
-`by_section`, no `SOAPNote`: the phase-1 `schemas.py` fence holds (§14). Claims render via
-`textContent`, never `innerHTML` — every `source_quote` copies the paste verbatim, so markup
+textarea → `fetch("/summarize")` → `draft.claims` grouped by `section` client-side; from
+phase 2a it reads `note.claims` (§9.1, L166). All four sections always render; an empty one
+shows "none stated" (D7). Output is labeled "DRAFT — unverified" (invariant 12: nothing
+unchecked reads as checked). A one-line PHI warning sits above the textarea (the full banner
+is phase 3). Same-origin, so no CORS in phase 1. No `by_section`, and in phase 1 no
+`SOAPNote`: the phase-1 `schemas.py` fence holds (§14). Claims render via `textContent`,
+never `innerHTML` — every `source_quote` copies the paste verbatim, so markup
 in the paste would execute. `backend/static/` is deleted when `frontend/` replaces it in
 phase 3. Anything but a result renders in its place (L92, L100): a response renders its
 HTTP status, plus the body's `error` code and `request_id` when the body carries both; a
@@ -2787,7 +2796,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
   · a report that ran no check is N/A too (L117)
 □ injected corpus satisfies the coverage rule's injected clauses (L42, L137, L138) · green
   in pytest · its controls fire no check (L162)
-□ route returns SOAPNote + EvalReport (production mode) · still no DB
+□ route returns SOAPNote + EvalReport (production mode), no judge (L166) · still no DB
 ```
 
 ### Phase 2b — the regression thesis goes live · `v0.2b-corpus`

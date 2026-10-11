@@ -1,7 +1,8 @@
 """The HTTP edge: the app, its routes, and the input boundary (spec §9.1, §9.4, §9.8, §9.10).
 
 EDGE adapter (spec §0): FastAPI's types appear here and nowhere inward. The /summarize route
-is a composition root with no logic (§9.1): it awaits summarize() and returns the wire shape.
+is a composition root with no logic (§9.1): it awaits summarize(), grounds the draft against
+the exact paste, awaits run_checks() in production mode, and returns the wire shape (L166).
 SummarizeRequest and SummarizeResponse are the HTTP edge shapes §13 sanctions outside
 schemas.py; SummarizationResult never goes on the wire (L76).
 
@@ -60,7 +61,7 @@ import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Final
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from anthropic import APIError, APIStatusError, APITimeoutError, RateLimitError
 from fastapi import Depends, FastAPI, Request
@@ -71,8 +72,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.config import settings
+from backend.evals.runner import run_checks
+from backend.grounding import ground
 from backend.orchestrator import LLMClient, ModelOutputError, get_client, summarize
-from backend.schemas import RunMetadata, SOAPNoteDraft
+from backend.schemas import EvalReport, RunMetadata, SOAPNote
 from backend.tracebacks import format_frames
 
 # §9.8 (L79): configured once, at app construction. Every field a log call carries goes in
@@ -188,9 +191,11 @@ class SummarizeRequest(BaseModel):
 
 
 class SummarizeResponse(BaseModel):
-    """The wire shape, exactly {draft, metadata} (L76): an edge type, not the domain's."""
+    """The wire shape, exactly {note_id, note, report, metadata} (L76, L166): an edge type."""
 
-    draft: SOAPNoteDraft
+    note_id: UUID
+    note: SOAPNote
+    report: EvalReport
     metadata: RunMetadata
 
 
@@ -198,9 +203,17 @@ class SummarizeResponse(BaseModel):
 async def summarize_endpoint(
     req: SummarizeRequest, client: Annotated[LLMClient, Depends(get_client)]
 ) -> SummarizeResponse:
-    """Composition root (§9.1): wires the pipeline in order; no logic lives here."""
+    """Composition root (§9.1): wires the pipeline in order; no logic lives here.
+
+    Phase 2a's route (L166): §9.1's without a judge, a budget reservation, or persist.
+    run_checks gets no judge, so it selects no judged check. note_id names no row, since
+    nothing is persisted (§9.10, L58).
+    """
+    note_id = uuid4()
     result = await summarize(req.raw_text, client=client)
-    return SummarizeResponse(draft=result.draft, metadata=result.metadata)
+    note = ground(result.draft, req.raw_text)  # spans index the exact paste (L87)
+    report = await run_checks(note, req.raw_text, mode="production")
+    return SummarizeResponse(note_id=note_id, note=note, report=report, metadata=result.metadata)
 
 
 @app.exception_handler(RequestValidationError)
