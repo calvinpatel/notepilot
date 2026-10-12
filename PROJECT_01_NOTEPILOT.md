@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.39** (patch — finding aliases, October 2026).
-Supersedes v1.3.38.
+**Spec version: v1.3.40** (patch — the 2a page, October 2026).
+Supersedes v1.3.39.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -198,7 +198,8 @@ class ClinicalClaim(ClaimDraft):                           # inherits the draft 
     id: int                                                # position in note.claims, stamped
                                                            #   by grounding — the anchor
                                                            #   every finding hangs on
-    source_span: tuple[int, int] | None = None             # None = grounds nowhere
+    source_span: tuple[int, int] | None = None             # None = grounds nowhere; offsets
+                                                           #   count code points (L177)
     grounding_score: float | None = None                   # the Tier 3 score whenever fuzzy
                                                            #   matching was evaluated — incl.
                                                            #   Tier 4 near-misses and numeric
@@ -2508,14 +2509,17 @@ source-of-truth") with nothing backing it. The contract, minimally:
   clicked), and nothing else. This sidesteps overlap rendering entirely and matches
   the product motion (§1: "hover → highlight"). A claim with `source_span: None`
   highlights nothing and shows its `UNSUPPORTED` badge; that absence *is* the signal.
+  Offsets count code points, Python's string index (L177): the UI slices `[...text]`, since
+  `text.slice` counts UTF-16 units and every character past the BMP would shift the spans
+  after it, and it slices the text it sent, not the paste box as it now stands.
 - **Findings join by `claim.id`.** The claim card shows grounding flags plus every
   `EvalResult` whose `claim_ids` contains its id; the banner shows every result with
   `claim_ids == ()`. The UI does no clinical reasoning; it renders two lists.
 - **Every state designed (v1.3, L24, L55, L58)** — keyed on the body's `error` code, never
   on parsing a message: loading; result; **empty** (no claims *and* no clinical entities →
-  "no clinical content found," §10 — if the input *was* clinical, the result state renders
-  with the `empty_note_on_clinical_input` warning instead); **empty Assessment** ("No
-  assessment documented" — a faithful note under D7, not a blank section); **coverage
+  "no clinical content recognized," §10 — if the input *was* clinical, the result state
+  renders with the `empty_note_on_clinical_input` warning instead); **empty Assessment**
+  ("No assessment documented" — a faithful note under D7, not a blank section); **coverage
   reduced** (an errored check → "this check didn't run on this note," never rendered as
   passed); `input_invalid` 422; `rate_limited` 429; `upstream_busy` and `budget_exhausted`
   503 (different copy — one says retry shortly, one says the demo is done for today);
@@ -2544,6 +2548,17 @@ fetch that gets no response renders a fixed line that names no code, since there
 The result area is never blank, or the L81 smoke run can fail without saying so. *Test:*
 `GET /` → 200, `text/html`; the served file contains no `innerHTML`.
 
+**Phase 2a's page (L176).** The page renders the report beside the note, flat. A verdict
+line reads `all_critical_passed`, never recomputed (L102), with the count of checks that
+ran: those `checks_run` selected, less the errored. Each claim card shows its id and its
+flags as text. Under the note, every result goes to one place by its own flags: a fired one
+with its severity, check, claim ids, and detail; an errored one under "didn't run on this
+note," never passed (invariant 12); a passed one by name. The page keys on no check's name.
+"DRAFT — unverified" stays: the checks are not a clinician. The join by `claim.id`, the
+banner, the highlight, every state above, `note_id`, and the per-code error copy are phase
+3's (§14). *Test:* the served page reads `report.all_critical_passed` and `result.errored`;
+CI runs no JavaScript, so the design room runs the page against real bodies in jsdom.
+
 ---
 
 ## 10. Cross-cutting concerns
@@ -2571,10 +2586,11 @@ The result area is never blank, or the L81 smoke run can fail without saying so.
   reaches the network. *Test:* a missing key, a negative retry count, and
   `min_input_chars >= max_input_chars` each raise at `Settings()` construction.
 - **Degenerate input (v1.3, L55, L58) — three paths, not one.** A paste whose content
-  (stripped length, L87) is shorter than `min_input_chars` → 422 at the route
-  (v1.2's example, "hello," never reached the pipeline;
-  this is where it was rejected). A long non-clinical paste → a valid empty `SOAPNote`
-  (`claims=()`) → "no clinical content found." A *clinical* paste that comes back with zero
+  (stripped length, L87) is shorter than `min_input_chars` → 422 at the route (v1.2's
+  example, "hello," never reached the pipeline; this is where it was rejected). A long
+  non-clinical paste → a valid empty `SOAPNote` (`claims=()`) → "no clinical content
+  recognized": the empty-note check's recall is the vocabulary's (L165, L178), so a clinical
+  paste the lexicons can't read lands here too. A *clinical* paste that comes back with zero
   claims → the `empty_note_on_clinical_input` WARNING (§8.4): total omission must not read
   green — invariant 12's law, reached by a different road.
 - **No dedup / idempotency:** same paste twice = two rows. Correct for MVP; *know* it;
@@ -2831,6 +2847,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
 □ injected corpus satisfies the coverage rule's injected clauses (L42, L137, L138) · green
   in pytest · its controls fire no check (L162)
 □ route returns SOAPNote + EvalReport (production mode), no judge (L166) · still no DB
+□ the page renders the note and its report, flat; the verdict read, never recomputed (L176)
 ```
 
 ### Phase 2b — the regression thesis goes live · `v0.2b-corpus`

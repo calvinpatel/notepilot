@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,37 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.40 — the 2a page (patch)
+
+Theme: step 5c gives the phase-1 page phase 2a's report, flat, and fills two lines phase
+3's UI inherits: span offsets count code points, and the empty state says "recognized." No
+invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L176 §9.10, §14 — the 2a page.** Fill: §9.10 specified phase 3's UI and phase 1's
+  page, and §14 gives the join, the banner, and every state to phase 3's React, so the
+  static page's 2a reach had no statement; since L166 it rendered the note and no check.
+  It renders the report flat: a verdict line reading `all_critical_passed` (L102) with the
+  count of checks that ran, ids and flags on each claim card, and each result by its own
+  flags, fired, didn't run, or passed, so an errored check never reads as passed
+  (invariant 12). CI runs no JavaScript: a test pins the two fields the rendering turns
+  on, and the design room ran the page in jsdom against six bodies (fired, clean, an
+  errored critical, an empty note, a 503, and a body without a report).
+- **L177 §4.1, §9.10 — span offsets count code points.** Fill: `source_span` is a
+  half-open range into the raw text, and nothing said in what unit. Python indexes code
+  points and JavaScript's `slice` counts UTF-16 units, so a character past the BMP shifts
+  every span after it (measured: an emoji's JavaScript length is 2). The unit is stated,
+  and the UI slices by code point, from the text it sent. The 2a page slices no span;
+  phase 3's highlight does.
+
+**INFO**
+- **L178 §9.10, §10 — the empty state says "recognized."** Fill: an empty note on a
+  clinical source the lexicons can't read raises no WARNING (L165), so "no clinical
+  content found" claims what the check can't know. The copy says "recognized," and §10
+  states why.
 
 ---
 

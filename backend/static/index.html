@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- The phase-1 display: spec §9.10 (L68, L92, L100). -->
+<!-- The phase-1 display, with phase 2a's report: spec §9.10 (L68, L92, L100, L176). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10,7 +10,8 @@
   body { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
   textarea { box-sizing: border-box; width: 100%; font: inherit; }
   button { margin-top: 0.5rem; font: inherit; }
-  .phi, .label { font-weight: 600; }
+  .phi, .label, .verdict, .flag { font-weight: 600; }
+  .flag { margin-left: 0.5rem; }
   .quote { display: block; }
   .quote, .none, .meta { color: GrayText; }
   .meta, .error { font-family: ui-monospace, monospace; }
@@ -41,8 +42,50 @@ function show(...nodes) {
   result.replaceChildren(...nodes);
 }
 
-function showResult({ note, metadata }) {
-  const nodes = [el("p", "DRAFT — unverified", "label")];
+function plural(count, noun) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+// The report, flat: each result by its own flags, in the server's order (L176). The verdict
+// is the body's field, never recomputed from the results (L102).
+function groupResults(report) {
+  const groups = { fired: [], errored: [], passed: [] };
+  for (const result of report.results) {
+    if (result.errored) groups.errored.push(result.check);
+    else if (result.passed) groups.passed.push(result.check);
+    else groups.fired.push(result);
+  }
+  return groups;
+}
+
+function checkNodes({ fired, errored, passed }) {
+  const list = el("ul");
+  for (const result of fired) {
+    const ids = result.claim_ids.map((id) => `#${id}`).join(", ");
+    const noun = result.claim_ids.length === 1 ? "claim" : "claims";
+    const where = result.claim_ids.length === 0 ? "note" : `${noun} ${ids}`;
+    const line = `${result.severity.toUpperCase()} ${result.check} (${where}): ${result.detail}`;
+    list.append(el("li", line));
+  }
+  return [
+    el("h2", "Checks"),
+    ...(fired.length === 0 ? [el("p", "none fired", "none")] : [list]),
+    el("p", `Didn't run on this note: ${errored.join(", ") || "—"}`),
+    el("p", `Passed (${passed.length}): ${passed.join(", ") || "—"}`),
+  ];
+}
+
+function showResult({ note, report, metadata }) {
+  const groups = groupResults(report);
+  const verdict = report.all_critical_passed
+    ? "All critical checks passed."
+    : "Not all critical checks passed.";
+  // a selected check that errored didn't run on this note (L44)
+  const ran = report.checks_run.length - groups.errored.length;
+  const nodes = [
+    el("p", "DRAFT — unverified", "label"),
+    el("p", `${verdict} ${plural(ran, "check")} ran.`, "verdict"),
+  ];
   for (const [section, heading] of SECTIONS) {
     nodes.push(el("h2", heading));
     const claims = note.claims.filter((claim) => claim.section === section);
@@ -53,11 +96,14 @@ function showResult({ note, metadata }) {
     const list = el("ul");
     for (const claim of claims) {
       const item = el("li");
-      item.append(el("span", claim.text), el("q", claim.source_quote, "quote"));
+      item.append(el("span", `#${claim.id} ${claim.text}`));
+      for (const flag of claim.flags) item.append(el("span", flag.toUpperCase(), "flag"));
+      item.append(el("q", claim.source_quote, "quote"));
       list.append(item);
     }
     nodes.push(list);
   }
+  nodes.push(...checkNodes(groups));
   const { usage } = metadata;
   nodes.push(el("p", [
     `model=${metadata.model}`,
@@ -85,7 +131,7 @@ async function summarize() {
       return;
     }
     const body = await response.json().catch(() => null);
-    if (response.ok && body?.note && body?.metadata) {
+    if (response.ok && body?.note && body?.report && body?.metadata) {
       showResult(body);
     } else if (typeof body?.error === "string" && typeof body?.request_id === "string") {
       show(el("p", `status=${response.status} error=${body.error} request_id=${body.request_id}`, "error"));
