@@ -175,7 +175,7 @@ Build order is spec §14 and it is strictly sequential:
 5. **3 — full-stack real** — Postgres, React UI, deploy
 6. **4 — RAG deepening** — designed in spec v1.4 before any code
 
-**Current phase: 2a — the safety layer, proven for free.** *(Update this line as phases
+**Current phase: 2b — the regression thesis goes live.** *(Update this line as phases
 complete.)*
 
 - **Closing a phase:** audit its §14 exit criteria line by line, CI green, update the line
@@ -282,6 +282,9 @@ rather than repeating them.
   what the diff does, nothing it doesn't, and leaves nothing out.
 - When two of a step's commits touch the same file, stop at a stage gate after the first:
   propose it, and make the next commit's edits only after Cal says it's committed.
+- The Edit tool writes a `\uXXXX` escape as the character it names. VERBATIM text that
+  holds one is checked byte for byte after the edit; a decoded escape is a deviation to
+  report, with how it was restored.
 
 ### Tests
 
@@ -308,6 +311,13 @@ A row names a file, an exact pattern, its replacement, and the assertion meant t
 
 - One driver script in the scratchpad runs all of a step's rows, once, with its output
   written to a file.
+- Every row runs the whole suite, with `PYTHONHASHSEED=0` and
+  `--continue-on-collection-errors`, under its own `PYTHONPYCACHEPREFIX`, deleted after
+  the row. A narrower run can't show a kill the row didn't target; a fixed seed holds set
+  order still across rows; a mutant that breaks one file's import still runs the rest.
+- Kills are read from `--junitxml` by test id, with each failure's exception type. A kill
+  that raises instead of failing its assertion is reported as an exception kill; the
+  request marks the ones it expects.
 - Each pattern matches exactly once, written against the ruff-formatted source. Report any
   substitution you adapt.
 - Before each row the driver saves the file's bytes and sha256, writes the mutant inside
@@ -320,6 +330,8 @@ A row names a file, an exact pattern, its replacement, and the assertion meant t
   text. If a row dies anywhere else, stop and say so; never reshape a test to fit.
 - A mutant no test can tell apart gets a distinguishing test, or is reported as
   equivalent, with the reason.
+- The gates run last, after the driver has exited and its hashes are checked. A hash that
+  matches the pre-driver file is not a gate run.
 
 ### What code, tests, and comments may say
 

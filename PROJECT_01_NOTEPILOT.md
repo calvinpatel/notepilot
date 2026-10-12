@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.40** (patch — the 2a page, October 2026).
-Supersedes v1.3.39.
+**Spec version: v1.3.41** (patch — the 2a close's smoke run, October 2026).
+Supersedes v1.3.40.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2818,9 +2818,12 @@ and summarize one synthetic encounter (zero PHI, the same rule as `evals/cases/`
 response in the annotated tag message, plus `anthropic.__version__` (the SDK shapes the
 wire, L82) and `models.retrieve(settings.model).max_tokens` beside
 `settings.model_max_output_tokens` — the two must match (L85). One call,
-cents, confirmed by Cal before it runs — a smoke run, not
-a corpus run. Repeat at any later phase close that changes the request shape. No automated
-test, by design: the annotated tag is the record, audited alongside the lines above.
+cents, confirmed by Cal before it runs — a smoke run, not a corpus run. Repeat at any later
+phase close that changes the request shape. 2a's close runs one although the request shape
+is unchanged (L179): the response and the page are new, and real model output meets
+`ground()` and `run_checks` for the first time. The tag records what it renders; a finding
+it shows is recorded, not fixed. No automated test, by design: the annotated tag is the
+record, audited alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
@@ -2848,6 +2851,7 @@ test, by design: the annotated tag is the record, audited alongside the lines ab
   in pytest · its controls fire no check (L162)
 □ route returns SOAPNote + EvalReport (production mode), no judge (L166) · still no DB
 □ the page renders the note and its report, flat; the verdict read, never recomputed (L176)
+□ one live smoke run, recorded in the annotated tag (L179)
 ```
 
 ### Phase 2b — the regression thesis goes live · `v0.2b-corpus`
