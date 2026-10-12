@@ -1,6 +1,6 @@
 """Pins extraction's scope engine and extractors.
 
-Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170.
+Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173.
 """
 
 import ast
@@ -25,6 +25,7 @@ from backend.clinical.extract import (
     new_prescriptions,
 )
 from backend.clinical.lexicons import (
+    ABSENT_FINDINGS,
     ALLERGY_ALIASES,
     ALLERGY_CUES,
     ALLERGY_POST,
@@ -38,6 +39,7 @@ from backend.clinical.lexicons import (
     DOSE_FREQUENCIES,
     DOSE_UNITS,
     DRUG_CLASS,
+    FINDING_ALIASES,
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
@@ -214,6 +216,23 @@ def test_a_curly_single_quote_reads_as_the_apostrophe(quote: str) -> None:
     assert extract_med_status(f"don{quote}t restart metformin") == {"metformin": {"stopped"}}
 
 
+# --- finding aliases and words that state an absence (L173) ----------------------
+
+
+def test_a_negation_reaching_across_a_list_leaves_an_absence_word_absent() -> None:
+    # read as a negated absence, "afebrile" would be a fever here
+    assert extract_findings("denies chills, afebrile") == {"chills": {False}, "fever": {False}}
+
+
+def test_one_name_for_two_findings_reads_both_under_one_cue() -> None:
+    assert extract_findings("denies N/V") == {"nausea": {False}, "vomiting": {False}}
+
+
+def test_a_listed_double_negation_wins_over_its_absence_word() -> None:
+    # longest first: "not afebrile" is matched ahead of "not" and "afebrile"
+    assert extract_findings("not afebrile on arrival") == {"fever": {True}}
+
+
 # --- drugs: status, active mentions, and starts (D13, L41, L124-L126, L167, L169) --
 
 
@@ -257,6 +276,14 @@ def test_a_continued_order_closes_a_stop_window() -> None:
 
 def test_a_refused_stop_leaves_the_drug_active() -> None:
     assert extract_med_status("do not stop apixaban") == {"apixaban": {"active"}}
+
+
+@pytest.mark.parametrize(
+    "text", ["don't stop apixaban", "don't discontinue apixaban", "don't hold apixaban"]
+)
+def test_a_contracted_refused_stop_leaves_the_drug_active(text: str) -> None:
+    # L172: "don" and "t" are no cue, so the stop verb read as a stop
+    assert extract_med_status(text) == {"apixaban": {"active"}}
 
 
 def test_a_refused_start_leaves_the_drug_stopped_and_not_started() -> None:
@@ -679,6 +706,24 @@ def test_every_finding_extracts_as_itself(finding: str) -> None:
     assert extract_findings(finding) == {finding: {True}}
 
 
+@pytest.mark.parametrize(("name", "findings"), sorted(FINDING_ALIASES.items()))
+def test_every_finding_alias_extracts_as_its_findings(name: str, findings: tuple[str, ...]) -> None:
+    assert extract_findings(name) == {finding: {True} for finding in findings}
+
+
+@pytest.mark.parametrize(("word", "finding"), sorted(ABSENT_FINDINGS.items()))
+@pytest.mark.parametrize("cue", ["", "denies ", "no "], ids=["bare", "denies", "no"])
+def test_every_absence_word_reads_absent_under_any_cue(cue: str, word: str, finding: str) -> None:
+    assert extract_findings(f"{cue}{word}") == {finding: {False}}
+
+
+def test_every_finding_alias_names_a_listed_finding_and_none_is_one() -> None:
+    # a target outside FINDINGS is a polarity no claim can share (L139)
+    named = {f for findings in FINDING_ALIASES.values() for f in findings}
+    assert named | set(ABSENT_FINDINGS.values()) <= FINDINGS
+    assert not FINDINGS & (set(FINDING_ALIASES) | set(ABSENT_FINDINGS))
+
+
 @pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE))
 def test_every_pre_cue_negates_the_finding_after_it(cue: str) -> None:
     assert extract_findings(f"{cue} fever") == {"fever": {False}}
@@ -841,6 +886,8 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
     # longest-first matching gives a phrase one role; L121 rules on a class's pre/post pair
     roles = {
         "finding": FINDINGS,
+        "finding alias": set(FINDING_ALIASES),
+        "absence word": set(ABSENT_FINDINGS),
         "drug": GENERIC_DRUGS | set(BRAND_TO_GENERIC),
         "allergen": set(ALLERGY_ALIASES),
         "allergy": ALLERGY_CUES,

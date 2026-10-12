@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.38** (patch — restart and resume, October 2026).
-Supersedes v1.3.37.
+**Spec version: v1.3.39** (patch — finding aliases, October 2026).
+Supersedes v1.3.38.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1203,6 +1203,15 @@ fever. A phrase in both cue classes ("denied") is a post-cue when a finding is i
 before it and a pre-cue otherwise, so "pt denied chest pain" and "chest pain denied, fever"
 both read right.
 
+**Finding aliases (L173).** `FINDING_ALIASES` maps a finding's other names onto `FINDINGS`,
+each read at its cue's polarity as the finding is, and one name may stand for two ("N/V" is
+nausea and vomiting). `ABSENT_FINDINGS` maps a word that states its finding absent
+("afebrile" → fever), and the word reads absent under any cue: read as negated, it would
+flip inside every negated list ("denies chills, afebrile"). A double negation is an alias,
+matched whole ahead of the word ("not afebrile" is a fever); one the tables don't spell is
+§8.8's. Each alias and word names a `FINDINGS` entry, which a test holds: a name outside it
+is a polarity no claim can share (L139).
+
 **Medication cues (L124, L125).** A drug mention sees three cue classes at once: negation
 (the `FINDING_NEG_*` tables, shared with findings), stop, and start. Each cue carries its
 class, and the most recent pre-cue's window governs: a new pre-cue of any class replaces an
@@ -1216,11 +1225,12 @@ and `MED_START_POST` hold the post-cue forms, as `FINDING_NEG_POST` does for fin
 Narrative past tense ("started", "prescribed") counts as a start: read as nothing, it would
 let a stop's window run on over the next drug ("held metformin, started apixaban"), and the
 cost, an old start ("metformin was started in 2019") in `new_prescriptions`, lands on a
-WARNING. Refused and continued orders ("do not stop", "continue") are lexicon entries, not a
-rule. A restart or a resumption is a start (L169), so "resume" is a start cue; as a pre-cue
-it replaces a stop's open window, the job it did as a terminator. A refused start, restart,
-or resumption, written out or contracted ("do not restart", "don't resume"), is a stop
-(L167). A refusal the tables don't spell, and a cue the rule can't reach, are §8.8's (L168).
+WARNING. Refused and continued orders ("do not stop", "don't stop", "continue") are lexicon
+entries, not a rule (L172). A restart or a resumption is a start (L169), so "resume" is a
+start cue; as a pre-cue it replaces a stop's open window, the job it did as a terminator. A
+refused start, restart, or resumption, written out or contracted ("do not restart", "don't
+resume"), is a stop (L167). A refusal the tables don't spell, and a cue the rule can't
+reach, are §8.8's (L168).
 
 **Allergy context (L128, L129).** Allergy is a fourth cue class a drug mention sees:
 `ALLERGY_CUES` before the allergen and `ALLERGY_POST` after it. A mention it governs is an
@@ -1323,6 +1333,8 @@ DOSE_UNITS:        dict[str, str]    # "mcg" -> "μg", "milligrams" -> "mg": the
 DOSE_FREQUENCIES:  dict[str, str]    # "t.i.d." -> "tid", "twice daily" -> "bid" (L131)
 DOSE_MASS_UG:      dict[str, int]    # "g" -> 1_000_000: a mass unit's size in μg; ml, units none (L141)
 FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
+FINDING_ALIASES:   dict[str, tuple[str, ...]]  # "n/v" -> ("nausea", "vomiting"): other names (L173)
+ABSENT_FINDINGS:   dict[str, str]    # "afebrile" -> "fever": absent under any cue (L173)
 DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS; canonical names (L134)
 DIAGNOSIS_ALIASES: dict[str, str]    # "pe" -> "pulmonary embolism": every other charted name (L134)
 FUNCTION_WORDS:    set[str]          # "the", "of", "and", "is": words content_tokens drops (L160)
@@ -1552,7 +1564,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
-| `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `min_quote_content_tokens`, or NKDA or NKA (D15, L158, L159) | degenerate quotes |
+| `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `min_quote_content_tokens`, or NKDA or NKA, or absence words alone (D15, L158, L159, L174) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw names an entity: named(raw) ∪ allergies(raw) ∪ findings(raw) ∪ diagnoses(raw), asserted or excluded (L55, L164) | total omission reading green |
 | `text_entailment_judge` | WARNING | no (LLM) | text entailed by span, one batched call (D8) | drift no lexicon names |
 | `must_preserve` | by `PreserveItem.kind` | **yes** | labels vs extract_*(note), polarity-aware (L36) | any labeled omission |
@@ -2076,20 +2088,22 @@ know, stated plainly (v1.3):
   writing "PCN allergy" reads as dropping the amoxicillin, which `allergy_preserved` reports.
   Both fail loud.
 - **Findings both sides name** (L139). `negation_consistency` compares polarity only for a
-  finding the claim and its span both name, and `FINDINGS` lists no other names. A flip
-  behind a name it lacks ("denies CP" → "reports chest pain") reads nothing; so does a
-  finding the span never names, which is the judge's and `must_not_add`'s to catch. A span
-  holding both polarities ("denies chest pain at rest, reports chest pain on exertion")
-  passes a claim keeping either one, since qualifiers aren't extracted.
+  finding the claim and its span both name, and `FINDINGS` and its aliases list no other
+  names (L173). A flip behind a name it lacks ("denies CP" → "reports chest pain") reads
+  nothing; so does a finding the span never names, which is the judge's and `must_not_add`'s
+  to catch. A span holding both polarities ("denies chest pain at rest, reports chest pain
+  on exertion") passes a claim keeping either one, since qualifiers aren't extracted.
 - **A span that cuts off its cue** (L157). The claim-local family reads the span (L35), so a
   cue outside it is invisible. A bare name grounds at Tier 1 and reads at the defaults
   (active, present, definite), so a flip away from stopped, denied, or hedged passes every
   check: "Continue metformin" citing "metformin" in "Hold metformin", "Fever" citing "fever"
   in "Denies fever", "PE" citing "PE" in "r/o PE" or "PE ruled out" (measured). A flip
-  toward them fires, as does a dose its span lacks. `quote_informativeness` flags a one-word
-  span, a WARNING (L158); a two-word one passes it ("Reports chest pain" citing "chest pain"
-  in "Denies chest pain"), and the judge is WARNING-tier (invariant 7). The fix reads a span
-  in its sentence, which changes what L35 compares, so it waits for v1.4.
+  toward them fires, as does a dose its span lacks. `quote_informativeness` flags a
+  one-token span, a WARNING (L158); a two-token one passes it ("Reports chest pain" citing
+  "chest pain" in "Denies chest pain"), and so does a slash abbreviation, which counts two
+  ("Reports N/V" citing "N/V" in "Denies N/V", measured, L175); and the judge is
+  WARNING-tier (invariant 7). The fix reads a span in its sentence, which changes what L35
+  compares, so it waits for v1.4.
 - **A cue the scope rule can't reach** (L168). A mention takes one label, and a post-cue
   reaches only the mention directly before it (§7, L122), so "Apixaban held, then restarted"
   reads stopped: a faithful "Continue apixaban" fires `med_status_consistency`, a CRITICAL,
@@ -2097,6 +2111,12 @@ know, stated plainly (v1.3):
   start form no table spells as a refusal reads as the start ("Not starting metformin"). The
   fix reads a mention's last status cue in its clause and lets a negation govern a start
   cue, which changes the scope rule, so it waits for v1.4.
+- **A word that states an absence** (L173, L174). An `ABSENT_FINDINGS` word reads absent
+  under any cue, so a double negation the tables don't spell reads absent ("denies chills,
+  not afebrile"), and so does the word cut from one: "Afebrile" citing "afebrile" in "no
+  longer afebrile" passes every check, since `quote_informativeness` exempts the word as it
+  exempts NKDA (measured). Read as negated instead, the word would flip inside every negated
+  list ("denies chills, afebrile"), which is everyday charting.
 - **Judge quality.** Measured only indirectly, through model cases; never against a
   clinician.
 - **Reaction type** (D14). An anaphylaxis history and a childhood rash get the same rung.

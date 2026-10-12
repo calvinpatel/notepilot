@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import get_args
 
 from backend.clinical.extract import (
+    ABSENCE_WORDS,
     NO_ALLERGY_STATEMENTS,
     Certainty,
     Dose,
@@ -458,9 +459,11 @@ def check_quote_informativeness(
     """One finding per claim whose source span says too little to ground it (§8.4, D15).
 
     A span is informative with settings.min_quote_content_tokens content tokens (L161), or
-    when it states NKDA or NKA, a statement in one word (L158). A bare lexicon name is not:
-    "pain" grounds wherever a source mentions pain (§6.5). The check reads the span, what the
-    claim cites, not the model's quote (L159); a claim with no span is skipped (§8.4).
+    when it states NKDA or NKA, a statement in one word (L158), or when each of its content
+    tokens is a word stating its finding absent ("afebrile", L174). A bare lexicon name is
+    not: "pain" grounds wherever a source mentions pain (§6.5). The check reads the span,
+    what the claim cites, not the model's quote (L159); a claim with no span is skipped
+    (§8.4).
     """
     minimum = settings.min_quote_content_tokens
     findings: list[Finding] = []
@@ -468,7 +471,10 @@ def check_quote_informativeness(
         span = span_text(claim, raw_text)
         if span is None or extract_allergies(span) & NO_ALLERGY_STATEMENTS:
             continue
-        count = len(content_tokens(span))
+        tokens = content_tokens(span)
+        if tokens and set(tokens) <= ABSENCE_WORDS:
+            continue
+        count = len(tokens)
         if count < minimum:
             findings.append(
                 Finding(

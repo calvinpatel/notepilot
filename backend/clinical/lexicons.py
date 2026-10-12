@@ -224,6 +224,12 @@ TERMINATORS: set[str] = {
     "continued",
     # A refused stop is a continue order ("do not stop apixaban").
     "not stop",
+    # The contraction of "do not stop" ("don't stop apixaban").
+    "don't stop",
+    # The contraction of "do not discontinue".
+    "don't discontinue",
+    # The contraction of "do not hold".
+    "don't hold",
     # As "not stop" ("do not discontinue apixaban").
     "not discontinue",
     # As "not stop" ("do not hold apixaban").
@@ -556,6 +562,29 @@ FINDINGS: set[str] = {
     "nausea",
     # GI ROS, usually charted with nausea ("denies nausea or vomiting").
     "vomiting",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-10.
+# Other names for findings, each read at its cue's polarity as the finding is (L173). A name
+# may stand for two findings.
+FINDING_ALIASES: dict[str, tuple[str, ...]] = {
+    # One charted name for both GI findings ("denies N/V"); a cue reaches both.
+    "n/v": ("nausea", "vomiting"),
+    # The adjective for fever, read at its cue's polarity ("febrile to 39.2", "no longer febrile").
+    "febrile": ("fever",),
+    # A negated absence is a fever, matched whole ahead of "afebrile" ("not afebrile on arrival").
+    "not afebrile": ("fever",),
+    # As "not afebrile" ("no longer afebrile overnight").
+    "no longer afebrile": ("fever",),
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-10.
+# Words that state their finding absent. One reads absent under any cue, so a negation
+# reaching across a list ("denies chills, afebrile") doesn't flip it (L173); a double
+# negation is a FINDING_ALIASES entry ("not afebrile").
+ABSENT_FINDINGS: dict[str, str] = {
+    # Fever absent, in one word ("Temp 37.0, afebrile").
+    "afebrile": "fever",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-08.

@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,48 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.3.39 — finding aliases (patch)
+
+Theme: step 5b-ii fills the findings' other names. A contracted refused stop reads as a
+continue, findings gain aliases and words that state an absence, `quote_informativeness`
+reads such a word as a statement, and §8.8 states what a slash abbreviation counts. No
+invariant moves; CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L172 §7 — a contracted refused stop leaves the drug active.** Fill: `TERMINATORS` held
+  "not stop", "not discontinue", and "not hold", and no contraction. Measured while
+  drafting L167, "Don't stop apixaban" read stopped, so "Stop apixaban" passed
+  `med_status_consistency` and the faithful "Continue apixaban" fired it; "don't hold" and
+  "don't discontinue" read the same. The three contractions join, and a curly apostrophe
+  reaches them through L170.
+
+**WARNING**
+- **L173 §7, §8.8 — finding aliases and words that state an absence.** Fill: `FINDINGS`
+  listed one name per finding, so L139's own example ("Temp 37.0, afebrile") read nothing
+  and a flip to "Febrile" passed. `FINDING_ALIASES` maps other names onto `FINDINGS`, one
+  name for two where charting has one ("N/V"), and `ABSENT_FINDINGS` maps a word that
+  states its finding absent ("afebrile" → fever). Measured, a negation inverting the word
+  flips it inside every negated list ("denies chills, afebrile" read fever present), and
+  an immune word misreads a double negation ("not afebrile"), so the word is immune and
+  the double negations are aliases, matched whole. A test holds every target to
+  `FINDINGS`. What stays misread is §8.8's: a double negation no table spells, and the
+  word cut from one.
+- **L174 §8.4 — an absence word is a statement in one word.** Fill: #5 asked whether a
+  polarity-bearing word joins L158's NKDA/NKA exception. It does: the word reads absent
+  under any cue (L173), so a span of it says all it means, and a faithful "Afebrile"
+  citing "afebrile" drew a WARNING (measured). The exception reads `ABSENT_FINDINGS`
+  through `ABSENCE_WORDS`, not a literal, and exempts a span whose every content token is
+  one. The cost is NKDA's: the word cut from a double negation passes (§8.8).
+
+**INFO**
+- **L175 §8.8 — a slash abbreviation counts two tokens.** Fill: L161 set the default to
+  flag "a one-word span", and `content_tokens` splits a slash abbreviation ("N/V" → n, v),
+  so one charted word counts two and passes (measured). §8.8's L157 bullet says one-token
+  and states the case. Joining slash abbreviations would change L160's count for "r/o PE"
+  and "d/c metformin" too, so the count stands.
 
 ---
 

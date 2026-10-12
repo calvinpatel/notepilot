@@ -28,6 +28,7 @@ from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from typing import Literal, NamedTuple
 
 from backend.clinical.lexicons import (
+    ABSENT_FINDINGS,
     ALLERGY_ALIASES,
     ALLERGY_CUES,
     ALLERGY_POST,
@@ -39,6 +40,7 @@ from backend.clinical.lexicons import (
     DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
     DOSE_UNITS,
+    FINDING_ALIASES,
     FINDING_NEG_POST,
     FINDING_NEG_PRE,
     FINDINGS,
@@ -98,7 +100,15 @@ def _cues(label: _Label, entries: Iterable[str]) -> dict[_Phrase, _Label]:
 
 _PSEUDO = _phrases(PSEUDO_NEGATIONS)
 _TERMINATORS = _phrases(TERMINATORS)
-_FINDINGS = _phrases(FINDINGS)
+# every name a finding is charted by: its own, an alias, or a word stating it absent (L173)
+_FINDINGS = (
+    _phrases(FINDINGS)
+    | {tuple(_tokens(name)): name for name in FINDING_ALIASES}
+    | {tuple(_tokens(word)): word for word in ABSENT_FINDINGS}
+)
+# the tokens of the words that state their finding absent: a span of them alone is a
+# statement, as NKDA is (L174)
+ABSENCE_WORDS = frozenset(token for word in ABSENT_FINDINGS for token in _tokens(word))
 _NEG_PRE = _cues("negated", FINDING_NEG_PRE)
 _NEG_POST = _cues("negated", FINDING_NEG_POST)
 # every name a listed drug is charted by, under the generic it means (L126), and every
@@ -460,11 +470,17 @@ def extract_excluded_diagnoses(text: str) -> set[str]:
 def extract_findings(text: str) -> dict[str, set[bool]]:
     """finding -> polarities asserted. "denies chest pain" -> {"chest pain": {False}}.
 
-    Scoped negation (L31, L121, L122). A set, so a mixed statement keeps both (L33).
+    Scoped negation (L31, L121, L122). A set, so a mixed statement keeps both (L33). An alias
+    reads as its findings at its cue's polarity; a word stating its finding absent reads
+    absent under any cue (L173).
     """
     polarities: dict[str, set[bool]] = {}
-    for finding, label in _scope(text, _FINDINGS, _NEG_PRE, _NEG_POST):
-        polarities.setdefault(finding, set()).add(label is None)
+    for name, label in _scope(text, _FINDINGS, _NEG_PRE, _NEG_POST):
+        if name in ABSENT_FINDINGS:
+            polarities.setdefault(ABSENT_FINDINGS[name], set()).add(False)
+            continue
+        for finding in FINDING_ALIASES.get(name, (name,)):
+            polarities.setdefault(finding, set()).add(label is None)
     return polarities
 
 

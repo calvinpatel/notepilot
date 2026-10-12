@@ -1,4 +1,4 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L55, L136-L167)."""
+"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L55, L136-L174)."""
 
 import os
 import subprocess
@@ -264,7 +264,7 @@ def test_the_presence_checks_split_a_note_by_whether_each_claim_grounds() -> Non
     assert [f.claim_ids for f in check_hallucinated_medication(note, raw)] == [(1,)]
 
 
-# --- med_status_consistency (§8.4, D13, L124, L167) ---------------------------------------
+# --- med_status_consistency (§8.4, D13, L124, L167, L172) ---------------------------------
 
 
 def test_med_status_consistency_is_a_reference_free_critical_check() -> None:
@@ -318,6 +318,14 @@ def test_med_status_consistency_fires_on_a_refused_restart_written_as_an_order(
     note, raw = _note((text, span))
     assert [f.detail for f in check_med_status_consistency(note, raw)] == [
         "apixaban: active in the claim, stopped in its source span"
+    ]
+
+
+def test_med_status_consistency_fires_on_a_contracted_refused_stop_written_as_a_stop() -> None:
+    # L172: the contraction is a continue order, so the stop is the flip
+    note, raw = _note(("Stop apixaban", "don't stop apixaban"))
+    assert [f.detail for f in check_med_status_consistency(note, raw)] == [
+        "apixaban: stopped in the claim, active in its source span"
     ]
 
 
@@ -396,7 +404,7 @@ def test_presence_and_status_split_one_error_into_one_finding(
     assert _named(check_med_status_consistency(note, raw)) == status
 
 
-# --- negation_consistency (§8.4, L33, L139) -----------------------------------------------
+# --- negation_consistency (§8.4, L33, L139, L173) -----------------------------------------
 
 
 def test_negation_consistency_is_a_reference_free_critical_check() -> None:
@@ -423,6 +431,20 @@ def test_negation_consistency_fires_on_a_reported_finding_written_as_denied() ->
     assert _named(check_negation_consistency(note, raw)) == ["fever"]
 
 
+def test_negation_consistency_fires_on_an_absence_word_written_as_present() -> None:
+    # L173: "afebrile" reads as fever, absent, so L139's span now meets a fever flip
+    note, raw = _note(("Febrile", "Temp 37.0, afebrile"))
+    assert [f.detail for f in check_negation_consistency(note, raw)] == [
+        "fever: present in the claim, absent in its source span"
+    ]
+
+
+def test_negation_consistency_passes_the_claim_an_absence_word_states() -> None:
+    # L173: L139's faithful example, which compared nothing, now compares and agrees
+    note, raw = _note(("No fever", "Temp 37.0, afebrile"))
+    assert check_negation_consistency(note, raw) == []
+
+
 def test_negation_consistency_passes_a_polarity_both_sides_assert() -> None:
     note, raw = _note(("Denies chest pain", "denies chest pain or shortness of breath"))
     assert check_negation_consistency(note, raw) == []
@@ -432,10 +454,10 @@ def test_negation_consistency_passes_a_polarity_both_sides_assert() -> None:
     ("text", "span"),
     [
         ("Reports chest pain", "denies fever"),
-        ("No fever", "Temp 37.0, afebrile"),
+        ("No fever", "Temp 37.0"),
         ("Reports chest pain", "denies CP"),
     ],
-    ids=["invented", "afebrile", "unlisted-name"],
+    ids=["invented", "vitals", "unlisted-name"],
 )
 def test_negation_consistency_leaves_a_finding_the_span_doesnt_name(text: str, span: str) -> None:
     # L139: compared per finding, for findings both sides name; §8.8 states the recall cost
@@ -1106,7 +1128,7 @@ def test_new_prescription_preserved_finds_each_drug_once_in_name_order() -> None
     assert [f.detail.partition(":")[0] for f in findings] == sorted(GENERIC_DRUGS)
 
 
-# --- quote_informativeness (§6.5, §8.4; D15, L158-L161) ----------------------------------
+# --- quote_informativeness (§6.5, §8.4; D15, L158-L161, L174) ----------------------------
 
 
 def test_quote_informativeness_is_a_reference_free_warning() -> None:
@@ -1146,6 +1168,12 @@ def test_quote_informativeness_passes_a_span_at_the_minimum(span: str) -> None:
 def test_quote_informativeness_passes_a_statement_in_one_word(span: str) -> None:
     # L158: D10's statements say everything they mean in one word
     note, raw = _note(("No known allergies", span))
+    assert check_quote_informativeness(note, raw) == []
+
+
+def test_quote_informativeness_passes_a_word_that_states_its_findings_absence() -> None:
+    # L174: it reads absent under any cue (L173), so the span says all it means
+    note, raw = _note(("Afebrile", "afebrile"))
     assert check_quote_informativeness(note, raw) == []
 
 
