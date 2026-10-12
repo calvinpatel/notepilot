@@ -18,18 +18,15 @@ the spec.
 - **If the spec contradicts itself, stop.** Don't pick a winner in-session. Quote both
   statements to Cal; the resolution is a spec patch (see "Changing the spec"), and the
   code follows the patched text.
-- If the spec itself seems wrong or has a gap, say so directly. Cal has upgraded specs
-  before (the cross-reactivity gap in the testing capstone; the v1.3 walkthrough found
-  five CRITICALs); finding flaws is welcome, hiding them is not.
-- **The spec and this file move together.** A spec revision that touches an invariant, a
-  module boundary, or the phase list lands in the same commit as this file's update.
+- If the spec itself seems wrong or has a gap, say so directly: finding flaws is welcome,
+  hiding them is not.
+- **The spec and this file move together.** A spec revision that touches an invariant or
+  a module boundary lands in the same commit as this file's update.
 
 ## Working relationship
 
 Cal is the author of record and a capable engineer; Claude Code is a full collaborator
-with no restricted zones. There is no "moat layer" gating and no builder mode —
-write code anywhere in the repo (`evals/`, `clinical/`, `grounding.py` included) when
-asked.
+with no restricted zones: write code anywhere in the repo when asked.
 
 - **Read the request, do that thing.** Cal decides per request whether he wants a
   design discussion, a review, a walkthrough, scaffolding, or full implementation.
@@ -37,10 +34,9 @@ asked.
   discussion request with code.
 - **Never unsolicited.** Don't write or change code outside the scope of the current
   request. If something adjacent needs doing, flag it and let Cal decide.
-- **Clinical reasoning stays visible.** The moat is Cal's clinical judgment rendered as
-  code, and it's his to manage — not a reason to withhold help. When writing clinical
-  logic (severity assignments, check semantics), state the clinical rationale alongside
-  the code so each call is an explicit decision on the record, not a silent default.
+- **Clinical reasoning stays visible.** When writing clinical logic (severity assignments,
+  check semantics), state the clinical rationale alongside the code so each call is an
+  explicit decision on the record, not a silent default.
 - **Clinical entries arrive VERBATIM.** Every entry in `clinical/lexicons.py`, D9's R1
   rungs and D14's unspecified-penicillin rule included, is drafted in the design room and
   signed off by Cal there. It lands from a VERBATIM block with its own rationale comment,
@@ -164,81 +160,53 @@ staging area for decisions.
 
 ## Build sequence gate (the Volkswagen safeguard)
 
-Build order is spec §14 and it is strictly sequential:
-
-1. **MVP spine** — paste → route → LLM tool call → draft → display
-2. **2a — the safety layer, proven for free** — grounding, extraction, the reference-free
-   roster, the injected corpus with its loader and `case_verdict`
-3. **2b — the regression thesis goes live** — model corpus, repeats, lineage, the
-   four metrics
-4. **2c — the semantic backstop** — the entailment judge
-5. **3 — full-stack real** — Postgres, React UI, deploy
-6. **4 — RAG deepening** — designed in spec v1.4 before any code
+Build order is spec §14, phase by phase, strictly sequential.
 
 **Current phase: 2b — the regression thesis goes live.** *(Update this line as phases
 complete.)*
 
-- **Closing a phase:** audit its §14 exit criteria line by line, CI green, update the line
-  above, tag it (`v0.1-spine`, `v0.2a-safety`, `v0.2b-corpus`, `v0.2c-judge`,
-  `v0.3-shipped`, `v0.4-rag`).
-- **"Phase" means build phase only.** Curriculum units are *Arcs* (spec §16).
-- If a request belongs to a later phase or the §15 backlog (streaming, auth,
-  RxNorm/medspaCy, dedup, chunking, duplicate-quote locality, meta-evaluation,
-  reaction-type extraction, `about:` on expected flags, a shared budget counter), say so
-  and point at the backlog instead of building it. Deliberate non-features are part of
-  the portfolio story; building them early destroys that story.
+- **Closing a phase** follows §14's preamble; each tag is named in its phase's heading.
+- If a request belongs to a later phase or the §15 backlog, say so and point there
+  instead of building it. Deliberate non-features are part of the portfolio story;
+  building them early destroys that story.
 
 ## Commands
 
 ```bash
-uv sync                          # install/sync env (uv owns .venv; never pip install)
+uv sync --locked                 # install/sync env (uv owns .venv; never pip install)
 uv add <pkg> / uv add --dev <pkg>
 uv run pytest                    # unit + injected corpus + integration —
                                  #   deterministic, free
 uv run pytest tests/ -x -q       # fast fail during TDD loops
 uv run ruff check . && uv run ruff format --check .   # lint + format; clean before commit
-uv run mypy backend/ tests/      # strict (pyproject, L91). The spine AND the test
-                                 #   fakes — the fake client lives in tests/, and the
-                                 #   LLMClient seam (spec §5.5, L74) is only checked
-                                 #   if mypy reads both sides of it
-uv run uvicorn backend.api:app --reload  # local app; GET / serves the phase-1 page.
-                                         # ⚠️ every summarize is a REAL API call. The
-                                         # phase-close smoke run (spec §14, L81) only
-                                         # with Cal's go-ahead.
-uv run python -m backend.evals.runner   # ⚠️ score_corpus: REAL API calls, costs $,
-                                        # slow. MODEL cases only (injected cases run in
-                                        # pytest), × corpus_repeats (default 3) — cost
-                                        # scales with k. NEVER run unprompted. Pre-deploy
-                                        # / manual cadence only. Always confirm first.
-                                        # Every run appends a CorpusRunRecord to
-                                        # evals/runs/corpus_runs.jsonl (lineage, D5).
+uv run mypy backend/ tests/      # strict (L91); tests/ holds the fake side of the
+                                 #   LLMClient seam (§5.5, L74)
+uv run uvicorn backend.api:app --reload  # local app. ⚠️ every summarize is a REAL API
+                                         # call: the phase-close smoke run (§14, L81)
+                                         # only with Cal's go-ahead.
 ```
 
-CI: GitHub Actions (`.github/workflows/ci.yml`) runs `ruff check` + `ruff format --check`
-+ mypy (`backend/` and `tests/`) + pytest on every push **from phase 1** (spec §11, L96).
-The model corpus is deliberately excluded from the push workflow (it costs money) — manual
-dispatch / pre-deploy only.
+**`score_corpus` (§8.7) makes REAL API calls, × `corpus_repeats`: never run it
+unprompted.** It runs only with Cal's go-ahead, never in the push workflow (§11).
+
+CI runs the gates on every push (§11, L96).
 
 Tests never hit the network: orchestrator tests use an injected fake client (canned
 tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests use
-`dependency_overrides` (plus a test DB from phase 3).
+`dependency_overrides`.
 
 ## Conventions
 
 - Conventional commits, atomic. History is part of the portfolio. One tag per phase.
 - Pydantic models: draft/enriched family per spec §4. New pipeline data shapes go in
   `schemas.py`; the three sanctioned exceptions are in spec §13. Flag anything else.
-- Type hints everywhere; mypy clean before commit.
 - Secrets: `.env` (gitignored), `.env.example` (committed). API key never in code —
   clinical-adjacent repo, zero tolerance.
 - Synthetic data only in `evals/cases/`. **Zero real PHI, ever, anywhere in the repo** —
   including in examples, tests, commit messages, and comments.
-- TDD: red → green → refactor, as "Working a step" sets out; coverage is a flashlight, not
-  a trophy.
-- Every eval corpus needs clean controls alongside trap cases — a check that flags a
-  perfect note is as broken as one that misses a fabrication.
-- One planted danger per trap (D16): no incidental entities that could trip the same
-  check.
+- Coverage is a flashlight, not a trophy.
+- Corpus cases follow §8.5: clean controls beside the traps, one planted danger per trap
+  (D16).
 
 ## Working a step
 
