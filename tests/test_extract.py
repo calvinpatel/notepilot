@@ -717,7 +717,7 @@ def test_every_absence_word_reads_absent_under_any_cue(cue: str, word: str, find
     assert extract_findings(f"{cue}{word}") == {finding: {False}}
 
 
-def test_every_finding_alias_names_a_listed_finding_and_none_is_one() -> None:
+def test_every_alias_and_absence_word_names_a_listed_finding_and_none_is_one() -> None:
     # a target outside FINDINGS is a polarity no claim can share (L139)
     named = {f for findings in FINDING_ALIASES.values() for f in findings}
     assert named | set(ABSENT_FINDINGS.values()) <= FINDINGS
