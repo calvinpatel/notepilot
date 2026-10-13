@@ -7,7 +7,9 @@ get_client's first call (then cached for the process) and summarize — never
 these two constants. Prefer scripting the fake client over patching settings.
 
 No test pins PROMPT_VERSION's value or the prompt's text: a prompt edit is allowed and
-versions itself (invariant 15); spec fidelity is checked at review.
+versions itself (invariant 15); spec fidelity is checked at review. One clause is checked
+for content, not text: the never-omit bullet names NKDA and NKA (L191), the absence
+statements §8.4's allergy check reads.
 
 The tool-schema snapshot is never written by a test. Regenerate it, after a reviewed
 change to ClaimDraft or SOAPNoteDraft, with exactly:
@@ -69,6 +71,14 @@ def test_tool_choice_forces_summary_tool() -> None:
 
 def test_system_prompt_names_the_tool() -> None:
     assert SUMMARY_TOOL["name"] in SYSTEM_PROMPT
+
+
+def test_never_omit_clause_names_nkda_and_nka() -> None:
+    # L191: the bullet that carries safety-critical facts forward names both absence
+    # statements (D10: NKA says more than NKDA). The bullet runs to the next one.
+    (clause,) = [b for b in SYSTEM_PROMPT.split("• ") if b.startswith("When uncertain, OMIT")]
+    assert re.search(r"\bNKDA\b", clause)
+    assert re.search(r"\bNKA\b", clause)
 
 
 def test_call_config_is_exactly_the_spec_dict() -> None:

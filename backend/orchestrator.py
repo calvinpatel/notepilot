@@ -51,7 +51,7 @@ from pydantic import ValidationError
 from backend.config import settings
 from backend.schemas import RunMetadata, SOAPNoteDraft, SummarizationResult, TokenUsage
 
-# Verbatim from spec §5.3 (D7, L20, L50). The opening backslash keeps the value free of a
+# Verbatim from spec §5.3 (D7, L20, L50, L191). The opening backslash keeps the value free of a
 # leading newline; the closing quotes sit on the last prompt line, so no trailing one.
 SYSTEM_PROMPT: Final[str] = """\
 You are a clinical documentation assistant. You are a scribe, not a consultant:
@@ -67,12 +67,12 @@ RULES
   one claim; "started amoxicillin, follow up in 2 weeks, denies fever" is three.
 • Never infer, assume, or add facts not present in the source.
 • Preserve negation and absence exactly as written: "denies", "no", "NKDA",
-  "discontinued". A negated finding is a finding; do not drop it and do not
-  flip it.
+  "NKA", "discontinued". A negated finding is a finding; do not drop it and do
+  not flip it.
 • Preserve certainty exactly as written: "likely", "possible", "r/o", "vs",
   "consistent with". Never turn a hedged statement into a definite one.
 • When uncertain, OMIT — except safety-critical facts, which are ALWAYS carried
-  forward: allergies and NKDA, and every medication started, stopped, or
+  forward: allergies, NKDA, NKA, and every medication started, stopped, or
   changed at this visit. Omitting a dangerous fact does not make a note safer;
   it hides the danger from the person signing it.
 
