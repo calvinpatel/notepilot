@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.3.41** (patch — the 2a close's smoke run, October 2026).
-Supersedes v1.3.40.
+**Spec version: v1.4** (minor revision — the call shape, verdict lineage, and the
+invariants, before phase 2b, October 2026). Supersedes v1.3.41.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -18,7 +18,7 @@ each version's deltas, the `L#` ledger, and the `D#` decision records with their
 reasoning — lives in `PROJECT_01_NOTEPILOT_CHANGELOG.md`. An `L#` or `D#` here is a
 citation into that file.
 
-**Versioning.** A *patch* (v1.3.x) may fill a detail this spec leaves unspecified, or
+**Versioning.** A *patch* (v1.x.y, L195) may fill a detail this spec leaves unspecified, or
 resolve a conflict between two of its statements, citing both and naming which wins. A
 *minor* revision (v1.x) is anything else: a changed decision, a new section, a new phase's
 design. Every change lands with a changelog entry under the next `L#`.
@@ -37,13 +37,14 @@ raw paste ─► orchestrator ─► grounding ─► evals ─► API/persisten
          (shared by the eval checks — across claim text, source span, and raw text)
 ```
 
-**Domain vs edge (v1.3, L17).** *Domain* modules — `schemas.py`, `grounding.py`,
-`clinical/`, `evals/` — know nothing about FastAPI, Postgres, or Anthropic. *Edge* modules
-— `orchestrator.py`, `judge_client.py`, `api.py`, `db.py` — are adapters: the only places a
-vendor's wire format may appear. Where the domain needs a network call (the judge), it
-declares a `Protocol` and an edge module implements it. v1.2's "the domain knows nothing
-about Anthropic" was false as written for the orchestrator and the judge; this is the true
-version.
+**Domain vs edge (v1.3, L17).** *Domain* modules — `schemas.py`, `tracebacks.py`,
+`grounding.py`, `clinical/`, `evals/` — know nothing about FastAPI, Postgres, or Anthropic,
+and read no settings: a knob that decides a verdict is passed in (L187). *Edge* modules —
+`orchestrator.py`, `judge_client.py`, `corpus.py` (L188), `api.py`, `db.py` — are adapters:
+the only places a vendor's wire format may appear. Where the domain needs a network call
+(the judge), it declares a `Protocol` and an edge module implements it. v1.2's "the domain
+knows nothing about Anthropic" was false as written for the orchestrator and the judge;
+this is the true version.
 
 Read top to bottom: **principles → architecture → the data contract → each layer →
 cross-cutting concerns → tests → build order.** The data contract (§4) is the
@@ -121,10 +122,11 @@ These are not style preferences. Each one prevents a specific class of bug, and 
    imported by everything. The domain knows nothing about HTTP, Postgres, or Anthropic.
    Side-effects live at the edges; the core stays pure.
 3. **Design for evaluability.** Shape the data so "is this output safe?" is a *function
-   you can run*, not a vibe you assert. `temperature=0` minimizes output variance — it
-   does not promise bit-identical replies from a served API — and the eval design
-   tolerates the residual nondeterminism *by construction*: pass-rates over a corpus,
-   never golden-output diffs. That tolerance is a design property, not an apology.
+   you can run*, not a vibe you assert. A served model's replies vary from run to run,
+   and the pinned model accepts no sampling parameter to narrow them (L181) — so the eval
+   design measures the variance instead of suppressing it, *by construction*: pass-rates
+   over a corpus, k repeats per case (D11), never golden-output diffs. That tolerance is
+   a design property, not an apology.
 4. **Failure-to-ground is a signal, not an error.** A fabricated claim is the thing this
    product exists to catch. Flag it and continue; don't raise. (Contrast: an invalid
    *schema* IS an error and DOES raise — knowing which is which is the whole skill.)
@@ -137,6 +139,105 @@ These are not style preferences. Each one prevents a specific class of bug, and 
    match before fuzzy (§6.1), deterministic checks before the judge (§8.2), injected drafts
    before paid corpus runs (§8.5). v1.2 embodied this everywhere and named it nowhere — and
    an unnamed principle is one a future edit breaks quietly.
+
+### 3.1 Architectural invariants (L196)
+
+The principles above are why; these are the properties the code keeps, and code that breaks
+one is a bug. They are numbered for citation (the spec, CLAUDE.md, and code comments cite
+them by number), and the numbers don't change. CLAUDE.md keeps each number and title, with
+Claude Code's standing instruction where an invariant has one; the statement is here.
+
+1. **Dependencies point inward at `schemas.py`; vendors stay at the edge.** `schemas.py`
+   imports nothing; everything imports it. DOMAIN modules (`schemas.py`, `tracebacks.py`,
+   `grounding.py`, `clinical/`, `evals/`) know nothing about FastAPI, Postgres, or
+   Anthropic, and read no settings: a knob that decides a verdict is passed in (L187), and
+   an AST test holds the line (L188). EDGE modules (`orchestrator.py`, `judge_client.py`,
+   `corpus.py`, `api.py`, `db.py`) are adapters — the only places a vendor's wire format
+   may appear. When the domain needs a network call it declares a `Protocol`
+   (`evals/judge.py: Judge`) and an edge module implements it (§0, L17).
+2. **Grounding is pure and makes zero LLM calls.** Deterministic string work only. Judgment
+   to the model, mechanics to code — never ask the LLM to count characters, find offsets,
+   or compare drug names.
+3. **Every pipeline LLM call pins what shapes its output — summarize AND the judge.** Its
+   tool choice, thinking, effort, and token budget live in one call config, hashed into its
+   version (L15); nothing is left to an API default that can change with no diff in the
+   repo. Forced `tool_choice` on the summarize call. No sampling parameters: the pinned
+   model rejects them (L180), so variance is measured, not suppressed — repeats (D11) and
+   the corpus design absorb it.
+4. **Errors-as-values inside the pipeline; raise at boundaries.** An ungroundable claim is
+   a *result* (`UNSUPPORTED` flag), not an exception. A model that can't produce a valid
+   draft IS an exception at the orchestrator boundary: `OrchestratorError` →
+   `ModelOutputError` → `OutputTruncatedError`, each carrying the `usage` it cost and its
+   `validation_attempts` (L186); EAFP; `raise … from`. Once a valid draft exists, nothing
+   reaches the user as an exception: grounding returns flags, checks fail closed, persist
+   logs and swallows.
+5. **Safety extraction scans the WHOLE note.** The S/O/A/P section is the model's judgment
+   call, display-only. Any safety check that reads only one section is a bug.
+6. **Flag ownership is a write boundary (D6), enforced by the types.** Grounding owns
+   `ClinicalClaim.flags` (`UNSUPPORTED`, `PARAPHRASED`) and nothing else ever writes to it.
+   `ClinicalClaim` and `SOAPNote` are frozen; `flags` and `claims` are tuples. Evals emit
+   `EvalResult`s that *reference* claims via `claim_ids`; they consume grounding's flags,
+   never re-derive them, never mutate a claim.
+7. **LLM-as-judge is never the sole gate on a CRITICAL check.** The judge is WARNING-tier;
+   a judge that errors or times out changes no CRITICAL verdict.
+8. **Persistence is a sink.** `persist()` runs as a background task after the response is
+   assembled, in its own session; a write failure is logged, never 500s the user. The
+   pipeline never reads from the DB.
+9. **Spans are half-open `[start, end)`** — Python slicing convention, always.
+10. **No magic numbers.** Operational knobs → `config.py` (pydantic-settings). Clinical
+    knowledge — including `NEGATION_WINDOW` — → `clinical/lexicons.py`.
+11. **Corpus scoring consumes `expected_flags` via `case_verdict()`** (§8.7) — a tri-state:
+    `passed` / `failed` / `not_applicable`. A fired expected flag is a PASS for a detection
+    trap. An errored check never satisfies an expected flag (L43); an expected check that
+    didn't run is `not_applicable`, never `failed` (L44).
+12. **Empty never reads as safe.** `all_critical_passed` guards vacuous truth — zero
+    CRITICAL results returns False. A check that raises inside `run_checks` becomes
+    `EvalResult(passed=False, errored=True)` — never a skipped check, never a 500, never a
+    magic `detail` string. The same law, other roads: an empty note from clinical input is
+    a WARNING, not green; "not checked" never renders as "passed"; a metric over an empty
+    denominator is `None`, not 1.0; a case scored on a report that ran no check is
+    `not_applicable`, never `passed` (L117).
+13. **`clinical/` imports nothing from the spine.** `extract.py` imports only
+    `lexicons.py`; `lexicons.py` imports nothing (severities stored as plain strings).
+    Extractors take plain strings and return multi-valued results; the checks run the same
+    extractor over `claim.text`, the source span, and `raw_text`, and compare.
+14. **Grounding proves the quote exists; the consistency family proves the text agrees with
+    the SOURCE SPAN** — `raw_text[claim.source_span]`, never the model's `source_quote`
+    (§6.4, L35). At Tier 3 the quote is the model's claim about the source; the span is the
+    source. A Tier 1 exact match is not evidence the text is true.
+15. **Lineage is derived, never declared.** `prompt_version` = hash(system prompt + tool
+    schema + correction template + call config); `corpus_version` = hash(cases dir);
+    `checks_version` = hash(the `.py` files in `evals/` + `clinical/` + `grounding.py` +
+    `schemas.py`, L114, L189), with the verdict knobs recorded whole beside it
+    (`checks_config`, L187); `settings.model` = a pinned model id, never an alias (§5.5,
+    L84 — dateless ids from the 4.6 generation on are pinned; never validate with a date
+    regex); `git_dirty` recorded on every corpus run. A hand-bumped version string is a lie
+    waiting for someone to forget.
+16. **Retry only when the next request differs from the last.** Validation error → the
+    model sees its mistake → retry (`max_validation_retries`, §5.4). `max_tokens` or a
+    missing block → an identical request, which reproduces its cause (the budget, the
+    input, the forced call), not an identical reply → fail fast (L183). Transport retries
+    (429/5xx) are the SDK's (`sdk_transport_retries`, §5.2) — a different loop with a
+    different name.
+17. **The omission law (D17).** Every CRITICAL check documents, per input, what happens
+    when the model omits that input — a docstring and a test. An omission that silences the
+    check must be covered by another live check or declared a CI-only gap. A new CRITICAL
+    check without its omission row is incomplete (§8.4).
+18. **Scribe, not consultant (D7, L50).** The prompt never lets the model state a clinical
+    judgment the clinician didn't: Assessment is clinician-stated, certainty verbatim,
+    patient self-diagnosis is Subjective. "Omit when uncertain" never applies to
+    safety-critical facts — allergies, NKDA, NKA, and every medication started, stopped, or
+    changed at this visit (L191).
+19. **PHI never leaves through the side doors.** Raw text, note content, and exception
+    messages that may carry them never reach a log line or an HTTP body. Error bodies are
+    `{error, request_id}`; `OrchestratorError` is logged by `code` without `exc_info`; a
+    crashed check logs its name, type, and frames, never its message or `exc_info` (L113);
+    validation errors are stringified with `include_input=False` (§9.4, §9.8). This is the
+    runtime twin of "zero PHI in the repo."
+20. **A test's tier is decided by what's stochastic in its path.** Injected cases
+    (`EvalCase.draft` set) are deterministic and run free on every commit; model cases are
+    paid. A danger the *model* creates (a fabrication, a flip) is tested by injecting it —
+    never by a model case that hopes the model will make it (§8.5, L42).
 
 ---
 
@@ -402,6 +503,9 @@ class CaseResult(BaseModel):                # ONE (case, repeat) pair
     missing_expected: list[str]             # expected_flags that did NOT fire
     unexpected_fired: list[str]             # fired but not expected, ALL severities — a
                                             #   diagnostic, not a gate
+    usage: TokenUsage | None                # L186: summarize's, every attempt. Both
+    validation_attempts: int | None = Field(ge=1)   # None together, only when a
+                                            #   crash lost the case's cost (§8.7)
     errored_checks: list[str] = Field(default_factory=list)   # v1.3 (L43)
     error: str | None = None                # pipeline failure CODE — never a message (L53)
 
@@ -416,6 +520,11 @@ class CorpusMetrics(BaseModel):             # v1.3 (L3): four numbers, never one
     flaky_cases: list[str]                  # D11: pass fraction strictly between 0 and 1
     # None, not 1.0, over an empty denominator — a vacuous metric is not a perfect one.
 
+class ChecksConfig(BaseModel):              # L187: the knobs that decide verdicts,
+    model_config = ConfigDict(frozen=True)  #   built at the edge only and passed in
+    fuzzy_score_cutoff: float = Field(ge=0, le=100, allow_inf_nan=False)   # §6.3, L105
+    min_quote_content_tokens: int = Field(ge=1)                            # §8.4, L161
+
 class CorpusRunRecord(BaseModel):
     ran_at: datetime
     git_sha: str
@@ -426,11 +535,13 @@ class CorpusRunRecord(BaseModel):
     corpus_version: str
     checks_version: str                     # v1.3 (L45): a lexicon edit changes verdicts;
                                             #   now it changes the lineage too
+    checks_config: ChecksConfig             # L187: so does a knob, so it's recorded
     judge_enabled: bool
     repeats: int                            # D11
     n_cases: int                            # distinct MODEL cases (injected ones are pytest's)
     metrics: CorpusMetrics
-    usage: TokenUsage                       # summarize, incl. failed attempts (L13, L49)
+    usage: TokenUsage                       # summarize, incl. failed attempts (L13, L49):
+                                            #   the sum of the cases' known usages (L186)
     judge_usage: TokenUsage                 # kept separate — the split IS the cost story
     cases: list[CaseResult]                 # n_cases × repeats rows: debug regressions,
                                             #   don't just watch a number move
@@ -457,22 +568,21 @@ SUMMARY_TOOL: ToolParam = {                              # v1.3.2 (L83): typed, 
 }
 ```
 
-### 5.2 The call (async, low-variance, forced)
+### 5.2 The call (async, pinned, forced)
 
 ```python
-class SamplingBody(TypedDict):                           # v1.3.2 (L82): wire fields the SDK
-    temperature: float                                   #   no longer types — typed on OUR side
-
 class CallConfig(TypedDict):                             # v1.3.2 (L83): `**CALL_CONFIG` is
     tool_choice: ToolChoiceToolParam                     #   checked key-by-key against the
     max_tokens: int                                      #   Protocol; a dict[str, object]
-    extra_body: SamplingBody                             #   unpacks as `object` everywhere
+    thinking: ThinkingConfigDisabledParam                #   unpacks as `object` everywhere
+    output_config: OutputConfigParam                     #   (L181: the SDK's param types)
 
 CALL_CONFIG: CallConfig = {                              # v1.3 (L15): everything that shapes
     "tool_choice": {"type": "tool", "name": "emit_soap_note",    # the output, in one place —
                     "disable_parallel_tool_use": True},          # hashed into PROMPT_VERSION
     "max_tokens": settings.max_output_tokens,                    # (§5.4). L75: one block.
-    "extra_body": {"temperature": 0},                            # L82: invariant 3, on the wire
+    "thinking": {"type": "disabled"},                            # L181: pinned, never an
+    "output_config": {"effort": "low"},                          #   API default (inv. 3)
 }
 
 resp = await client.messages.create(
@@ -484,20 +594,25 @@ resp = await client.messages.create(
 )
 ```
 
-- **`temperature=0`** minimizes variance so the eval suite sees stable-enough outputs; the
-  corpus design (§8.7) — now with repeats (D11) — absorbs what variance remains.
-  **It travels in `extra_body` (v1.3.2, L82).** The Python SDK's 1.0 release removed the
-  typed `temperature` / `top_p` / `top_k` parameters — passing `temperature=` is a
-  `TypeError` — while the API still accepts the field on the models this call shape targets.
-  `extra_body` merges it into the request JSON as a top-level field, so invariant 3 holds on
-  the wire. The SDK types `extra_body` as `object`, so `SamplingBody` restores the typing on
-  our side and a test pins the value. It stays inside `CALL_CONFIG`, so it stays inside
-  `PROMPT_VERSION`. The judge client (§8.2) sends it the same way. The tempting "fix" when
-  the SDK rejects the kwarg — deleting it — silently breaks invariant 3; never do it.
-  *Test:* the fake client records `extra_body == {"temperature": 0}` on every `create`
-  call, validation retries included.
+- **No sampling parameters (L181).** The pinned model rejects `temperature` (400,
+  "deprecated for this model", L180), so the call sends no `temperature`, `top_p`, or
+  `top_k`, and no `extra_body` to carry one: L82's route is retired. Variance is
+  measured, not suppressed — the corpus design (§8.7) and its repeats (D11) absorb it.
+  What would otherwise be left to the API is pinned instead. `thinking` is disabled:
+  `max_tokens` covers thinking tokens, so a model that thinks spends §5.2's budget on text
+  no check reads. `effort` is `"low"`, provisional: the baseline's repeats (§14) test it.
+  Both live in `CALL_CONFIG`, so both are inside `PROMPT_VERSION` (invariant 15), typed
+  with the SDK's own param types; `CallConfig.thinking` is the disabled variant alone, so
+  turning thinking on is a type change, not a value edit (mypy rejects
+  `{"type": "enabled", …}` there, measured). The tempting "fix" when the SDK or the API
+  rejects a call-config field — deleting it — hands that field to a default that can change
+  with no diff in the repo (invariant 3); flag it. *Test:* the fake client records
+  `thinking == {"type": "disabled"}` and `output_config == {"effort": "low"}` on every
+  `create` call, validation retries included, and no `temperature`, `top_p`, `top_k`, or
+  `extra_body` — L82's test, inverted.
 - **forced `tool_choice`** means the model must populate the structure; it can't wander
-  into prose.
+  into prose. The pinned model accepts it (L180); Sonnet 5.5, Opus 5.5, and Fable 5.1
+  return 400 for it (found in phase 1's step 3a), which is why §5.5's comparison arm waits.
 - **Parallel tool use is off (L75).** §5.4's API contract: every `tool_use` block in an
   assistant turn must be answered by a `tool_result` for the same id in the next user
   message — and §5.4's loop answers only the first block. Forcing the tool does not cap the
@@ -512,13 +627,21 @@ resp = await client.messages.create(
   the input* (every `source_quote` is a verbatim span), so output size scales with input
   size; `config.py` derives one from the other. Two knobs that must move together are one
   knob. **v1.3.3 (L94):** the ratio is itself a knob, `output_tokens_per_input_char` (`gt=0`,
-  default `0.5` — v1.3.2's `≈ max_input_chars / 2`), and
+  default `1.6`, L184), and
   `max_output_tokens = math.ceil(max_input_chars * output_tokens_per_input_char)` is a
   read-only property on `Settings`, never a field: a field could be set from the environment
   independently of `max_input_chars`, which is two knobs again. The unit crosses from
   characters to tokens on purpose — the ratio absorbs chars-per-token *and* the output's
   overhead beyond the copied quotes (claim text, JSON structure), so it is tuned empirically,
   not derived. It feeds `CALL_CONFIG`, so tuning it changes `PROMPT_VERSION` (invariant 15).
+  **The defaults are measured (L184).** On the smoke encounter (943 chars) the output ran
+  1.40 tokens per input char on Haiku 4.5 (the `v0.2a-safety` run) and 1.19 to 1.32 on the
+  pinned model (four probe calls). At the old default of 0.5 every request got 10,000
+  tokens, so an encounter past about 7,600 chars would truncate: a 502 on input the route
+  accepted. The ratio is 1.6, the pinned model's worst case (1.32) plus about 20%, and
+  `max_input_chars` is 12,500, so `max_output_tokens` is 20,000 — sized to the timeout
+  (next bullet), not to the input the route used to accept. One encounter measured
+  linearity; the model corpus gives the distribution, and the ratio is retuned from it.
   **v1.3 (L16):** the derived value is validated against the model's output ceiling *at
   boot* — raising `max_input_chars` (or the ratio) past what the model can emit fails at
   startup, not per request. The ceiling is
@@ -529,6 +652,15 @@ resp = await client.messages.create(
   *Test:* settings whose derived `max_output_tokens` exceeds the ceiling raise at
   construction; a non-positive `output_tokens_per_input_char` raises at construction;
   `"max_output_tokens" not in Settings.model_fields` (L94).
+- **The budget must fit the timeout (L185).** Three links, one chain: `max_input_chars` ×
+  the ratio is `max_output_tokens`; `max_output_tokens` ÷ the model's output throughput is
+  the longest call; and the longest call must fit inside `llm_timeout_s` with margin, or a
+  truncation's 502 becomes a timeout's 504. At the measured ~320 output tokens/s (L180),
+  20,000 tokens is about 63 s, inside the 90 s timeout. The first link is checked at boot
+  (L16); the third can't be, because throughput is the model's, measured over the network.
+  The smoke run re-measures it at each pin change (L81, L85, §14). The SDK refuses a
+  non-streaming `max_tokens` above 21,333 on its default timeout and skips that check when
+  the client sets one (L180), so it guards nothing here: the client always sets one.
 - **Timeouts and transport retries are explicit (v1.3, L54, L5).** The client is built once
   as `AsyncAnthropic(api_key=settings.anthropic_api_key.get_secret_value(),
   timeout=settings.llm_timeout_s, max_retries=settings.sdk_transport_retries)`. The SDK's default timeout is measured in
@@ -572,12 +704,12 @@ RULES
   one claim; "started amoxicillin, follow up in 2 weeks, denies fever" is three.
 • Never infer, assume, or add facts not present in the source.
 • Preserve negation and absence exactly as written: "denies", "no", "NKDA",
-  "discontinued". A negated finding is a finding; do not drop it and do not
-  flip it.
+  "NKA", "discontinued". A negated finding is a finding; do not drop it and do
+  not flip it.
 • Preserve certainty exactly as written: "likely", "possible", "r/o", "vs",
   "consistent with". Never turn a hedged statement into a definite one.
 • When uncertain, OMIT — except safety-critical facts, which are ALWAYS carried
-  forward: allergies and NKDA, and every medication started, stopped, or
+  forward: allergies, NKDA, NKA, and every medication started, stopped, or
   changed at this visit. Omitting a dangerous fact does not make a note safer;
   it hides the danger from the person signing it.
 
@@ -596,9 +728,12 @@ invented medication is a patient-safety event. **v1.3 (L50) draws its boundary:*
 for *uncertain* content and never for *safety-critical* content. A dropped contraindicated
 prescription is not caution — the clinician signs a note that looks clean while the order
 goes through. Allergies had this exception in v1.2; medications started, stopped, or
-changed now do too, and §8.4 backs the rule with live checks. The S/O/A/P definitions
-encode what actually belongs where — a non-clinician gets the Assessment-vs-Plan boundary
-subtly wrong and never knows.
+changed now do too, and §8.4 backs the rule with live checks. The prompt names NKA beside
+NKDA in both places (L191): NKA is the stronger statement (food and environmental allergens
+too, D10), and whether "allergies" covers "no known allergies" was left to the model.
+*Test:* the never-omit clause names both NKDA and NKA. The S/O/A/P definitions encode what
+actually belongs where — a non-clinician gets the Assessment-vs-Plan boundary subtly wrong
+and never knows.
 
 **DECISION D7 (v1.3, vetoable) — the model is a scribe, not a consultant.** v1.2's prompt
 said "never infer" *and* defined A as "clinical interpretation" — and §8.2's judge existed
@@ -647,9 +782,10 @@ class OrchestratorError(Exception):
     """Base: the orchestrator could not hand over a valid draft."""
     code = "orchestrator_error"
 
-    def __init__(self, msg: str, *, usage: TokenUsage):
+    def __init__(self, msg: str, *, usage: TokenUsage, validation_attempts: int):
         super().__init__(msg)
         self.usage = usage                  # v1.3 (L49): failed calls cost money too
+        self.validation_attempts = validation_attempts   # L186: and how many tried
 
 class ModelOutputError(OrchestratorError):
     """The model is the problem (no block / invalid after retries) → 502."""
@@ -694,18 +830,21 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
                             output_tokens=resp.usage.output_tokens)    #   attempt is paid for
 
         if resp.stop_reason in TRUNCATION_STOPS:
-            # Identical request at temperature=0 → near-identical truncation. Fail fast.
-            raise OutputTruncatedError("output truncated", usage=usage)
+            # Identical request → same budget, input, forced call (L183). Fail fast.
+            raise OutputTruncatedError("output truncated", usage=usage,
+                                       validation_attempts=attempt)
 
         if resp.stop_reason == "refusal":
             # L97: any block was cut off and is never validated → nothing in `messages`
             # changes → an identical request. Fail fast.
-            raise ModelOutputError("refusal under forced tool_choice", usage=usage)
+            raise ModelOutputError("refusal under forced tool_choice", usage=usage,
+                                   validation_attempts=attempt)
 
         tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
         if tool_block is None:
             # Nothing in `messages` changed → an identical non-answer. Fail fast.
-            raise ModelOutputError("no tool_use block under forced tool_choice", usage=usage)
+            raise ModelOutputError("no tool_use block under forced tool_choice",
+                                   usage=usage, validation_attempts=attempt)
 
         try:
             draft = SOAPNoteDraft.model_validate(tool_block.input)   # v1.3 (L12): the try
@@ -734,7 +873,8 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
         )
 
     raise ModelOutputError(
-        f"invalid after {settings.max_validation_retries + 1} attempts", usage=usage
+        f"invalid after {settings.max_validation_retries + 1} attempts", usage=usage,
+        validation_attempts=settings.max_validation_retries + 1,
     ) from last_error
 ```
 
@@ -766,19 +906,21 @@ The error-handling arc: EAFP at the boundary, an exception *hierarchy* that name
 failure domain **and whose fault it is**, `raise … from` preserving the cause, and every
 failure carrying what it cost. The retry rule is one sentence: **retry only when the next
 request differs from the last one** (invariant 16). Truncation, a refusal, and a missing
-block don't change the request → fail fast. A validation error feeds the model its mistake
-→ the request changed → retry. (Transport retries are the SDK's — §5.2, a different loop.)
+block don't change the request → fail fast: an identical request reproduces its cause — the
+budget, the input, the forced call — even when the reply itself varies (L183). A validation
+error feeds the model its mistake → the request changed → retry. (Transport retries are the
+SDK's — §5.2, a different loop.)
 
 ### 5.5 Seam & model choice
 
 - **`client` is injected, and typed (v1.3, L19; L74).** `LLMClient` is a `typing.Protocol`;
   the real `AsyncAnthropic` and the test fake both satisfy it, so mypy checks the seam every
   test depends on. Its `create` declares exactly the keywords the orchestrator passes —
-  `model`, `system`, `tools`, `messages`, `tool_choice`, `max_tokens`, `extra_body` (L82) —
-  typed with the SDK's own param types so contravariance can't bite (allowed: the
-  orchestrator is EDGE, §0). The SDK types `extra_body` as `object`; `CallConfig` (§5.2)
-  carries the precise type on our side. No loose signature checks anything: `**kwargs: Any` alone
-  rejects `AsyncAnthropic`, and `*args: Any, **kwargs: Any` is treated as `...`.
+  `model`, `system`, `tools`, `messages`, `tool_choice`, `max_tokens`, `thinking`,
+  `output_config` (L181) — typed with the SDK's own param types so contravariance can't
+  bite (allowed: the orchestrator is EDGE, §0). `CallConfig` (§5.2) narrows `thinking` to
+  the disabled variant on our side. No loose signature checks anything: `**kwargs: Any`
+  alone rejects `AsyncAnthropic`, and `*args: Any, **kwargs: Any` is treated as `...`.
   `messages` is a read-only `@property` on the Protocol, not a bare attribute: a bare
   protocol attribute is settable, and the SDK's `messages` is a cached property. Tests pass
   a fake returning a canned tool-use block, built from real `anthropic.types.Message`
@@ -794,7 +936,9 @@ block don't change the request → fail fast. A validation error feeds the model
   the right to use it and can prove it. With `usage` summed across validation attempts
   (L13) and the judge's usage kept separately (L7), the claim is *"Haiku holds the safety
   metrics at a measured fraction of Sonnet's cost per note — including the retries it
-  needed."*
+  needed."* The Sonnet arm is decided at phase 3 planning, where the cost line is owed
+  (§14): Sonnet 5.5 rejects the forced call the pinned model accepts (L180), so no one
+  call shape spans the two.
 - **`settings.model` is a pinned model id, never an alias (v1.3.2, L84).** An alias can
   resolve to different weights next month with no diff in the repo — every
   `CorpusRunRecord.model` would say the same thing while meaning different things. v1.3.1
@@ -804,15 +948,16 @@ block don't change the request → fail fast. A validation error feeds the model
   page at the time of the change, never a date-suffix regex — that would reject every
   current-generation id. Upgrading the model is a
   deliberate config change that shows up in `git log`, next to the corpus run that
-  justified it.
+  justified it. The pinned model is `claude-haiku-5-5` (L180), with
+  `model_max_output_tokens` 128000 (`models.retrieve`, L85).
 
 ---
 
 ## 6. Layer 2 — Grounding
 
-**Job:** `ground(draft, raw_text) -> SOAPNote`. The orchestrator *claimed* every claim has
-a source; grounding **proves it** — with **zero LLM calls**, pure deterministic string
-work. It constructs the enriched `ClinicalClaim` for each `ClaimDraft`.
+**Job:** `ground(draft, raw_text, *, config) -> SOAPNote`. The orchestrator *claimed* every
+claim has a source; grounding **proves it** — with **zero LLM calls**, pure deterministic
+string work. It constructs the enriched `ClinicalClaim` for each `ClaimDraft`.
 
 ### 6.1 The matching ladder ⭐ (the layer's keystone)
 
@@ -854,7 +999,7 @@ PUNCT_MAP = {
 @dataclass(frozen=True)
 class NormalizedText:
     text: str
-    index_map: list[int]             # normalized index → original index
+    index_map: tuple[int, ...]       # normalized index → original index (L192: a tuple)
 
     @classmethod
     def of(cls, text: str) -> "NormalizedText":
@@ -871,7 +1016,7 @@ class NormalizedText:
             for c in PUNCT_MAP.get(ch, ch).lower():   # v1.3 (L26): lower() may return MORE
                 out.append(c); index_map.append(i)    #   than one char ("İ" → "i̇"); every
             prev_space = False                        #   char it yields maps to the original
-        return cls("".join(out), index_map)
+        return cls("".join(out), tuple(index_map))   # L192: frozen once, here
 
     def to_original(self, n_start: int, n_end: int) -> tuple[int, int]:
         """Half-open normalized [n_start, n_end) → half-open original span."""
@@ -879,6 +1024,11 @@ class NormalizedText:
             raise ValueError("empty normalized slice")  #   character; at 0, index_map[-1]
         return self.index_map[n_start], self.index_map[n_end - 1] + 1   #   wraps to the end
 ```
+
+**The map is a tuple (L192).** `frozen=True` blocks reassigning `index_map`, not
+`index_map.append(...)`, and a list field makes the generated `__hash__` raise `TypeError`
+(both measured) — L6's smell, one layer down. `of()` builds a list and freezes it once, at
+the end; tests compare the map to tuple literals.
 
 **The off-by-one that lives in `to_original`:** the end is the *last matched character's*
 original index plus one — never `index_map[n_end]`, which may not exist and, when it does,
@@ -925,7 +1075,7 @@ def _snap(raw_text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 def ground_claim(draft: ClaimDraft, raw_text: str, norm: NormalizedText,
-                 *, claim_id: int) -> ClinicalClaim:
+                 *, claim_id: int, config: ChecksConfig) -> ClinicalClaim:
     quote = draft.source_quote             # stripped + non-blank at the boundary (L25, L106)
     base = draft.model_dump() | {"id": claim_id}
 
@@ -941,7 +1091,7 @@ def ground_claim(draft: ClaimDraft, raw_text: str, norm: NormalizedText,
     align = fuzz.partial_ratio_alignment(norm.text, nq)              # Tier 3 — in NORMALIZED
     if align is not None and align.src_end > align.src_start:        #   space (v1.3, L27)
         span = _snap(raw_text, *norm.to_original(align.src_start, align.src_end))  # L108
-        if (align.score >= settings.fuzzy_score_cutoff
+        if (align.score >= config.fuzzy_score_cutoff                 # L187: passed in
                 and _numbers_match(quote, raw_text[span[0]:span[1]])):
             return ClinicalClaim(**base, source_span=span, grounding_score=align.score,
                                  flags=(SafetyFlag.PARAPHRASED,))
@@ -951,10 +1101,11 @@ def ground_claim(draft: ClaimDraft, raw_text: str, norm: NormalizedText,
                                                                      #   the tuning data (L8)
     return ClinicalClaim(**base, flags=(SafetyFlag.UNSUPPORTED,))    # Tier 4
 
-def ground(draft: SOAPNoteDraft, raw_text: str) -> SOAPNote:
+def ground(draft: SOAPNoteDraft, raw_text: str, *, config: ChecksConfig) -> SOAPNote:
     norm = NormalizedText.of(raw_text)                               # once per note
     return SOAPNote(claims=tuple(
-        ground_claim(c, raw_text, norm, claim_id=i) for i, c in enumerate(draft.claims)
+        ground_claim(c, raw_text, norm, claim_id=i, config=config)
+        for i, c in enumerate(draft.claims)
     ))
 ```
 
@@ -1182,7 +1333,8 @@ what a cue governs. "Cue anywhere in the string" gets all of these wrong:
 
 The MVP rule is NegEx-shaped and deterministic: **token-level** cue matching; a
 **pre-negation** cue negates findings within `NEGATION_WINDOW` words after it; a
-**post-negation** cue negates the finding immediately before it; **terminators** ("but",
+**post-negation** cue negates the finding immediately before it, or the list it ends when
+the list opens its clause (L193); **terminators** ("but",
 "however", "although", ";", ".", a line break; `TERMINATORS` lists the rest, L147) close the
 window; **pseudo-negations** ("no increase", "no change", "not only") are matched first and
 suppress the cue. The same window machinery serves the order cues (L124, L125), allergy
@@ -1204,6 +1356,24 @@ fever. A phrase in both cue classes ("denied") is a post-cue when a finding is i
 before it and a pre-cue otherwise, so "pt denied chest pain" and "chest pain denied, fever"
 both read right.
 
+**A post-cue reaches a list that opens its clause (L193).** A negation, stop, or start
+post-cue reaches back over the coordinated run before it — mentions joined by commas,
+"and", "or", "/", or "&", ending at the mention adjacent to the cue — when the run opens
+its clause: it begins at the text's start, or after ".", ";", a line break, or a header's
+colon (up to three words and a colon at a line's start or after a period, the header L128
+reads). Otherwise the cue reaches the adjacent mention only. So "Fever, chills, and nausea
+denied." and "ROS: fever, chills, and nausea denied" negate all three, while "Continue
+lisinopril, metformin held" stops only the metformin and "Reports fever, chills denied"
+negates only the chills: a terminator word ("reports", "endorses", "positive for",
+"continue") closes a window but opens no clause, so a list after it reads adjacent-only
+(§8.8). Prototyped Oct 12: a run with no clause condition over-reached on exactly those
+two, and on the "ROS:" line v1.3's rule fires two false CRITICALs on faithful notes, split
+or merged, and misses a flipped claim; L193 clears both and catches the flip. Certainty
+post-cues stay adjacent. Allergy post-cues keep L128's reach, which asks for no clause
+start: there a miss is a silent CRITICAL and an over-reach a loud one. The run and the
+clause starts are grammar, so they live in `extract.py` beside its join set (`_LIST_REACH`,
+`_CLAUSE_STARTS`, `_JOINS`).
+
 **Finding aliases (L173).** `FINDING_ALIASES` maps a finding's other names onto `FINDINGS`,
 each read at its cue's polarity as the finding is, and one name may stand for two ("N/V" is
 nausea and vomiting). `ABSENT_FINDINGS` maps a word that states its finding absent
@@ -1216,13 +1386,14 @@ is a polarity no claim can share (L139).
 **Medication cues (L124, L125).** A drug mention sees three cue classes at once: negation
 (the `FINDING_NEG_*` tables, shared with findings), stop, and start. Each cue carries its
 class, and the most recent pre-cue's window governs: a new pre-cue of any class replaces an
-open window, so "stop metformin and start lisinopril" stops one drug and starts the other. A
-post-cue's class labels the mention immediately before it. A negated mention is "stopped":
-`MedStatus` has two values, and "not on apixaban" asserts the drug isn't taken, which keeps
-a flip to "Continue apixaban" visible to `med_status_consistency`. `extract_drugs` keeps
-each drug with an active mention; `new_prescriptions` keeps each drug a start cue governs. A
-stop is most often charted after its drug ("lisinopril discontinued"), so `MED_STOP_POST`
-and `MED_START_POST` hold the post-cue forms, as `FINDING_NEG_POST` does for findings.
+open window, so "stop metformin and start lisinopril" stops one drug and starts the other.
+A post-cue's class labels the mention immediately before it, or the list it ends when the
+list opens its clause (L193). A negated mention is "stopped": `MedStatus` has two values,
+and "not on apixaban" asserts the drug isn't taken, which keeps a flip to "Continue
+apixaban" visible to `med_status_consistency`. `extract_drugs` keeps each drug with an
+active mention; `new_prescriptions` keeps each drug a start cue governs. A stop is most
+often charted after its drug ("lisinopril discontinued"), so `MED_STOP_POST` and
+`MED_START_POST` hold the post-cue forms, as `FINDING_NEG_POST` does for findings.
 Narrative past tense ("started", "prescribed") counts as a start: read as nothing, it would
 let a stop's window run on over the next drug ("held metformin, started apixaban"), and the
 cost, an old start ("metformin was started in 2019") in `new_prescriptions`, lands on a
@@ -1396,7 +1567,8 @@ traps in *my* corpus.
 
 ## 8. Layer 4 — Evals ⭐ THE MOAT
 
-**Job:** `await run_checks(note, raw_text, case=None, *, mode, judge=None) -> EvalReport`.
+**Job:** `await run_checks(note, raw_text, case=None, *, mode, config, judge=None)` →
+`EvalReport`.
 Take a finished, *grounded* note and answer one question — **is this clinically safe?**
 — as a verdict you can run. This is the layer a strong generalist cannot build, because
 they don't know what to check for. (Async because the judge is a network call — §8.2. The domain holds a
@@ -1469,13 +1641,13 @@ class Judge(Protocol):
 
 — and `judge_client.py` (edge) implements it over the Anthropic API: one batched call
 carrying every `(text, span)` pair and returning one verdict per pair (L40 — a 20-claim note
-is one call, not twenty), `temperature=0` (via `extra_body`, as §5.2, L82), its own
-`settings.judge_timeout_s`, shorter than the summarize timeout (L54). A judge is constructed per request
-(and per corpus case), so
-its `usage` belongs to exactly one report and lands in `EvalReport.judge_usage` (L7).
-Whether the judge runs is a *parameter* — `run_checks(..., judge=None)` skips it — not a
-global read inside the domain (L49); `settings.judge_enabled` is read only at the edge that
-decides whether to construct one. Tests pass a fake `Judge` with canned verdicts.
+is one call, not twenty), its own call config pinned per invariant 3 (L182; its fields are
+2c's), its own `settings.judge_timeout_s`, shorter than the summarize timeout (L54). A
+judge is constructed per request (and per corpus case), so its `usage` belongs to exactly
+one report and lands in `EvalReport.judge_usage` (L7). Whether the judge runs is a
+*parameter* — `run_checks(..., judge=None)` skips it — not a global read inside the domain
+(L49); `settings.judge_enabled` is read only at the edge that decides whether to construct
+one. Tests pass a fake `Judge` with canned verdicts.
 
 **Negation** is the cleanest illustration of why generic code fails: a naive `"chest pain"
 in summary` matches both "denies chest pain" and "reports chest pain" — it cannot tell a
@@ -1496,7 +1668,8 @@ Invariant 5 protects checks against *misfiling*; its sibling for *omission* is D
 ```python
 @register_check(name="allergy_contraindication", severity=Severity.CRITICAL, origin="source")
 def check_allergy_contraindication(note: SOAPNote, raw_text: str,
-                                   case: EvalCase | None = None) -> list[Finding]:
+                                   case: EvalCase | None = None, *,
+                                   config: ChecksConfig) -> list[Finding]:   # L190
     """Omission behavior (D17):
     - allergy omitted from the note  → still read from raw_text.
     - NEW drug omitted from the note → still read via new_prescriptions(raw_text) (L51);
@@ -1565,7 +1738,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
-| `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `min_quote_content_tokens`, or NKDA or NKA, or absence words alone (D15, L158, L159, L174) | degenerate quotes |
+| `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `config.min_quote_content_tokens`, or NKDA or NKA, or absence words alone (D15, L158, L159, L174) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw names an entity: named(raw) ∪ allergies(raw) ∪ findings(raw) ∪ diagnoses(raw), asserted or excluded (L55, L164) | total omission reading green |
 | `text_entailment_judge` | WARNING | no (LLM) | text entailed by span, one batched call (D8) | drift no lexicon names |
 | `must_preserve` | by `PreserveItem.kind` | **yes** | labels vs extract_*(note), polarity-aware (L36) | any labeled omission |
@@ -1584,7 +1757,8 @@ Four things to read off the table:
    explicit language in a clinical note, and the prompt says *never omit an allergy* — so
    the prompt and the check agree, and the single most dangerous omission gets a live check.
    A dropped NKDA or NKA is a WARNING (D10, L144): undocumented status prompts a re-ask;
-   it is not a missed allergy.
+   it is not a missed allergy. The prompt names both (L191), so the two agree on absence
+   too.
 2. **The claim-local consistency family compares against the span (L35).** v1.2 compared
    `claim.text` to the model's `source_quote`. At Tier 3 those differ by definition:
 
@@ -1670,7 +1844,7 @@ exactly one kind of detection trap — **the danger is in the source**: a faithf
 reproduces "PCN allergy … start amoxicillin," and the check fires. It cannot work for the
 other kind — **the danger is created by the model**: a drug in the text its span doesn't
 say, a flipped negation, an invented assessment. No raw text makes a good model fabricate
-on cue; at `temperature=0` it mostly won't. v1.2's `detect_drug_not_in_quote` and
+on cue; a good model mostly won't. v1.2's `detect_drug_not_in_quote` and
 `detect_negation_flip` would have reported `missing_expected` and failed nearly every run —
 the scorecard saying "the checks don't work" when the truth was "the model gave them nothing
 to catch." And v1.2's coverage rule *required* such traps for every CRITICAL check.
@@ -1800,7 +1974,10 @@ exclusion) and never raise it (§8.7, L38).
 **The registry (v1.1, sharpened v1.2 and v1.3).** Checks self-register; adding a safety check
 is one decorator. The name and severity are declared once and stamped onto every result; the
 registry is a dict that refuses duplicates (pytest re-imports will hand you a doubled
-registry otherwise).
+registry otherwise). **Every check takes `(note, raw_text, case=None, *, config)`
+(L190)**, and a judged check takes `judge` beside it: one signature, so mypy checks every
+registration, and no flag decides which check gets the knobs. A check reads a knob from
+`config`, never from `settings` (L187).
 
 ```python
 # evals/registry.py
@@ -1851,7 +2028,7 @@ def stamp(check: Check, f: Finding) -> EvalResult:
 
 ```python
 async def run_checks(note: SOAPNote, raw_text: str, case: EvalCase | None = None, *,
-                     mode: Literal["production", "ci"],
+                     mode: Literal["production", "ci"], config: ChecksConfig,   # L187
                      judge: Judge | None = None) -> EvalReport:
     selected = [c for c in REGISTRY.values()
                 if (mode == "ci" or not c.requires_reference)
@@ -1860,8 +2037,8 @@ async def run_checks(note: SOAPNote, raw_text: str, case: EvalCase | None = None
     results: list[EvalResult] = []
     for check in selected:
         try:
-            out = (check.fn(note, raw_text, case, judge=judge) if check.needs_judge
-                   else check.fn(note, raw_text, case))
+            out = (check.fn(note, raw_text, case, config=config, judge=judge)   # L190
+                   if check.needs_judge else check.fn(note, raw_text, case, config=config))
             findings = await out if inspect.isawaitable(out) else out
             stamped = [stamp(check, f) for f in findings]        # a bad finding = a bad check
             # L115: a finding naming a claim the note lacks would render nowhere
@@ -1975,49 +2152,63 @@ got it wrong, would production have seen it?* Recall for the fabrication checks 
 this record at all — it is the injected tier, and it is 100% or CI is red. Every metric is
 `None`, not 1.0, over an empty denominator.
 
-**The scorer, with lineage (v1.1; hardened v1.2 and v1.3).**
+**The scorer, with lineage (v1.1; hardened v1.2 and v1.3; at the edge, L188).**
 
 ```python
+# backend/corpus.py — EDGE (L188): settings, the API, git, and runs/ meet here
 async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
                        judge_factory: Callable[[], Judge] | None) -> CorpusRunRecord:
     model_cases = [c for c in cases if c.draft is None]        # injected cases are pytest's
     if not model_cases:
         raise ValueError("no model cases — refusing to emit metrics over nothing")
 
-    sem = asyncio.Semaphore(settings.corpus_concurrency)
+    config = settings.checks_config()                          # L187: built once,
+    sem = asyncio.Semaphore(settings.corpus_concurrency)       #   here, and recorded whole
 
-    async def run_one(case: EvalCase, repeat: int) -> tuple[CaseResult, TokenUsage, TokenUsage]:
+    async def run_one(case: EvalCase, repeat: int) -> tuple[CaseResult, TokenUsage]:
         async with sem:
             judge = judge_factory() if judge_factory else None   # per case: its usage is its own
+            result: SummarizationResult | None = None
             try:
                 result = await summarize(case.raw_text, client=client)
-                note   = ground(result.draft, case.raw_text)
-                report = await run_checks(note, case.raw_text, case, mode="ci", judge=judge)
+                note   = ground(result.draft, case.raw_text, config=config)
+                report = await run_checks(note, case.raw_text, case, mode="ci",
+                                          config=config, judge=judge)
             except OrchestratorError as e:
-                return errored_case(case, repeat, e.code), e.usage, TokenUsage()
+                failed = errored_case(case, repeat, e.code, usage=e.usage,
+                                      validation_attempts=e.validation_attempts)
+                return failed, TokenUsage()
             except Exception as e:     # v1.3 (L46): parity with run_checks — an APIError on
                 logger.error(          #   one case can't escape gather and discard the rest
                     "case_crashed code=case_errored case=%s exc_type=%s frames=%s",
                     case.id, type(e).__name__, format_frames(e))         # L113: L69's form
-                return errored_case(case, repeat, type(e).__name__), TokenUsage(), TokenUsage()
-        return (case_result(case, repeat, report),      # status via case_verdict()
-                result.metadata.usage, report.judge_usage)
+                # L186: a crash after summarize returned keeps the cost it already knows
+                meta = result.metadata if result is not None else None
+                failed = errored_case(
+                    case, repeat, type(e).__name__,
+                    usage=None if meta is None else meta.usage,
+                    validation_attempts=None if meta is None else meta.validation_attempts,
+                )
+                return failed, TokenUsage()
+        return (case_result(case, repeat, report, result.metadata),   # via case_verdict()
+                report.judge_usage)
 
-    triples = await asyncio.gather(*(run_one(c, r) for c in model_cases
-                                     for r in range(settings.corpus_repeats)))   # D11
-    results = [cr for cr, _, _ in triples]
+    pairs = await asyncio.gather(*(run_one(c, r) for c in model_cases
+                                   for r in range(settings.corpus_repeats)))   # D11
+    results = [cr for cr, _ in pairs]
     record = CorpusRunRecord(
         ran_at=datetime.now(timezone.utc),
         git_sha=current_git_sha(), git_dirty=git_is_dirty(),        # L45
         model=settings.model, prompt_version=PROMPT_VERSION,        # L46: known without a
         corpus_version=corpus_version(cases),                       #   successful call, so an
         checks_version=CHECKS_VERSION,                              #   all-failed run is still
-        judge_enabled=judge_factory is not None,                    #   recorded — it's the run
-        repeats=settings.corpus_repeats,                            #   you most need to see
+        checks_config=config,                                       #   recorded: the one
+        judge_enabled=judge_factory is not None,                    #   most need to see
+        repeats=settings.corpus_repeats,
         n_cases=len(model_cases),
         metrics=corpus_metrics(results),
-        usage=sum((u for _, u, _ in triples), TokenUsage()),
-        judge_usage=sum((j for _, _, j in triples), TokenUsage()),
+        usage=sum((r.usage for r in results if r.usage is not None), TokenUsage()),  # L186
+        judge_usage=sum((j for _, j in pairs), TokenUsage()),
         cases=results,
     )
     append_jsonl(settings.runs_path, record)
@@ -2030,20 +2221,39 @@ exception on one case (an upstream `APIError`) no longer escapes `gather` and di
 other 23; and a run where every case failed still writes its record, because lineage no
 longer depends on a successful call.
 
-`CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`, and
-`grounding.py`, computed at import — derived like every other version (invariant 15).
-Source is the `.py` files: the case YAMLs have `corpus_version`, and
-`runs/corpus_runs.jsonl` changes with every run. Each file enters with its path relative
-to `backend/` and its content's hash, sorted by path, so a moved or renamed file moves the
+**Why `score_corpus` is an edge module (L188).** It reads `settings`, calls the API through
+`summarize`, shells out to git, and writes `runs/`: every side effect the domain refuses.
+v1.3 filed it in `evals/runner.py`, which left `evals/` importing the config. Now
+`corpus.py` builds the config (`settings.checks_config()`) and is where a real run gets its
+client (`get_client()`, §5.2); `evals/runner.py` keeps the pure parts — `run_checks`,
+`case_verdict`, `corpus_metrics`, `case_result`, `errored_case`, `CHECKS_VERSION`. An AST
+test holds the line (§11). Each case carries its own cost (L186): `CaseResult.usage` and
+`.validation_attempts` come from `RunMetadata` on success, from the `OrchestratorError` on
+a pipeline failure, and from the `RunMetadata` again when a crash comes after `summarize`
+returned. They are `None` only when a crash lost the case's cost (an `APIError` inside
+`summarize`), so the record's `usage` is the sum of the known costs: a floor, never a
+guess.
+
+`CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`,
+`grounding.py`, and `schemas.py` (L189), computed at import — derived like every other
+version (invariant 15). `schemas.py` holds verdict logic (`all_critical_passed`, L102, and
+`EvalResult`'s errored-never-passes validator), so it joins; it also moves the version on
+edits that change no verdict, which errs in the safe direction. The knobs that decide
+verdicts aren't source, so they are recorded whole beside the hash (`checks_config`, L187),
+and `score_corpus`'s source left the hash when it left `evals/` (L188): orchestration
+decides no verdict. Source is the `.py` files: the case YAMLs have `corpus_version`, and
+`runs/corpus_runs.jsonl` changes with every run. Each file enters with its path relative to
+`backend/` and its content's hash, sorted by path, so a moved or renamed file moves the
 version; twelve hex digits, as `prompt_version` (L114). v1.2 hashed the model, the prompt,
 and the corpus but not the checks: editing a lexicon changed verdicts with every lineage
 field unchanged.
 
-**DECISION D11 (v1.3, vetoable) — repeats.** `temperature=0` is not deterministic (§3), and
-at n = 24 with one run, a single flaky case moves a rate by ~4 points — noise that reads as a
-regression. `settings.corpus_repeats` (default 3; cost × k) runs every model case k times;
-`CaseResult` rows are per (case, repeat); `CorpusMetrics.flaky_cases` names every case whose
-pass fraction is strictly between 0 and 1. The README states n and k beside every number.
+**DECISION D11 (v1.3, vetoable) — repeats.** Replies vary from run to run, and no sampling
+parameter is sent to narrow them (§3, L181); at n = 24 with one run, a single flaky case
+moves a rate by ~4 points — noise that reads as a regression. `settings.corpus_repeats`
+(default 3; cost × k) runs every model case k times; `CaseResult` rows are per (case,
+repeat); `CorpusMetrics.flaky_cases` names every case whose pass fraction is strictly
+between 0 and 1. The README states n and k beside every number.
 
 **DECISION D5 (v1.2, amended v1.3) — where the lineage lives.** Corpus runs happen locally,
 and `corpus_runs.jsonl` is committed *in the same commit* as the prompt/model change that
@@ -2104,14 +2314,21 @@ know, stated plainly (v1.3):
   "chest pain" in "Denies chest pain"), and so does a slash abbreviation, which counts two
   ("Reports N/V" citing "N/V" in "Denies N/V", measured, L175); and the judge is
   WARNING-tier (invariant 7). The fix reads a span in its sentence, which changes what L35
-  compares, so it waits for v1.4.
+  compares, so it waits for a later minor revision.
 - **A cue the scope rule can't reach** (L168). A mention takes one label, and a post-cue
-  reaches only the mention directly before it (§7, L122), so "Apixaban held, then restarted"
-  reads stopped: a faithful "Continue apixaban" fires `med_status_consistency`, a CRITICAL,
-  and "Hold apixaban", which drops the restart, passes it (measured). A negation before a
-  start form no table spells as a refusal reads as the start ("Not starting metformin"). The
-  fix reads a mention's last status cue in its clause and lets a negation govern a start
-  cue, which changes the scope rule, so it waits for v1.4.
+  reaches back from the mention directly before it (§7, L122, L193), never past a word, so
+  "Apixaban held, then restarted" reads stopped: a faithful "Continue apixaban" fires
+  `med_status_consistency`, a CRITICAL, and "Hold apixaban", which drops the restart,
+  passes it (measured). A negation before a start form no table spells as a refusal reads
+  as the start ("Not starting metformin"). The fix reads a mention's last status cue in its
+  clause and lets a negation govern a start cue, which changes the scope rule, so it waits
+  for a later minor revision.
+- **A list after a word** (L193). A negation, stop, or start post-cue reaches back over a
+  list only when the list opens its clause (§7), so a list after a word reads
+  adjacent-only: "no fever, but chills, nausea denied" reads the chills present. Reaching
+  further without the clause condition read "Continue lisinopril, metformin held" as
+  stopping the lisinopril and "Reports fever, chills denied" as the fever absent
+  (prototyped), a false CRITICAL on each faithful note.
 - **A word that states an absence** (L173, L174). An `ABSENT_FINDINGS` word reads absent
   under any cue, so a double negation the tables don't spell reads absent ("denies chills,
   not afebrile"), and so does the word cut from one: "Afebrile" citing "afebrile" in "no
@@ -2172,19 +2389,21 @@ async def summarize_endpoint(
 ):
     note_id = uuid4()
     result = await summarize(req.raw_text, client=client)                     # orchestrator
-    note   = ground(result.draft, req.raw_text)                               # grounding
+    config = settings.checks_config()                                         # L187
+    note   = ground(result.draft, req.raw_text, config=config)                # grounding
     report = await run_checks(note, req.raw_text, mode="production",          # evals (live subset)
-                              judge=judge)
+                              config=config, judge=judge)
     background_tasks.add_task(persist, note_id, req.raw_text, note, report, result.metadata)
     return SummarizeResponse(note_id=note_id, note=note, report=report,       # sink runs AFTER this
                              metadata=result.metadata)
 ```
 
 A handful of lines that wire the pipeline in order. **The thinness is the signal** — a
-six-line route instead of a 200-line god-handler is the visual proof of "dependencies point
-inward." `persist` rides a `BackgroundTask`, so "the sink runs after the response" is the
-framework's execution order, not a promise the route keeps (§9.6). The id is minted in the
-route because the response must carry it and the response is built before the row exists.
+seven-line route instead of a 200-line god-handler is the visual proof of "dependencies
+point inward." `persist` rides a `BackgroundTask`, so "the sink runs after the response" is
+the framework's execution order, not a promise the route keeps (§9.6). The id is minted in
+the route because the response must carry it and the response is built before the row
+exists.
 
 **Phase 1 is smaller, and says so (v1.3; L76).** No grounding, no report: the phase-1 route
 returns `{draft: SOAPNoteDraft, metadata: RunMetadata}`. The type name tells the reader the
@@ -2570,16 +2789,20 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   read-only property, validated against the model's ceiling at boot, L16, L94);
   `max_validation_retries` (L5); `sdk_transport_retries`;
   `llm_timeout_s`, `judge_timeout_s` (L54); `fuzzy_score_cutoff`; `min_input_chars`;
-  `min_quote_content_tokens` (D15; default 2, L161); `judge_enabled`; `persist_enabled`;
-  `corpus_concurrency`; `corpus_repeats` (D11); `daily_token_budget`, `max_request_tokens`
-  (L56); `rate_limit`; `forwarded_allow_ips` (L58); `runs_path`; CORS origins. Clinical
-  knowledge — including `NEGATION_WINDOW` — lives in `clinical/lexicons.py`. The literal
-  numbers in this spec's code samples are `settings.*` in the repo.
+  `min_quote_content_tokens` (D15; default 2, L161) — the cutoff and the token minimum
+  reach the domain only through `settings.checks_config()`, called at the edge (L187);
+  `judge_enabled`; `persist_enabled`; `corpus_concurrency`; `corpus_repeats` (D11);
+  `daily_token_budget`, `max_request_tokens` (L56); `rate_limit`; `forwarded_allow_ips`
+  (L58); `runs_path`; CORS origins. Clinical knowledge — including `NEGATION_WINDOW` —
+  lives in `clinical/lexicons.py`. The literal numbers in this spec's code samples are
+  `settings.*` in the repo.
 - **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
   `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
   `min_input_chars` `ge=1`, `fuzzy_score_cutoff` `ge=0, le=100` and finite (L105),
   `min_quote_content_tokens` `ge=1` (L161), and a validator rejects
-  `min_input_chars >= max_input_chars`. A negative
+  `min_input_chars >= max_input_chars`. `ChecksConfig` (§4.2) re-declares its two fields'
+  bounds, so a config built in a test can't go out of range either; a test pins the two
+  copies equal (L187). A negative
   `max_validation_retries` would make §5.4's loop run zero times and report a model failure
   the model never had the chance to cause. `tests/conftest.py` sets a dummy
   `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret, because no test
@@ -2639,9 +2862,10 @@ in the push workflow — it spends real money.
   correctly shaped `tool_result` (`tool_use_id`, `is_error=True`); `max_tokens` and
   `model_context_window_exceeded` each fail fast as `OutputTruncatedError` (L88); a refusal
   with a tool block fails fast as `ModelOutputError`, and every `StopReason` value has a
-  decided path (L97); `extra_body` carries `temperature=0` on every attempt (L82); a missing
-  block fails fast; retries exhausted; usage summed across attempts; a
-  `RunMetadata` construction error is NOT fed back to the model (L12).
+  decided path (L97); every attempt carries the pinned `thinking` and `output_config` and
+  no sampling parameter or `extra_body` (L181); a missing block fails fast; retries
+  exhausted; usage summed across attempts; a `RunMetadata` construction error is NOT fed
+  back to the model (L12).
 - **HTTP mapping (phase 1)** — every §9.4 row reachable in phase 1 (L73's list), including
   504 on a client timeout, and no body ever containing exception text (L53).
 - **Phase-1 boundary decisions** — each names its test where it is specified: §9.4 (L69,
@@ -2662,6 +2886,9 @@ in the push workflow — it spends real money.
 - **Omission law (D17)** — for each row of the §8.4 omission table, a test that omits the
   input and asserts the stated behavior.
 - **Frozen spine** — assigning to or appending to a `ClinicalClaim`'s fields raises (L6).
+- **Import boundary (L188)** — an AST walk over `grounding.py`, `evals/`, `schemas.py`, and
+  `tracebacks.py` finds no import of `backend.config`, `anthropic`, or `fastapi`, at module
+  level or inside a function.
 - **Judge plumbing (phase 2c)** — a fake `Judge` that times out yields an errored WARNING,
   the note is returned, and `all_critical_passed` is unchanged.
 - **The sink actually sinks (phase 3)** — the integration test asserts a `notes` row with the
@@ -2725,10 +2952,11 @@ notepilot/
 │   │   ├── registry.py     ← Check + Finding (check-internal, sanctioned) · @register_check · stamp
 │   │   ├── judge.py        ← the Judge protocol — a domain interface (phase 2a, L111)
 │   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · their helpers (§7, §8.4)
-│   │   ├── runner.py       ← run_checks · case_verdict · corpus_metrics · score_corpus · CHECKS_VERSION
+│   │   ├── runner.py       ← run_checks · case_verdict · corpus_metrics · CHECKS_VERSION (pure)
 │   │   ├── loader.py       ← YAML → EvalCase; validates expected_flags; corpus_version()
 │   │   ├── cases/          ← one YAML per case: model cases AND injected cases (§8.5)
 │   │   └── runs/           ← corpus_runs.jsonl — committed from local runs (D5)
+│   ├── corpus.py           ← EDGE (phase 2b, L188). score_corpus: settings · the API · git · runs/
 │   ├── api.py              ← EDGE. routes (composition root) · handlers · logging · rate limit · budget
 │   ├── static/index.html   ← phase 1 only: the static display (§9.10, L68); frontend/ replaces it
 │   └── db.py               ← EDGE (phase 3). SessionLocal, NoteRecord, persist()
@@ -2744,9 +2972,10 @@ notepilot/
 ```
 
 **The three documents live at the root, together (v1.3.2, L93).** CLAUDE.md names the other
-two by bare filename, so co-location is what makes those references resolve; a spec change
-that touches an invariant lands with CLAUDE.md's update in one commit (CLAUDE.md, "The spec
-and this file move together").
+two by bare filename, so co-location is what makes those references resolve. The
+invariants' statements live in §3.1; a spec change that adds, removes, renumbers, or
+retitles one, or changes its standing instruction in CLAUDE.md, lands with CLAUDE.md's
+update in one commit (L196; CLAUDE.md, "The spec and this file move together").
 
 **The law made visible:** dependencies point *inward* toward `schemas.py`, and the
 DOMAIN / EDGE labels say where a vendor's format may appear (§0). `rag/` does not exist until
@@ -2757,7 +2986,7 @@ phase 3 (D3). Each module lands in the phase whose exit criteria need it (§14),
 data shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`)
 live in `api.py`. Layer-internal shapes never cross a layer boundary and live in the layer
 that uses them (L104): `Finding` and `Check` in `evals/registry.py`, `NormalizedText` in
-`grounding.py` (§6.2), and the orchestrator's `SamplingBody` and `CallConfig` (§5.2).
+`grounding.py` (§6.2), and the orchestrator's `CallConfig` (§5.2).
 Extraction's result types (`Dose`, `MedStatus`, `Certainty`) live in `clinical/extract.py`
 and cross into `evals/`, which imports them from there (L132): invariant 13 keeps `clinical/`
 from importing the spine, so they can't live in `schemas.py`. Anything else outside
@@ -2817,13 +3046,15 @@ and summarize one synthetic encounter (zero PHI, the same rule as `evals/cases/`
 `GET /`. Record `model`, `prompt_version`, `validation_attempts`, and `usage` from the
 response in the annotated tag message, plus `anthropic.__version__` (the SDK shapes the
 wire, L82) and `models.retrieve(settings.model).max_tokens` beside
-`settings.model_max_output_tokens` — the two must match (L85). One call,
+`settings.model_max_output_tokens` — the two must match (L85) — and the output
+throughput (`usage.output_tokens` over the call's wall time) against §5.2's timeout
+bound (L185). One call,
 cents, confirmed by Cal before it runs — a smoke run, not a corpus run. Repeat at any later
-phase close that changes the request shape. 2a's close runs one although the request shape
-is unchanged (L179): the response and the page are new, and real model output meets
-`ground()` and `run_checks` for the first time. The tag records what it renders; a finding
-it shows is recorded, not fixed. No automated test, by design: the annotated tag is the
-record, audited alongside the lines above.
+phase close that changes the request shape, and at every change of the pinned model (L185).
+2a's close runs one although the request shape is unchanged (L179): the response and the
+page are new, and real model output meets `ground()` and `run_checks` for the first time.
+The tag records what it renders; a finding it shows is recorded, not fixed. No automated
+test, by design: the annotated tag is the record, audited alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
@@ -2857,6 +3088,8 @@ record, audited alongside the lines above.
 ### Phase 2b — the regression thesis goes live · `v0.2b-corpus`
 
 ```
+□ v1.4 implemented before any model case (L194), then one live smoke run on the pinned
+  model in L81's form: the new prompt_version, the ceiling (L85), throughput (L185)
 □ ≥ 24 model cases, ≥ 6 per species, explicit species (L9) — incl.
   control_pcn_allergy_azithro, control_hedged_assessment, control_empty_assessment (L23)
 □ one planted danger per trap (D16), enforced in review
@@ -2865,9 +3098,11 @@ record, audited alongside the lines above.
   must_not_add registered with requires_reference · must_preserve joins
   detect_dropped_allergy's expected_flags (L145)
 □ corpus_version, over the cases 2a's loader reads (L116)
-□ score_corpus: concurrency · per-case catch parity + all-failed runs recorded (L46) ·
-  k repeats + flaky_cases (D11) · failed-attempt usage counted (L49)
-□ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · CorpusMetrics (L3)
+□ score_corpus in corpus.py, edge (L188): concurrency · per-case catch parity + all-failed
+  runs recorded (L46) · k repeats + flaky_cases (D11) · failed-attempt usage counted (L49),
+  per case (L186)
+□ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · checks_config (L187) ·
+  CorpusMetrics (L3)
 □ one baseline run on the chosen pinned model, committed with its change (D5)
 □ README scorecard sentence (§2) drafted from real numbers, with n and k
 ```
@@ -2876,7 +3111,7 @@ record, audited alongside the lines above.
 
 ```
 □ judge_client.py (edge), implementing 2a's Judge protocol (L111): one batched call (L40),
-  temperature=0, judge_timeout_s (L54)
+  its own call config pinned per invariant 3 (L182), judge_timeout_s (L54)
 □ text_entailment_judge (D8): WARNING, needs_judge
 □ judge usage → EvalReport.judge_usage → CorpusRunRecord.judge_usage (L7)
 □ test: judge timeout → errored WARNING, note returned, CRITICAL verdict unchanged
@@ -2905,7 +3140,7 @@ retrieval muscle, a *deepening*, not MVP bloat. The spec describes it in one par
 its exit criteria begin with a design:
 
 ```
-□ spec v1.4: a RAG section designed and reviewed BEFORE any code
+□ a minor revision: a RAG section designed and reviewed BEFORE any code (L194)
 □ retrieval corpus public or licensed · zero PHI
 □ each RAG-backed check placed on §8.1's trust axis (live vs CI-only) before it ships
 □ retrieval quality measured on a labeled set before it gates anything · invariant 7 if an
@@ -2974,7 +3209,7 @@ The whole project. Per-phase exit criteria live in §14.
       the same deploy)
 - [ ] `schemas.py` is the only thing the domain layers import from each other;
       `clinical/extract.py` imports only `lexicons.py`, which imports nothing; vendor
-      formats appear only in EDGE modules
+      formats appear only in EDGE modules, and the domain reads no settings (L188)
 - [ ] Grounding is pure + unit-tested: ladder + offset mapping (property-based, non-ASCII) +
       punctuation folding + numeric guard + normalized, word-snapped Tier 3 + flag cases
 - [ ] `ClinicalClaim` and `SOAPNote` are frozen with tuple collections (D6 enforced)
@@ -2987,9 +3222,10 @@ The whole project. Per-phase exit criteria live in §14.
 - [ ] `case_verdict` consumes `expected_flags`, handles errored and N/A, and is unit-tested
       (incl. the inversion case: a fired expected flag = a PASS)
 - [ ] `score_corpus` emits a `CorpusRunRecord` with `git_sha` + `git_dirty`,
-      `checks_version`, `judge_enabled`, k repeats, the four metrics, usage split from judge
-      usage, and a per-(case, repeat) breakdown; survives failing cases; records all-failed
-      runs; committed per D5; rerun on every prompt / model / check change
+      `checks_version`, `checks_config`, `judge_enabled`, k repeats, the four metrics,
+      usage split from judge usage, and a per-(case, repeat) breakdown; survives failing
+      cases; records all-failed runs; committed per D5; rerun on every prompt / model /
+      check change
 - [ ] `prompt_version`, `corpus_version`, `checks_version` are derived hashes;
       `settings.model` is a pinned model id, never an alias (L84)
 - [ ] `all_critical_passed` guards vacuous truth; `run_checks` fails closed with `errored`

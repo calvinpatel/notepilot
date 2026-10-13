@@ -20,8 +20,9 @@ the spec.
   code follows the patched text.
 - If the spec itself seems wrong or has a gap, say so directly: finding flaws is welcome,
   hiding them is not.
-- **The spec and this file move together.** A spec revision that touches an invariant or
-  a module boundary lands in the same commit as this file's update.
+- **The spec and this file move together.** A spec revision changes this file only when an
+  invariant is added, removed, renumbered, or retitled, or its standing instruction here
+  changes; then both land in one commit.
 
 ## Working relationship
 
@@ -48,110 +49,51 @@ with no restricted zones: write code anywhere in the repo when asked.
 
 ## Architectural invariants (never violate, flag any code that does)
 
-1. **Dependencies point inward at `schemas.py`; vendors stay at the edge.** `schemas.py`
-   imports nothing; everything imports it. DOMAIN modules (`schemas.py`, `tracebacks.py`,
-   `grounding.py`, `clinical/`, `evals/`) know nothing about FastAPI, Postgres, or
-   Anthropic. EDGE modules (`orchestrator.py`, `judge_client.py`, `api.py`, `db.py`) are
-   adapters — the only places a vendor's wire format may appear. When the domain needs a
-   network call it declares a `Protocol` (`evals/judge.py: Judge`) and an edge module
-   implements it (spec §0, L17). If a change would make a domain module import an edge
-   module, stop and flag it.
-2. **Grounding is pure and makes zero LLM calls.** Deterministic string work only.
-   Judgment to the model, mechanics to code — never ask the LLM to count characters,
-   find offsets, or compare drug names.
-3. **`temperature=0` on every pipeline LLM call — summarize AND the judge.** Correctness
-   requirement (evals need stable outputs), not a preference. Forced `tool_choice` on
-   the summarize call. SDK ≥ 1.0 removed the typed parameter, so it travels in
-   `extra_body` (spec §5.2, L82). If the SDK rejects a sampling kwarg, never "fix" it by
-   deleting the field — that silently breaks this invariant; flag it.
-4. **Errors-as-values inside the pipeline; raise at boundaries.** An ungroundable claim
-   is a *result* (`UNSUPPORTED` flag), not an exception. A model that can't produce a
-   valid draft IS an exception at the orchestrator boundary: `OrchestratorError` →
-   `ModelOutputError` → `OutputTruncatedError`, each carrying the `usage` it cost; EAFP;
-   `raise … from`. Once a valid draft exists, nothing reaches the user as an exception:
-   grounding returns flags, checks fail closed, persist logs and swallows. Knowing which
-   is which is the whole skill — enforce it in review.
-5. **Safety extraction scans the WHOLE note.** The S/O/A/P section is the model's
-   judgment call, display-only. Any safety check that reads only one section is a bug.
-6. **Flag ownership is a write boundary (D6), enforced by the types.** Grounding owns
-   `ClinicalClaim.flags` (`UNSUPPORTED`, `PARAPHRASED`) and nothing else ever writes to
-   it. `ClinicalClaim` and `SOAPNote` are frozen; `flags` and `claims` are tuples. Evals
-   emit `EvalResult`s that *reference* claims via `claim_ids`; they consume grounding's
-   flags, never re-derive them, never mutate a claim. Never loosen `frozen` to make a
-   check easier to write.
-7. **LLM-as-judge is never the sole gate on a CRITICAL check.** The judge is WARNING-tier;
-   a judge that errors or times out changes no CRITICAL verdict.
-8. **Persistence is a sink.** `persist()` runs as a background task after the response
-   is assembled, in its own session; a write failure is logged, never 500s the user.
-   The pipeline never reads from the DB.
-9. **Spans are half-open `[start, end)`** — Python slicing convention, always.
-10. **No magic numbers.** Operational knobs → `config.py` (pydantic-settings). Clinical
-    knowledge — including `NEGATION_WINDOW` — → `clinical/lexicons.py`.
-11. **Corpus scoring consumes `expected_flags` via `case_verdict()`** (spec §8.7) — a
-    tri-state: `passed` / `failed` / `not_applicable`. A fired expected flag is a PASS
-    for a detection trap. `all_critical_passed` alone is NEVER the per-case verdict —
-    "simplifying" back to it silently inverts every detection trap (caught in v1.1
-    review; do not reintroduce it). An errored check never satisfies an expected flag
-    (L43); an expected check that didn't run is `not_applicable`, never `failed` (L44).
-12. **Empty never reads as safe.** `all_critical_passed` guards vacuous truth — zero
-    CRITICAL results returns False. A check that raises inside `run_checks` becomes
-    `EvalResult(passed=False, errored=True)` — never a skipped check, never a 500, never
-    a magic `detail` string. The same law, other roads: an empty note from clinical
-    input is a WARNING, not green; "not checked" never renders as "passed"; a metric over
-    an empty denominator is `None`, not 1.0; a case scored on a report that ran no check is
-    `not_applicable`, never `passed` (L117).
-13. **`clinical/` imports nothing from the spine.** `extract.py` imports only
-    `lexicons.py`; `lexicons.py` imports nothing (severities stored as plain strings).
-    Extractors take plain strings and return multi-valued results; the checks run the
-    same extractor over `claim.text`, the source span, and `raw_text`, and compare.
-14. **Grounding proves the quote exists; the consistency family proves the text agrees
-    with the SOURCE SPAN** — `raw_text[claim.source_span]`, never the model's
-    `source_quote` (spec §6.4, L35). At Tier 3 the quote is the model's claim about the
-    source; the span is the source. A Tier 1 exact match is not evidence the text is true.
-15. **Lineage is derived, never declared.** `prompt_version` = hash(system prompt + tool
-    schema + correction template + call config); `corpus_version` = hash(cases dir);
-    `checks_version` = hash(the `.py` files in `evals/` + `clinical/` + `grounding.py`,
-    L114); `settings.model` = a pinned model id, never an alias (spec §5.5, L84 —
-    dateless ids from the 4.6 generation on are pinned; never validate with a date
-    regex); `git_dirty` recorded on every corpus run. A hand-bumped version string is a
-    lie waiting for someone to forget.
-16. **Retry only when the next request differs from the last.** Validation error → the
-    model sees its mistake → retry (`max_validation_retries`, §5.4). `max_tokens` or a
-    missing block → identical request at `temperature=0` → fail fast. Transport retries
-    (429/5xx) are the SDK's (`sdk_transport_retries`, §5.2) — a different loop with a
-    different name. Never zero the SDK's to "enforce" this invariant.
-17. **The omission law (D17).** Every CRITICAL check documents, per input, what happens
-    when the model omits that input — a docstring and a test. An omission that silences
-    the check must be covered by another live check or declared a CI-only gap. A new
-    CRITICAL check without its omission row is incomplete (spec §8.4).
-18. **Scribe, not consultant (D7, L50).** The prompt never lets the model state a
-    clinical judgment the clinician didn't: Assessment is clinician-stated, certainty
-    verbatim, patient self-diagnosis is Subjective. "Omit when uncertain" never applies
-    to safety-critical facts — allergies/NKDA and every medication started, stopped, or
-    changed at this visit. Review every prompt edit against this.
-19. **PHI never leaves through the side doors.** Raw text, note content, and exception
-    messages that may carry them never reach a log line or an HTTP body. Error bodies are
-    `{error, request_id}`; `OrchestratorError` is logged by `code` without `exc_info`;
-    a crashed check logs its name, type, and frames, never its message or `exc_info`
-    (L113); validation errors are stringified with `include_input=False` (spec §9.4,
-    §9.8). This is the runtime twin of "zero PHI in the repo."
-20. **A test's tier is decided by what's stochastic in its path.** Injected cases
-    (`EvalCase.draft` set) are deterministic and run free on every commit; model cases
-    are paid. A danger the *model* creates (a fabrication, a flip) is tested by injecting
-    it — never by a model case that hopes the model will make it (spec §8.5, L42).
+Each invariant's statement lives in the spec, §3.1: read it there. The numbers and titles
+match; a line here adds Claude Code's standing instruction where the invariant has one.
+
+1. **Dependencies point inward at `schemas.py`; vendors stay at the edge.** → §3.1. If a
+   change would make a domain module import an edge module, stop and flag it.
+2. **Grounding is pure and makes zero LLM calls.** → §3.1.
+3. **Every pipeline LLM call pins what shapes its output — summarize AND the judge.** →
+   §3.1. If the SDK or the API rejects a call-config field, never "fix" it by deleting the
+   field; flag it, because removing one is a spec change.
+4. **Errors-as-values inside the pipeline; raise at boundaries.** → §3.1. Knowing which is
+   which is the whole skill — enforce it in review.
+5. **Safety extraction scans the WHOLE note.** → §3.1.
+6. **Flag ownership is a write boundary (D6), enforced by the types.** → §3.1. Never loosen
+   `frozen` to make a check easier to write.
+7. **LLM-as-judge is never the sole gate on a CRITICAL check.** → §3.1.
+8. **Persistence is a sink.** → §3.1.
+9. **Spans are half-open `[start, end)`** → §3.1.
+10. **No magic numbers.** → §3.1.
+11. **Corpus scoring consumes `expected_flags` via `case_verdict()`** → §3.1.
+    `all_critical_passed` alone is NEVER the per-case verdict — "simplifying" back to it
+    silently inverts every detection trap (caught in v1.1 review; do not reintroduce it).
+12. **Empty never reads as safe.** → §3.1.
+13. **`clinical/` imports nothing from the spine.** → §3.1.
+14. **Grounding proves the quote exists; the consistency family proves the text agrees with
+    the SOURCE SPAN** → §3.1.
+15. **Lineage is derived, never declared.** → §3.1.
+16. **Retry only when the next request differs from the last.** → §3.1. Never zero the
+    SDK's transport retries to "enforce" this invariant.
+17. **The omission law (D17).** → §3.1.
+18. **Scribe, not consultant (D7, L50).** → §3.1. Review every prompt edit against this.
+19. **PHI never leaves through the side doors.** → §3.1.
+20. **A test's tier is decided by what's stochastic in its path.** → §3.1.
 
 ## Changing the spec
 
 Implementation truth lives in the spec. This file holds instructions, and it has no
 staging area for decisions.
 
-- **Patch (v1.3.x)** — fills a detail the spec leaves unspecified, or resolves a conflict
+- **Patch (v1.x.y)** — fills a detail the spec leaves unspecified, or resolves a conflict
   between two spec statements (cite both, name the winner, say why). Cal approves the
   resolution first. Then edit the spec **in place**, in the section the decision belongs
   to; bump the header version; add a changelog entry under the next `L#`, with severity.
   It lands in the same commit as the code that depends on it.
 - **Minor (v1.x)** — anything that changes a statement nothing else in the spec
-  contradicts. That is an amendment: flag it and log it on the GitHub issue "spec v1.4:
+  contradicts. That is an amendment: flag it and log it on the GitHub issue "spec:
   deferred amendments." Never implement it ahead of the revision.
 - New spec text cites ledger ids (`L82`), not version numbers; the changelog maps ids to
   versions.
@@ -217,7 +159,8 @@ instruction. If VERBATIM text can't land as given, stop and say why.
 The plan reports by exception: measurements, deviations from the request, adapted
 substitutions, judgment calls, and the exact form of any code the request doesn't give
 verbatim. It has no context section, and it names VERBATIM edits and commit messages
-rather than repeating them.
+rather than repeating them. It names every invariant its step touches, read from the spec's
+§3.1.
 
 ### Measure, don't recall
 

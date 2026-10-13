@@ -4,15 +4,136 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
 predate the ledger; their deltas are cited by section.
 
-**Versioning.** Patch (v1.3.x): fills a detail the spec leaves unspecified, or resolves a
+**Versioning.** Patch (v1.x.y): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.4 — the call shape, verdict lineage, and the invariants (minor)
+
+Theme: the revision 2b's baseline can't be honest without, cut before any 2b code (#4's
+decision): the call shape the pinned model accepts, an output budget that fits its
+timeout, verdict lineage that covers the knobs, the prompt the baseline measures, and a
+post-cue fix for phrasing realistic notes hit constantly. The invariants' statements move
+into the spec. The input is #1's decision comment and its addendum, each signed by Cal on
+Oct 12, 2026; #1 closes with this revision, and "spec: deferred amendments" opens with
+what it defers (entries 2, 3, 4, 5, 8, 10, 11, 13, 14, entry 9's dash half, the RAG
+design, and entry 6's `EvalReport` question). Invariants 1, 3, 4, 15, 16, and 18 change
+their wording; CLAUDE.md changes in the same commit.
+
+**CRITICAL**
+- **L193 §7, §8.8 — a post-cue reaches a list that opens its clause.** Amendment (#1
+  entry 9): a post-negation cue negated only the finding before it, so "Fever, chills, and
+  nausea denied." read fever and chills present, and a faithful "Denies fever" fired
+  `negation_consistency`. A negation, stop, or start post-cue now reaches back over the
+  coordinated run before it (joined by ",", "and", "or", "/", "&") when the run opens its
+  clause: the text's start, or after ".", ";", a line break, or a header's colon;
+  otherwise it reaches the adjacent mention. Prototyped Oct 12: the clause condition stops
+  the over-reach a bare run had ("Continue lisinopril, metformin held" read the lisinopril
+  stopped; "Reports fever, chills denied" read the fever absent), and on "ROS: fever,
+  chills, and nausea denied" it clears v1.3's two false CRITICALs on faithful notes and
+  catches the flipped claim v1.3 missed. Certainty post-cues stay adjacent; allergy
+  post-cues keep L128. §8.8 states the cost (a list after a word reads adjacent-only), and
+  the allergy dash/parenthetical half moves to the next revision.
+
+**WARNING**
+- **L180 §5.5, §10 — the pinned model is `claude-haiku-5-5`.** Amendment (#1 entry 1,
+  #4): `model_max_output_tokens` is 128000 (`models.retrieve`). Measured Oct 12 at
+  `aea0a22`, SDK 1.9.0, on the smoke encounter: v1.3's call shape gets a 400 on
+  `temperature` alone; forced `tool_choice` with no sampling parameters is accepted, one
+  `tool_use` block and zero thinking tokens per call; the candidate shape
+  (`thinking: disabled`, `effort: low`) returns a draft that grounds clean and fires no
+  check. Throughput ~320 output tokens/s. Request ids: #4's decision comment. Sonnet 5.5,
+  Opus 5.5, and Fable 5.1 reject forced `tool_choice`, so the Sonnet comparison arm is
+  decided at phase 3 planning, with the cost line.
+- **L181 §3, §5.2, §5.5, §8.5, §8.7, §11, §13 — no sampling parameters; thinking and
+  effort pinned.** Amendment (#1 entry 1): `CALL_CONFIG` carries forced `tool_choice`,
+  `max_tokens`, `thinking: {"type": "disabled"}`, and `output_config: {"effort": "low"}`
+  (provisional; the baseline's repeats test it). `SamplingBody` and `extra_body` go;
+  `CallConfig` types the two new fields with the SDK's own param types, `thinking` narrowed
+  to the disabled variant (mypy rejects an enabled config there, measured), and the
+  `LLMClient` Protocol and the fake client type them too. L82's test is inverted: every
+  attempt carries the pinned fields and no `temperature`, `top_p`, `top_k`, or
+  `extra_body`. Variance is measured, not suppressed (§3's principle 3, D11, §8.5).
+- **L184 §5.2 — the output budget is measured and sized to the timeout.** Amendment (#1
+  entry 16): `max_input_chars` 12,500 and `output_tokens_per_input_char` 1.6, so
+  `max_output_tokens` is 20,000 (`12500 * 1.6` is exactly 20000.0, measured). The old 0.5
+  gave every request 10,000 tokens while the smoke encounter ran 1.19 to 1.40 output tokens
+  per input char, so an encounter past about 7,600 chars truncated: a 502 on input the
+  route accepted, which 2b's baseline would have scored as the model's failure.
+- **L187 §0, §4.2, §6, §8, §8.7, §9, §10, inv. 1, inv. 15 — the verdict knobs are
+  parameters, recorded with the run.** Amendment (#1 entry 6, option 2): two corpus runs
+  with `FUZZY_SCORE_CUTOFF` exported differently recorded identical lineage and different
+  verdicts, and `grounding.py` and `evals/checks.py` imported `backend.config`, which
+  needs the API key at import. `ChecksConfig` (frozen, `schemas.py`) holds
+  `fuzzy_score_cutoff` and `min_quote_content_tokens`; `ground(..., *, config)` and
+  `run_checks(..., *, config)` take it with no default; `settings.checks_config()` builds
+  it at the edge only (`api.py`, `corpus.py`); `CorpusRunRecord.checks_config` records it
+  whole. `ChecksConfig` re-declares `Settings`' bounds, and a test pins the copies equal.
+  `EvalReport` is unchanged: whether persisted reports need the config is phase 3's
+  question, on the next revision's issue.
+- **L191 §5.3, §8.4, inv. 18 — the prompt names NKA.** Amendment (#1 entry 12): L144 made
+  a dropped NKA a WARNING, as a dropped NKDA, but the prompt named NKDA alone. NKA joins
+  the absence examples and the never-omit clause, and invariant 18. Clinical sign-off:
+  Cal, 2026-10-12. Moves `PROMPT_VERSION`; a test asserts the clause names both.
+
+**INFO**
+- **L182 inv. 3, §8.2, §14 — invariant 3 restated.** Amendment (#1 entry 1): "Every
+  pipeline LLM call pins what shapes its output": tool choice, thinking, effort, and
+  token budget in one hashed call config, nothing left to an API default, no sampling
+  parameters. The judge pins its own call config; its fields are 2c's. Closed phases'
+  checklists stay as audited.
+- **L183 inv. 16, §5.4 — invariant 16 on its new ground.** Amendment (#1 entry 1): with no
+  `temperature`, an identical request still reproduces its cause (the budget, the input,
+  the forced call), not an identical reply, so the fail-fast rule stands. The truncation
+  comment in `summarize` follows.
+- **L185 §5.2, §14 — the budget must fit the timeout.** Amendment (#1 entry 16):
+  `max_output_tokens` divided by measured throughput must fit inside `llm_timeout_s` with
+  margin (20,000 tokens at ~320/s is about 63 s, inside 90 s). It can't be checked at
+  boot; the smoke run records throughput and repeats at every pin change (L81, L85).
+- **L186 §4.2, §5.4, §8.7, inv. 4 — each case carries its cost.** Amendment (#1 entry 16
+  and its addendum): `CaseResult` gains `usage: TokenUsage | None` and
+  `validation_attempts: int | None` (`ge=1`), `None` together only when a crash lost the
+  case's cost; a crash after `summarize` returned keeps it. `OrchestratorError` carries
+  `validation_attempts` beside `usage`. `CorpusRunRecord.usage` is the sum of the known
+  usages, a floor.
+- **L188 §0, §8.7, §11, §13, §14, §17, inv. 1 — `score_corpus` is an edge module.**
+  Amendment (#1's addendum): §8.7 filed it in `evals/runner.py`, where it reads settings,
+  calls `summarize`, runs git, and writes `runs/`, so entry 6's import boundary would fail
+  on the spec's own design. It moves to `backend/corpus.py`; `evals/` keeps the pure
+  parts. An AST test asserts `grounding.py`, `evals/`, `schemas.py`, and `tracebacks.py`
+  import nothing from `backend.config`, `anthropic`, or `fastapi` (it fails at `690907f`).
+- **L189 §8.7, inv. 15 — `CHECKS_VERSION` hashes `schemas.py`.** Amendment (#1 entry 6):
+  `all_critical_passed` and `EvalResult`'s errored-never-passes validator live there. The
+  version also moves on edits that change no verdict, which errs safe; `score_corpus`'s
+  source leaves the hash with L188.
+- **L190 §8.4, §8.7 — every check takes the config.** Amendment (#1's addendum): `CheckFn`
+  is `(note, raw_text, case=None, *, config)`, plus `judge` for a judged check; no
+  `needs_config` flag.
+- **L192 §6.2 — `NormalizedText.index_map` is a tuple.** Amendment (#1 entry 7): a frozen
+  dataclass holding a list allowed `append` and made `__hash__` raise (both measured).
+  Built as a list and frozen once at the end of `of()`.
+- **L194 §8.8, §14 — v1.4 lands before 2b; the RAG design moves.** Amendment (#4): §14's
+  phase-4 line names a later minor revision for the RAG design; 2b's checklist opens with
+  v1.4's code and an L81-form smoke run on the pinned model. §8.8's two "waits for v1.4"
+  lines name a later minor revision.
+- **L195 §0, CLAUDE.md — the patch label and the issue name.** Amendment (#1's addendum):
+  a patch is v1.x.y, in the spec, this file, and CLAUDE.md. The deferred-amendments issue
+  is "spec: deferred amendments", so no revision renames it again.
+- **L196 §3.1, §13, CLAUDE.md — the invariants live in the spec.** Amendment (#1 entry
+  15): the spec cited the invariants by number and defined none. §3.1 holds each
+  statement, numbers unchanged, in its v1.4 wording. CLAUDE.md keeps each number and
+  title with a pointer, and the standing instruction whole for 1, 3, 4, 6, 11, 16, and 18
+  (16's names its referent, the SDK's transport retries). A plan names every invariant its
+  step touches. CLAUDE.md changes with the spec only when an invariant is added, removed,
+  renumbered, or retitled, or its standing instruction changes.
 
 ---
 
