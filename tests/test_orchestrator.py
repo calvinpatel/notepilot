@@ -427,6 +427,41 @@ async def test_usage_is_summed_on_truncation_after_a_retry() -> None:
     assert len(fake.messages.calls) == 2
     # L49: the failed attempt is paid for too
     assert exc.value.usage == TokenUsage(input_tokens=24, output_tokens=12)
+    assert exc.value.validation_attempts == 2  # L186
+
+
+# L186: every fail-fast path, reached on attempt 2, reports both attempts. On attempt 1
+# alone, a raise that hard-coded 1 would pass.
+_FAIL_FAST_SECOND: Final[dict[str, tuple[Message, type[ModelOutputError], str]]] = {
+    "truncation": (
+        _valid(stop_reason="max_tokens", tool_use_id="toolu_fake_2"),
+        OutputTruncatedError,
+        "output truncated",
+    ),
+    "refusal": (
+        _valid(stop_reason="refusal", tool_use_id="toolu_fake_2"),
+        ModelOutputError,
+        "refusal under forced tool_choice",
+    ),
+    "missing-block": (
+        text_message("no tool call"),
+        ModelOutputError,
+        "no tool_use block under forced tool_choice",
+    ),
+}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", list(_FAIL_FAST_SECOND))
+async def test_fail_fast_after_a_retry_reports_both_attempts(path: str) -> None:
+    second, error, message = _FAIL_FAST_SECOND[path]
+    fake = FakeLLMClient([_invalid(), second])
+    with pytest.raises(error) as exc:
+        await summarize(RAW, client=fake)
+    assert type(exc.value) is error
+    assert str(exc.value) == message
+    assert len(fake.messages.calls) == 2
+    assert exc.value.validation_attempts == 2
 
 
 @pytest.mark.anyio
@@ -441,6 +476,7 @@ async def test_truncation_fails_fast(stop_reason: StopReason, block: str) -> Non
     assert exc.value.code == "output_truncated"
     assert len(fake.messages.calls) == 1  # fail fast: nothing in `messages` would change
     assert exc.value.usage == TokenUsage(input_tokens=11, output_tokens=7)
+    assert exc.value.validation_attempts == 1  # L186
 
 
 @pytest.mark.anyio
@@ -456,6 +492,7 @@ async def test_refusal_fails_fast(block: str) -> None:
     assert exc.value.code == "model_output_invalid"
     assert len(fake.messages.calls) == 1
     assert exc.value.usage == TokenUsage(input_tokens=11, output_tokens=7)
+    assert exc.value.validation_attempts == 1  # L186
 
 
 @pytest.mark.anyio
@@ -468,6 +505,7 @@ async def test_missing_tool_block_fails_fast() -> None:
     assert str(exc.value) == "no tool_use block under forced tool_choice"
     assert len(fake.messages.calls) == 1
     assert exc.value.usage == TokenUsage(input_tokens=11, output_tokens=7)
+    assert exc.value.validation_attempts == 1  # L186
 
 
 @pytest.mark.anyio
@@ -489,6 +527,7 @@ async def test_retries_exhausted() -> None:
     assert isinstance(exc.value.__cause__, ValidationError)  # the `from` chain (§5.4)
     # L49: every attempt was paid for, and the error carries the sum
     assert exc.value.usage == TokenUsage(input_tokens=11 * n, output_tokens=7 * n)
+    assert exc.value.validation_attempts == n  # L186: as RunMetadata would count them
 
 
 @pytest.mark.anyio
@@ -505,6 +544,7 @@ async def test_retry_count_and_model_wire_settings(monkeypatch: pytest.MonkeyPat
     assert call.model == "model-id-patched"
     assert type(exc.value) is ModelOutputError
     assert str(exc.value) == "invalid after 1 attempts"
+    assert exc.value.validation_attempts == 1  # L186: derived, not the default's 3
 
 
 def _run_metadata_that_cannot_validate(**fields: object) -> RunMetadata:

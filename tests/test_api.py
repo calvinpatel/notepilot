@@ -806,7 +806,8 @@ class _UnclaimedCase:
 # logged by structure.
 _UNCLAIMED: Final[dict[str, _UnclaimedCase]] = {
     "orchestrator-error": _UnclaimedCase(
-        lambda: OrchestratorError(MESSAGE_SENTINEL, usage=TokenUsage()), "OrchestratorError"
+        lambda: OrchestratorError(MESSAGE_SENTINEL, usage=TokenUsage(), validation_attempts=1),
+        "OrchestratorError",
     ),
     "anthropic-error": _UnclaimedCase(lambda: AnthropicError(MESSAGE_SENTINEL), "AnthropicError"),
 }

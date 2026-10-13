@@ -8,7 +8,8 @@ client once per process.
 
 summarize() returns a schema-valid draft with its RunMetadata, or raises an
 OrchestratorError subclass carrying the TokenUsage spent so far, failed
-attempts included. It never returns a partial draft.
+attempts included, and how many attempts it made. It never returns a partial
+draft.
 
 It retries only when the next request differs from the last (spec §5.4). A
 validation error goes back to the model as an is_error tool_result. Truncation,
@@ -151,9 +152,10 @@ class OrchestratorError(Exception):
 
     code: ClassVar[str] = "orchestrator_error"
 
-    def __init__(self, msg: str, *, usage: TokenUsage) -> None:
+    def __init__(self, msg: str, *, usage: TokenUsage, validation_attempts: int) -> None:
         super().__init__(msg)
         self.usage = usage  # L49: failed calls cost money too
+        self.validation_attempts = validation_attempts  # L186: and how many were made
 
 
 class ModelOutputError(OrchestratorError):
@@ -240,7 +242,8 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
     """One forced tool call, validated at the boundary; the model corrects its own errors (§5.4).
 
     Returns a schema-valid draft with its RunMetadata, or raises an OrchestratorError subclass
-    carrying the usage spent, failed attempts included (L49). Retries only when the next
+    carrying the usage spent, failed attempts included (L49), and the attempts made (L186),
+    as RunMetadata.validation_attempts counts them on success. Retries only when the next
     request differs from the last (invariant 16): a validation error goes back as an is_error
     tool_result; truncation (L88), a refusal (L97), and a missing block fail fast.
     """
@@ -263,17 +266,23 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
 
         if resp.stop_reason in TRUNCATION_STOPS:
             # Identical request -> the same budget, input, and forced call (L183). Fail fast.
-            raise OutputTruncatedError("output truncated", usage=usage)
+            raise OutputTruncatedError("output truncated", usage=usage, validation_attempts=attempt)
 
         if resp.stop_reason == "refusal":
             # L97: any block was cut off and is never validated -> nothing in `messages`
             # changes -> an identical request. Fail fast.
-            raise ModelOutputError("refusal under forced tool_choice", usage=usage)
+            raise ModelOutputError(
+                "refusal under forced tool_choice", usage=usage, validation_attempts=attempt
+            )
 
         tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
         if tool_block is None:
             # Nothing in `messages` changed -> an identical non-answer. Fail fast.
-            raise ModelOutputError("no tool_use block under forced tool_choice", usage=usage)
+            raise ModelOutputError(
+                "no tool_use block under forced tool_choice",
+                usage=usage,
+                validation_attempts=attempt,
+            )
 
         try:  # L12: the try wraps model_validate and nothing else
             draft = SOAPNoteDraft.model_validate(tool_block.input)
@@ -313,5 +322,7 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
         )
 
     raise ModelOutputError(
-        f"invalid after {settings.max_validation_retries + 1} attempts", usage=usage
+        f"invalid after {settings.max_validation_retries + 1} attempts",
+        usage=usage,
+        validation_attempts=settings.max_validation_retries + 1,
     ) from last_error
