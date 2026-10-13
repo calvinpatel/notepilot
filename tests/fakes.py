@@ -29,9 +29,11 @@ from anthropic.types import (
     Message,
     MessageParam,
     ModelParam,
+    OutputConfigParam,
     StopReason,
     TextBlock,
     TextBlockParam,
+    ThinkingConfigParam,
     ToolChoiceParam,
     ToolUnionParam,
     ToolUseBlock,
@@ -58,7 +60,8 @@ class RecordedCall:
     messages: list[MessageParam]
     tool_choice: ToolChoiceParam
     max_tokens: int
-    extra_body: object
+    thinking: ThinkingConfigParam
+    output_config: OutputConfigParam
 
 
 class FakeMessages:
@@ -68,7 +71,7 @@ class FakeMessages:
         self._script = list(script)
         self.calls: list[RecordedCall] = []
 
-    # Seven keyword-only parameters, all required, types identical to _AsyncMessages.create:
+    # Eight keyword-only parameters, all required, types identical to _AsyncMessages.create:
     # a required parameter here is what lets mypy catch a Protocol that drops one.
     async def create(
         self,
@@ -79,7 +82,8 @@ class FakeMessages:
         messages: Iterable[MessageParam],
         tool_choice: ToolChoiceParam,
         max_tokens: int,
-        extra_body: object,
+        thinking: ThinkingConfigParam,
+        output_config: OutputConfigParam,
     ) -> Message:
         self.calls.append(
             RecordedCall(
@@ -89,7 +93,8 @@ class FakeMessages:
                 messages=copy.deepcopy(list(messages)),
                 tool_choice=copy.deepcopy(tool_choice),
                 max_tokens=copy.deepcopy(max_tokens),
-                extra_body=copy.deepcopy(extra_body),
+                thinking=copy.deepcopy(thinking),
+                output_config=copy.deepcopy(output_config),
             )
         )
         n = len(self.calls)

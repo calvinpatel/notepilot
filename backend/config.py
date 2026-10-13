@@ -39,9 +39,9 @@ class Settings(BaseSettings):
 
     # A pinned model id (L84) — never an alias, never validated with a date regex. Its
     # output ceiling is declared directly beside it: the two change together (L72); the
-    # phase-1 smoke run verifies the declaration against the Models API (L85).
-    model: str = Field("claude-haiku-4-5-20251001", min_length=1)
-    model_max_output_tokens: int = Field(64_000, gt=0)
+    # smoke run verifies the declaration against the Models API at each pin (L85, L180).
+    model: str = Field("claude-haiku-5-5", min_length=1)
+    model_max_output_tokens: int = Field(128_000, gt=0)
 
     # Input bounds (§10). max_output_tokens is derived from max_input_chars via the ratio
     # (L94): the output is mostly verbatim copies of the input, so the two move together.

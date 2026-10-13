@@ -35,8 +35,11 @@ from anthropic.types import (
     Message,
     MessageParam,
     ModelParam,
+    OutputConfigParam,
     StopReason,
     TextBlockParam,
+    ThinkingConfigDisabledParam,
+    ThinkingConfigParam,
     ToolChoiceParam,
     ToolChoiceToolParam,
     ToolParam,
@@ -95,22 +98,22 @@ CORRECTION_TEMPLATE: Final[str] = (
 )
 
 
-class SamplingBody(TypedDict):
-    """§5.2 (L82): wire fields the SDK (>= 1.0) no longer types; typed on our side."""
-
-    temperature: float
-
-
 class CallConfig(TypedDict):
-    """§5.2 (L83): `**CALL_CONFIG` is checked key-by-key against the Protocol."""
+    """§5.2 (L83): `**CALL_CONFIG` is checked key-by-key against the Protocol.
+
+    L181: the SDK's own param types. `thinking` is the disabled variant alone, so turning
+    thinking on is a type change here, not a value edit.
+    """
 
     tool_choice: ToolChoiceToolParam
     max_tokens: int
-    extra_body: SamplingBody
+    thinking: ThinkingConfigDisabledParam
+    output_config: OutputConfigParam
 
 
 # §5.2 (L15): everything that shapes the output, in one block (L75), hashed into
-# PROMPT_VERSION. Read once at import from the frozen settings.
+# PROMPT_VERSION. Read once at import from the frozen settings. No sampling parameter: the
+# pinned model rejects them (L181), so variance is measured, not suppressed (D11).
 CALL_CONFIG: Final[CallConfig] = {
     "tool_choice": {
         "type": "tool",
@@ -118,7 +121,8 @@ CALL_CONFIG: Final[CallConfig] = {
         "disable_parallel_tool_use": True,  # L75: the §5.4 loop answers one block
     },
     "max_tokens": settings.max_output_tokens,  # L94
-    "extra_body": {"temperature": 0},  # L82: invariant 3, on the wire
+    "thinking": {"type": "disabled"},  # L181: invariant 3, pinned, never an API default
+    "output_config": {"effort": "low"},  # L181: provisional; the baseline's repeats test it
 }
 
 
@@ -183,10 +187,10 @@ class _AsyncMessages(Protocol):
 
     Exactly the keywords the orchestrator passes, all required (L74): a fake that drops or
     renames one stops binding. Types come from the SDK's `create` overload for
-    `stream: Literal[False]`. `extra_body` is `object` because the SDK's `Body` is `object`
-    (private anthropic._types); CallConfig (§5.2, L82) carries the precise type on our side.
-    Never `dict[str, object]`: a TypedDict is not a dict subtype, and `**CALL_CONFIG` would
-    stop type-checking.
+    `stream: Literal[False]` (L181: `thinking` and `output_config` included); CallConfig
+    (§5.2) narrows `thinking` to the disabled variant on our side. No sampling parameter
+    (L181). Never `dict[str, object]`: a TypedDict is not a dict subtype, and
+    `**CALL_CONFIG` would stop type-checking.
     """
 
     async def create(
@@ -198,7 +202,8 @@ class _AsyncMessages(Protocol):
         messages: Iterable[MessageParam],
         tool_choice: ToolChoiceParam,
         max_tokens: int,
-        extra_body: object,
+        thinking: ThinkingConfigParam,
+        output_config: OutputConfigParam,
     ) -> Message: ...
 
 
@@ -257,7 +262,7 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
         )
 
         if resp.stop_reason in TRUNCATION_STOPS:
-            # Identical request at temperature=0 -> near-identical truncation. Fail fast.
+            # Identical request -> the same budget, input, and forced call (L183). Fail fast.
             raise OutputTruncatedError("output truncated", usage=usage)
 
         if resp.stop_reason == "refusal":

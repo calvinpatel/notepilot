@@ -20,6 +20,7 @@ change to ClaimDraft or SOAPNoteDraft, with exactly:
 """
 
 import functools
+import inspect
 import json
 import re
 import string
@@ -45,6 +46,7 @@ from backend.orchestrator import (
     ModelOutputError,
     OrchestratorError,
     OutputTruncatedError,
+    _AsyncMessages,
     _derive_prompt_version,
     get_client,
     summarize,
@@ -55,7 +57,7 @@ from tests.fakes import FakeLLMClient, RecordedCall, text_message, tool_use_mess
 _SNAPSHOT = Path(__file__).parent / "snapshots" / "tool_schema.json"
 
 
-# --- the call config (§5.2; L75, L82, L94) -----------------------------------------
+# --- the call config (§5.2; L75, L94, L181) ----------------------------------------
 
 
 def test_tool_choice_forces_summary_tool() -> None:
@@ -77,7 +79,8 @@ def test_call_config_is_exactly_the_spec_dict() -> None:
             "disable_parallel_tool_use": True,
         },
         "max_tokens": settings.max_output_tokens,  # L94
-        "extra_body": {"temperature": 0},  # L82, invariant 3
+        "thinking": {"type": "disabled"},  # L181, invariant 3
+        "output_config": {"effort": "low"},  # L181, invariant 3
     }
 
 
@@ -136,7 +139,8 @@ def _call_with_other_max_tokens() -> str:
     call = CallConfig(
         tool_choice=CALL_CONFIG["tool_choice"],
         max_tokens=CALL_CONFIG["max_tokens"] + 1,
-        extra_body=CALL_CONFIG["extra_body"],
+        thinking=CALL_CONFIG["thinking"],
+        output_config=CALL_CONFIG["output_config"],
     )
     return _derive_prompt_version(
         system=SYSTEM_PROMPT, tool=SUMMARY_TOOL, correction=CORRECTION_TEMPLATE, call=call
@@ -169,7 +173,8 @@ def test_prompt_version_changes_when_each_input_changes(name: str) -> None:
 
 def test_prompt_version_ignores_key_order() -> None:
     reordered = CallConfig(
-        extra_body=CALL_CONFIG["extra_body"],
+        output_config=CALL_CONFIG["output_config"],
+        thinking=CALL_CONFIG["thinking"],
         max_tokens=CALL_CONFIG["max_tokens"],
         tool_choice=CALL_CONFIG["tool_choice"],
     )
@@ -184,7 +189,24 @@ def test_prompt_version_ignores_key_order() -> None:
     )
 
 
-# --- the seam (§5.2, §5.5; L74, L77, L78) ---------------------------------------------
+# --- the seam (§5.2, §5.5; L74, L77, L78, L181) ---------------------------------------
+
+
+def test_seam_carries_no_sampling_parameter() -> None:
+    # L181: the pinned model rejects them. The Protocol's keywords are exactly the call's: one
+    # added to the Protocol fails here, and one passed to the call alone fails mypy and the
+    # fake's signature (TypeError).
+    keywords = set(inspect.signature(_AsyncMessages.create).parameters) - {"self"}
+    assert keywords == {
+        "model",
+        "system",
+        "tools",
+        "messages",
+        "tool_choice",
+        "max_tokens",
+        "thinking",
+        "output_config",
+    }
 
 
 @pytest.fixture
@@ -244,7 +266,8 @@ async def test_fake_binds_to_the_seam_and_records_a_copy() -> None:
     (call,) = fake.messages.calls
     assert len(call.messages) == 1  # a copy of the list, not the caller's list
     assert call.messages[0]["content"] == "synthetic encounter text"  # a deep copy, not shallow
-    assert call.extra_body == {"temperature": 0}  # L82, invariant 3
+    assert call.thinking == {"type": "disabled"}  # L181, invariant 3
+    assert call.output_config == {"effort": "low"}  # L181, invariant 3
     assert call.tool_choice == CALL_CONFIG["tool_choice"]
     assert call.max_tokens == CALL_CONFIG["max_tokens"]
     assert result is scripted
@@ -315,7 +338,8 @@ _GATED_SCRIPTS: Final[dict[str, Callable[[StopReason], list[Message]]]] = {
 
 
 def _assert_call_config(call: RecordedCall) -> None:
-    assert call.extra_body == {"temperature": 0}  # L82, invariant 3
+    assert call.thinking == {"type": "disabled"}  # L181, invariant 3
+    assert call.output_config == {"effort": "low"}  # L181, invariant 3
     assert call.tool_choice == CALL_CONFIG["tool_choice"]  # L75
 
 
