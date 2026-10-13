@@ -18,6 +18,8 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_core import PydanticCustomError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend.schemas import ChecksConfig
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -71,6 +73,13 @@ class Settings(BaseSettings):
     # quote_informativeness's floor (§8.4, L161): a span with fewer content tokens is
     # degenerate. 2 flags a bare name ("pain") and passes a terse statement ("hold metformin").
     min_quote_content_tokens: int = Field(2, ge=1)
+
+    def checks_config(self) -> ChecksConfig:
+        """The verdict knobs, for the edge to pass inward: the domain reads no settings (L187)."""
+        return ChecksConfig(
+            fuzzy_score_cutoff=self.fuzzy_score_cutoff,
+            min_quote_content_tokens=self.min_quote_content_tokens,
+        )
 
     @property
     def max_output_tokens(self) -> int:

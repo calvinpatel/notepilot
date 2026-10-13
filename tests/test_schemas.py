@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.schemas import (
+    ChecksConfig,
     ClaimDraft,
     ClinicalClaim,
     EvalCase,
@@ -457,3 +458,21 @@ def test_a_trap_names_its_danger() -> None:
 def test_fidelity_cannot_inject_a_draft() -> None:
     msg = _case_error(_case(species="fidelity", expected_flags=[], draft={"claims": []}))
     assert "a fidelity trap tests the MODEL; it cannot inject a draft" in msg
+
+
+# --- the verdict knobs (§4.2, L187) ---------------------------------------------
+
+
+def test_checks_config_rejects_attribute_assignment() -> None:
+    cfg = ChecksConfig(fuzzy_score_cutoff=90.0, min_quote_content_tokens=2)
+    with pytest.raises(ValidationError) as exc:
+        cfg.fuzzy_score_cutoff = 50.0  # type: ignore[misc]
+    (err,) = exc.value.errors()
+    assert err["type"] == "frozen_instance"
+    assert err["loc"] == ("fuzzy_score_cutoff",)
+
+
+def test_checks_config_declares_no_defaults() -> None:
+    # The defaults are Settings' (§10). A default here is a second copy that could drift,
+    # and a config built without a knob would silently take it.
+    assert all(field.is_required() for field in ChecksConfig.model_fields.values())

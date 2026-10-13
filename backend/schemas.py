@@ -201,3 +201,18 @@ class EvalCase(BaseModel):
 # --- corpus run lineage (§4.2) ------------------------------------------------
 
 CaseStatus = Literal["passed", "failed", "not_applicable"]  # case_verdict's answer (L44)
+
+
+class ChecksConfig(BaseModel):
+    """The knobs that decide verdicts (§4.2, L187), passed in, never read from settings.
+
+    Built at the edge only, by settings.checks_config(), and handed to grounding and the
+    checks. No defaults: those are Settings' (§10), and a second copy could drift. The
+    bounds repeat Settings', so a config built in a test can't go out of range either;
+    tests/test_config.py pins the two copies equal.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    fuzzy_score_cutoff: float = Field(ge=0, le=100, allow_inf_nan=False)  # §6.3, L105
+    min_quote_content_tokens: int = Field(ge=1)  # §8.4, L161

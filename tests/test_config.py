@@ -17,8 +17,10 @@ from pathlib import Path
 
 import pytest
 from pydantic import SecretStr, ValidationError
+from pydantic.fields import FieldInfo
 
 from backend.config import Settings, _dotenv_path
+from backend.schemas import ChecksConfig
 
 
 def test_dotenv_disabled_under_pytest() -> None:
@@ -297,6 +299,27 @@ def test_api_key_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
     (err,) = exc.value.errors()
     assert err["type"] == "missing"
     assert err["loc"] == ("anthropic_api_key",)
+
+
+# --- the verdict knobs, handed inward (§4.2, §10; L187) ---------------------------
+
+
+def test_checks_config_carries_both_knobs() -> None:
+    # Non-defaults, so a hard-coded or swapped field changes the result.
+    s = _settings(fuzzy_score_cutoff=73.5, min_quote_content_tokens=4)
+    assert s.checks_config() == ChecksConfig(fuzzy_score_cutoff=73.5, min_quote_content_tokens=4)
+
+
+def _bounds(field: FieldInfo) -> tuple[object, list[str]]:
+    # repr, not ==: pydantic's allow_inf_nan marker compares by identity, so two identical
+    # declarations compare unequal (measured).
+    return field.annotation, [repr(m) for m in field.metadata]
+
+
+@pytest.mark.parametrize("name", list(ChecksConfig.model_fields))
+def test_checks_config_bounds_match_settings(name: str) -> None:
+    # L187: the two bounds are declared twice, in Settings and in ChecksConfig.
+    assert _bounds(ChecksConfig.model_fields[name]) == _bounds(Settings.model_fields[name])
 
 
 # --- frozen: the boot checks cannot be bypassed after construction ---------------
