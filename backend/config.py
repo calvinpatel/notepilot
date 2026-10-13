@@ -45,9 +45,13 @@ class Settings(BaseSettings):
 
     # Input bounds (§10). max_output_tokens is derived from max_input_chars via the ratio
     # (L94): the output is mostly verbatim copies of the input, so the two move together.
-    max_input_chars: int = Field(20_000, ge=1)
+    # The defaults are measured (L184): 1.6 is the pinned model's worst observed ratio
+    # (1.32) plus about 20%, so 12,500 chars buy 20,000 tokens. That budget must also fit
+    # llm_timeout_s at the model's output throughput (L185), a bound no boot check can
+    # see: the smoke run measures throughput at each pin.
+    max_input_chars: int = Field(12_500, ge=1)
     min_input_chars: int = Field(20, ge=1)
-    output_tokens_per_input_char: float = Field(0.5, gt=0, allow_inf_nan=False)
+    output_tokens_per_input_char: float = Field(1.6, gt=0, allow_inf_nan=False)
 
     # Two retry loops, two names (L5, invariant 16). Validation retries are ours (§5.4):
     # the model sees its mistake, so the next request differs. Transport retries are the
