@@ -261,10 +261,15 @@ async def test_cancellation_passes_through(registry: dict[str, Check]) -> None:
         await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
 
 
-# --- CHECKS_VERSION (L45, L114) ---------------------------------------------
+# --- CHECKS_VERSION (L45, L114, L189) ---------------------------------------
 
 
-_BASE = {"grounding.py": "g", "evals/runner.py": "r", "clinical/extract.py": "e"}
+_BASE = {
+    "grounding.py": "g",
+    "schemas.py": "s",
+    "evals/runner.py": "r",
+    "clinical/extract.py": "e",
+}
 
 
 def _tree(root: Path, files: dict[str, str]) -> Path:
@@ -287,7 +292,8 @@ def test_checks_version_is_twelve_hex_digits_with_or_without_clinical(tmp_path: 
 
 
 @pytest.mark.parametrize(
-    "rel", ["grounding.py", "evals/runner.py", "clinical/extract.py", "evals/cases/new.py"]
+    "rel",
+    ["grounding.py", "schemas.py", "evals/runner.py", "clinical/extract.py", "evals/cases/new.py"],
 )
 def test_checks_version_moves_with_hashed_source(tmp_path: Path, rel: str) -> None:
     before = checks_version(_tree(tmp_path / "before", _BASE))

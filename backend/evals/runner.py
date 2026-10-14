@@ -36,14 +36,17 @@ logger = logging.getLogger(__name__)
 
 
 def checks_version(root: Path) -> str:
-    """Twelve hex digits over root's checks source: evals/ and clinical/, and grounding.py.
+    """Twelve hex digits over root's checks source: evals/, clinical/, grounding.py, schemas.py.
+
+    schemas.py counts (L189): it holds verdict logic, all_critical_passed and EvalResult's
+    errored-never-passes validator. Its other edits move the version too, which errs safe.
 
     Source is the .py files (L114): case YAMLs have corpus_version, and runs/corpus_runs.jsonl
     changes on every run. Each file enters with its path relative to root, so a moved or
     renamed file moves the version; the paths are sorted, since listing order varies by
     filesystem.
     """
-    files = [root / "grounding.py"]
+    files = [root / "grounding.py", root / "schemas.py"]
     for package in ("evals", "clinical"):
         files.extend((root / package).rglob("*.py"))  # nothing, while a package doesn't exist
     payload = sorted(
