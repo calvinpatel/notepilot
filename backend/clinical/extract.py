@@ -8,12 +8,15 @@ split into tokens: words, punctuation marks, and line breaks. Lexicon phrases ar
 same way and matched left to right, the longest first. Each cue carries its class as a label
 (L124). A pre-cue governs the mentions that start within NEGATION_WINDOW words after it, and a
 new pre-cue of any class replaces the open window. A post-cue governs the mention immediately
-before it, across any mark but a comma or a terminator; a cue in both a pre and a post table
-is a post-cue there and a pre-cue anywhere else. A terminator closes the window.
+before it, across any mark but a comma or a terminator. A negation, stop, or start post-cue
+governs the whole list before it when the list opens its clause: at the text's start, or
+after a period, a semicolon, a line break, or a header's colon (L193). A cue in both a pre and
+a post table is a post-cue there and a pre-cue anywhere else. A terminator closes the window.
 
 A finding sees one class of cue, negation. A drug sees four at once: negation, stop, start, and
 allergy (L124, L125, L128). Allergy context reaches further than the others (L128): a header at
-a line's start opens a section, and an allergy post-cue reaches back over a list. A diagnosis
+a line's start opens a section, and an allergy post-cue reaches back over any list, not only
+one that opens its clause. A diagnosis
 sees negation and certainty, and a differential cue ("vs") governs both its sides (L135).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
@@ -131,8 +134,17 @@ _DRUG_POST = (
 )
 # the statements of D10, allergy information that needs no allergy cue
 NO_ALLERGY_STATEMENTS = frozenset({"nkda", "nka"})
-# what joins a list an allergy post-cue reaches back over (L128)
+# a header is up to this many words and a colon (L128)
+_HEADER_WORDS = 3
+# the words that join a list a post-cue reaches back over (L128, L193). A mark joins by
+# default: only a word, a terminator, or a comma ends a run, so "/" and "&" join already.
 _JOINS = frozenset({(",",), ("and",), ("or",)})
+# the post-cue labels that reach back over a list only when it opens its clause (L193); an
+# allergy post-cue reaches every list (L128), and a certainty post-cue none
+_LIST_REACH: frozenset[_Label] = frozenset({"negated", "stopped", "started"})
+# what opens a clause, besides the text's start and a header's colon (L193); a word, an
+# affirming terminator such as "reports" included, opens none
+_CLAUSE_STARTS = frozenset({(".",), (";",), ("\n",)})
 # the label each certainty a lexicon names becomes; a value it lacks fails at import (L135)
 _CERTAINTY: Mapping[str, _Label] = {
     "probable": "probable",
@@ -180,6 +192,27 @@ def _split(
         i += len(phrase)
 
 
+def _is_header(
+    tokens: Sequence[str], j: int, at: Mapping[int, _Phrase], entities: Collection[_Phrase]
+) -> bool:
+    """Whether a header starts at token j: up to three words and a colon, the first naming
+    no entity (L128). Where one may start, a line's start or a period, is the caller's."""
+    k = j
+    while k < len(tokens) and k - j < _HEADER_WORDS and _is_word(tokens[k]):
+        k += 1
+    return j < k < len(tokens) and tokens[k] == ":" and at.get(j) not in entities
+
+
+def _header_ends_at(
+    tokens: Sequence[str], k: int, at: Mapping[int, _Phrase], entities: Collection[_Phrase]
+) -> bool:
+    """Whether the colon at token k ends a header that starts a line or follows a period."""
+    j = k
+    while j > 0 and k - j < _HEADER_WORDS and _is_word(tokens[j - 1]):
+        j -= 1
+    return (j == 0 or tokens[j - 1] in ("\n", ".")) and _is_header(tokens, j, at, entities)
+
+
 def _sections(
     tokens: Sequence[str],
     phrases: Sequence[tuple[int, _Phrase]],
@@ -200,13 +233,6 @@ def _sections(
     if not starts:
         return set()
     at = dict(phrases)
-
-    def header(j: int) -> bool:
-        k = j
-        while k < len(tokens) and k - j < 3 and _is_word(tokens[k]):
-            k += 1
-        return j < k < len(tokens) and tokens[k] == ":" and at.get(j) not in entities
-
     inside: set[int] = set()
     open_ = False
     for i, token in enumerate(tokens):
@@ -214,7 +240,12 @@ def _sections(
             open_ = True
         elif open_ and token == "\n" and tokens[i + 1 : i + 2] == ["\n"]:
             open_ = False
-        elif open_ and token in ("\n", ".") and i + 1 not in starts and header(i + 1):
+        elif (
+            open_
+            and token in ("\n", ".")
+            and i + 1 not in starts
+            and _is_header(tokens, i + 1, at, entities)
+        ):
             open_ = False
         if open_:
             inside.add(i)
@@ -229,15 +260,18 @@ def _scope(
     differential: _Cues = _NO_CUES,
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
-    None if none does (L31, L121, L122, L124, L128, L135)."""
+    None if none does (L31, L121, L122, L124, L128, L135, L193)."""
     tokens = _tokens(text)
     phrases = list(_split(tokens, (_PSEUDO, _TERMINATORS, entities, pre, post, differential)))
     sections = _sections(tokens, phrases, entities, pre)
+    at = dict(phrases)
     mentions: list[tuple[str, _Label | None]] = []
     window = 0  # the words the open pre-cue still governs
     label: _Label | None = None  # the open pre-cue's class
     before: int | None = None  # the mention immediately before, past any mark but a comma
     run: list[int] = []  # the mentions a list joins, ending at `before` (L128)
+    clause_open = True  # no word yet since the clause opened: a list starting here is bare
+    run_bare = False  # the open run began its clause (L193)
     for i, phrase in phrases:
         words = sum(map(_is_word, phrase))
         in_window = window > 0
@@ -249,10 +283,12 @@ def _scope(
                 mentions[before] = (mentions[before][0], differential[phrase])
             window, label = NEGATION_WINDOW, differential[phrase]
         elif phrase in post and before is not None:  # tested ahead of pre, per L121
-            reach = run if post[phrase] == "allergy" else [before]
+            cue = post[phrase]
+            listed = cue == "allergy" or (cue in _LIST_REACH and run_bare)
+            reach = run if listed else [before]
             for m in reach:  # a list's earlier mentions only where no other cue governs
                 if m == before or mentions[m][1] is None:
-                    mentions[m] = (mentions[m][0], post[phrase])
+                    mentions[m] = (mentions[m][0], cue)
         elif phrase in pre:
             window, label = NEGATION_WINDOW, pre[phrase]
         elif phrase in entities:
@@ -262,11 +298,21 @@ def _scope(
         # list's run survives a join and a mark, and ends where adjacency ends otherwise.
         if phrase in entities:
             before = len(mentions) - 1
+            if not run:
+                run_bare = clause_open
             run.append(before)
         elif words or phrase in _TERMINATORS or phrase == (",",):
             before = None
             if phrase not in _JOINS:
                 run = []
+        # L193: a clause opens after . ; or a line break, or after a header's colon (a header
+        # at a line's start or after a period); any word closes it
+        if phrase in _CLAUSE_STARTS or (
+            phrase == (":",) and _header_ends_at(tokens, i, at, entities)
+        ):
+            clause_open = True
+        elif words:
+            clause_open = False
     return mentions
 
 

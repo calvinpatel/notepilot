@@ -1,6 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
-Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173.
+Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
+L193.
 """
 
 import ast
@@ -116,15 +117,6 @@ def test_the_window_rationales_list_is_negated_to_its_last_item() -> None:
 # --- post-cues: adjacency, and the cue in both classes (L121, L122) ---------------
 
 
-def test_a_post_cue_negates_one_finding_not_the_list_before_it() -> None:
-    # §7: "the finding immediately before it"
-    assert extract_findings("fever, chills, and nausea denied") == {
-        "fever": {True},
-        "chills": {True},
-        "nausea": {False},
-    }
-
-
 def test_a_word_between_a_finding_and_a_post_cue_breaks_adjacency() -> None:
     assert extract_findings("chest pain today: absent") == {"chest pain": {True}}
 
@@ -161,6 +153,140 @@ def test_a_spent_post_cue_leaves_the_next_cue_free() -> None:
         "fever": {False},
         "chest pain": {False},
     }
+
+
+# --- post-cues over a list (L193) -------------------------------------------------
+
+_ABSENT = {False}
+_PRESENT = {True}
+
+
+@pytest.mark.parametrize(
+    ("text", "findings"),
+    [
+        (
+            "Fever, chills, and nausea denied",
+            {"fever": _ABSENT, "chills": _ABSENT, "nausea": _ABSENT},
+        ),
+        ("Fever and chills: denied", {"fever": _ABSENT, "chills": _ABSENT}),
+        ("nausea/vomiting denied", {"nausea": _ABSENT, "vomiting": _ABSENT}),
+        ("fever & chills denied", {"fever": _ABSENT, "chills": _ABSENT}),
+        ("ROS: fever, chills denied", {"fever": _ABSENT, "chills": _ABSENT}),
+        ("Review of systems: fever, chills denied", {"fever": _ABSENT, "chills": _ABSENT}),
+        ("Constitutional:\nfever, chills denied", {"fever": _ABSENT, "chills": _ABSENT}),
+        ("Pt seen. Fever, chills denied", {"fever": _ABSENT, "chills": _ABSENT}),
+        ("Exam deferred; fever, chills denied", {"fever": _ABSENT, "chills": _ABSENT}),
+        ("Seen today\nfever, chills denied", {"fever": _ABSENT, "chills": _ABSENT}),
+    ],
+    ids=[
+        "text-start",
+        "and",
+        "slash",
+        "ampersand",
+        "header",
+        "three-word-header",
+        "line-break",
+        "period",
+        "semicolon",
+        "bare-line-break",
+    ],
+)
+def test_a_negation_post_cue_reaches_a_list_that_opens_its_clause(
+    text: str, findings: dict[str, set[bool]]
+) -> None:
+    # L193: 2a's adjacent-only reach read the first two of a bare ROS list as present
+    assert extract_findings(text) == findings
+
+
+@pytest.mark.parametrize(
+    ("text", "findings"),
+    [
+        ("Reports fever, chills denied", {"fever": _PRESENT, "chills": _ABSENT}),
+        ("Endorses fever, chills denied", {"fever": _PRESENT, "chills": _ABSENT}),
+        ("Fever present, chills denied", {"fever": _PRESENT, "chills": _ABSENT}),
+        ("cough x3 days, chest pain denied", {"chest pain": _ABSENT}),
+        ("fever; chills denied", {"fever": _PRESENT, "chills": _ABSENT}),
+        ("Seen today, ROS: fever, chills denied", {"fever": _PRESENT, "chills": _ABSENT}),
+        (
+            "Pt reports the following symptoms: fever, chills denied",
+            {"fever": _PRESENT, "chills": _ABSENT},
+        ),
+    ],
+    ids=[
+        "reports",
+        "endorses",
+        "present",
+        "words-in-run",
+        "semicolon",
+        "header-mid-line",
+        "long-lead-in",
+    ],
+)
+def test_past_a_word_a_post_cue_reaches_only_the_finding_before_it(
+    text: str, findings: dict[str, set[bool]]
+) -> None:
+    # L193: a word before the list, an affirming terminator included, makes it a statement's
+    # list, not a bare one; a colon opens a clause only after a header (up to three words, at
+    # a line's start or after a period)
+    assert extract_findings(text) == findings
+
+
+def test_a_contrast_leaves_the_list_before_the_cue_present() -> None:
+    # §8.8's stated cost (L193): "but" is a word, so the list after it isn't bare
+    assert extract_findings("no fever, but chills, nausea denied") == {
+        "fever": _ABSENT,
+        "chills": _PRESENT,
+        "nausea": _ABSENT,
+    }
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "lisinopril and metformin held",
+        "Lisinopril, metformin discontinued",
+        "Meds: lisinopril, metformin held",
+    ],
+)
+def test_a_stop_post_cue_reaches_a_list_that_opens_its_clause(text: str) -> None:
+    assert extract_med_status(text) == {"lisinopril": {"stopped"}, "metformin": {"stopped"}}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Continue lisinopril, metformin held",
+        "Plan: continue lisinopril, metformin held for AKI.",
+        "Takes lisinopril, metformin discontinued",
+    ],
+)
+def test_past_a_word_a_stop_post_cue_stops_only_the_drug_before_it(text: str) -> None:
+    # L193: the over-reach the clause condition exists to stop
+    assert extract_med_status(text) == {"lisinopril": {"active"}, "metformin": {"stopped"}}
+
+
+def test_a_start_post_cue_starts_every_drug_a_bare_list_names() -> None:
+    assert new_prescriptions("amoxicillin and ibuprofen started") == {"amoxicillin", "ibuprofen"}
+
+
+def test_a_negation_post_cue_excludes_every_diagnosis_a_bare_list_names() -> None:
+    assert extract_excluded_diagnoses("Pneumonia, PE ruled out") == {
+        "pneumonia",
+        "pulmonary embolism",
+    }
+
+
+def test_a_certainty_post_cue_stays_with_the_diagnosis_before_it() -> None:
+    # L193: a trailing hedge over a diagnosis list is too ambiguous to spread
+    assert extract_diagnoses("pneumonia and PE likely") == {
+        "pneumonia": {"definite"},
+        "pulmonary embolism": {"probable"},
+    }
+
+
+def test_an_allergy_post_cue_reaches_a_list_past_a_word_too() -> None:
+    # L128 asks no clause start: a missed allergen is silent, an over-reach loud
+    assert extract_allergies("Has PCN and sulfa allergies") == {"penicillin", "sulfa"}
 
 
 # --- tokens (L121, L123, L170) ---------------------------------------------------
