@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,36 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.x.y): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.4.1 — v1.4's smoke run (patch)
+
+Theme: the L81-form smoke run after v1.4's code passed on the pinned model, at `6200666`
+on Oct 14: `claude-haiku-5-5`, `prompt_version` f568c08861a1, `checks_version`
+c22202d58517, `validation_attempts` 1, 1,821 input and 1,195 output tokens, all 24 claims
+grounded at Tier 1, and none of the 11 checks failed or errored. It recorded what L185 asks
+for, and its preflight caught a gap §14 didn't name. No invariant moves; CLAUDE.md is
+unchanged.
+
+**INFO**
+- **L197 §5.3 — the prompt's label names L191.** Fill: v1.4 changed the prompt's text
+  (L191) and left the block introduced as "The clinical version (v1.3):". It reads
+  "(v1.3, L191)". Found in step 2's review, Oct 13.
+- **L198 §5.2 — the timeout bound, measured end to end.** Fill: L185 has the smoke run
+  re-measure throughput at each pin change. The run took 4.37 s for 1,195 output tokens,
+  with the prompt, the network, grounding, and the checks included: about 273 tokens/s, so
+  a 20,000-token reply takes about 73 s, inside the 90 s timeout with about 19% to spare.
+  The probe's ~320 tokens/s (about 63 s) is generation alone. The end-to-end figure is the
+  one to bound by: it also counts grounding, the checks, and the browser's round trip, so
+  it overstates the API call the timeout clocks, which errs safe. Output per input char was
+  1.27 (1,195 / 943), inside the probe's 1.19 to 1.32.
+- **L199 §14 — the smoke run checks the model id itself.** Fill: the id isn't hashed into
+  `PROMPT_VERSION`, and the `models.retrieve` comparison (L85) reads `settings.model` on
+  both sides, so a stale `MODEL=` line in `.env` passes both. v1.4's preflight caught
+  exactly that, `claude-haiku-4-5-20251001` from a line that had matched the pin through
+  2a, before any spend. The smoke run checks `settings.model` against the id `config.py`
+  pins (L84) before its call.
 
 ---
 

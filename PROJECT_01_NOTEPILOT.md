@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.4** (minor revision — the call shape, verdict lineage, and the
-invariants, before phase 2b, October 2026). Supersedes v1.3.41.
+**Spec version: v1.4.1** (patch — v1.4's smoke run, October 2026). Supersedes v1.4.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -655,12 +654,17 @@ resp = await client.messages.create(
 - **The budget must fit the timeout (L185).** Three links, one chain: `max_input_chars` ×
   the ratio is `max_output_tokens`; `max_output_tokens` ÷ the model's output throughput is
   the longest call; and the longest call must fit inside `llm_timeout_s` with margin, or a
-  truncation's 502 becomes a timeout's 504. At the measured ~320 output tokens/s (L180),
-  20,000 tokens is about 63 s, inside the 90 s timeout. The first link is checked at boot
-  (L16); the third can't be, because throughput is the model's, measured over the network.
-  The smoke run re-measures it at each pin change (L81, L85, §14). The SDK refuses a
-  non-streaming `max_tokens` above 21,333 on its default timeout and skips that check when
-  the client sets one (L180), so it guards nothing here: the client always sets one.
+  truncation's 502 becomes a timeout's 504. The probe measured ~320 output tokens/s (L180),
+  so 20,000 tokens is about 63 s of generation; the smoke run on the pinned model measured
+  ~273 end to end, with the prompt, the network, grounding, and the checks included, so
+  about 73 s (L198). Both fit inside the 90 s timeout. The end-to-end figure is the one to
+  bound by: the timeout clocks only the API call, so a figure that also counts grounding,
+  the checks, and the browser's round trip overstates it, which errs safe. The first link
+  is checked at boot (L16); the third can't be, because throughput is the model's, measured
+  over the network. The smoke run re-measures it at each pin change (L81, L85, §14). The
+  SDK refuses a non-streaming `max_tokens` above 21,333 on its default timeout and skips
+  that check when the client sets one (L180), so it guards nothing here: the client always
+  sets one.
 - **Timeouts and transport retries are explicit (v1.3, L54, L5).** The client is built once
   as `AsyncAnthropic(api_key=settings.anthropic_api_key.get_secret_value(),
   timeout=settings.llm_timeout_s, max_retries=settings.sdk_transport_retries)`. The SDK's default timeout is measured in
@@ -688,7 +692,7 @@ resp = await client.messages.create(
 
 ### 5.3 The system prompt — where the moat first appears in code
 
-A generalist writes "summarize this into SOAP." The clinical version (v1.3):
+A generalist writes "summarize this into SOAP." The clinical version (v1.3, L191):
 
 ```
 You are a clinical documentation assistant. You are a scribe, not a consultant:
@@ -3046,15 +3050,17 @@ and summarize one synthetic encounter (zero PHI, the same rule as `evals/cases/`
 `GET /`. Record `model`, `prompt_version`, `validation_attempts`, and `usage` from the
 response in the annotated tag message, plus `anthropic.__version__` (the SDK shapes the
 wire, L82) and `models.retrieve(settings.model).max_tokens` beside
-`settings.model_max_output_tokens` — the two must match (L85) — and the output
-throughput (`usage.output_tokens` over the call's wall time) against §5.2's timeout
-bound (L185). One call,
-cents, confirmed by Cal before it runs — a smoke run, not a corpus run. Repeat at any later
-phase close that changes the request shape, and at every change of the pinned model (L185).
-2a's close runs one although the request shape is unchanged (L179): the response and the
-page are new, and real model output meets `ground()` and `run_checks` for the first time.
-The tag records what it renders; a finding it shows is recorded, not fixed. No automated
-test, by design: the annotated tag is the record, audited alongside the lines above.
+`settings.model_max_output_tokens` — the two must match (L85) — and the output throughput
+(`usage.output_tokens` over the call's wall time) against §5.2's timeout bound (L185).
+Before the call, check `settings.model` against the id `config.py` pins (L84, L199): the id
+isn't hashed into `PROMPT_VERSION`, and the `models.retrieve` comparison reads the setting
+on both sides, so an `.env` override passes both. One call, cents, confirmed by Cal before
+it runs — a smoke run, not a corpus run. Repeat at any later phase close that changes the
+request shape, and at every change of the pinned model (L185). 2a's close runs one although
+the request shape is unchanged (L179): the response and the page are new, and real model
+output meets `ground()` and `run_checks` for the first time. The tag records what it
+renders; a finding it shows is recorded, not fixed. No automated test, by design: the
+annotated tag is the record, audited alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
