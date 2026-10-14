@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.4.2** (patch — §8.8 states the laterality gap, October 2026). Supersedes
-v1.4.1.
+**Spec version: v1.5** (minor — the corpus record and its scorer, October 2026). Supersedes
+v1.4.2.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -102,7 +102,7 @@ a test suite only a clinician can author. The moat gets the interview; the plumb
 
 (v1.3, L3: v1.2's sentence said "catches X% of CRITICAL safety violations," and no field
 computed it — `pass_rate` blended three species. The four numbers are `CorpusMetrics`,
-§4.2 / §8.7.)
+§4.2 / §8.7. X counts a live CRITICAL alone, L206.)
 
 That last clause — **evals as regression tests for a stochastic system, with lineage** —
 is the frontier of production AI engineering.
@@ -206,7 +206,8 @@ Claude Code's standing instruction where an invariant has one; the statement is 
     (§6.4, L35). At Tier 3 the quote is the model's claim about the source; the span is the
     source. A Tier 1 exact match is not evidence the text is true.
 15. **Lineage is derived, never declared.** `prompt_version` = hash(system prompt + tool
-    schema + correction template + call config); `corpus_version` = hash(cases dir);
+    schema + correction template + call config); `corpus_version` = hash(the model cases a
+    run scores, L204);
     `checks_version` = hash(the `.py` files in `evals/` + `clinical/` + `grounding.py` +
     `schemas.py`, L114, L189), with the verdict knobs recorded whole beside it
     (`checks_config`, L187); `settings.model` = a pinned model id, never an alias (§5.5,
@@ -494,11 +495,12 @@ CaseStatus = Literal["passed", "failed", "not_applicable"]
 
 class CaseResult(BaseModel):                # ONE (case, repeat) pair
     case_id: str
-    repeat: int                             # D11: 0 … corpus_repeats-1
+    repeat: int = Field(ge=0)               # D11: 0 … corpus_repeats-1 (L212)
     species: Species
     status: CaseStatus                      # v1.3 (L44): not_applicable = an expected check
                                             #   wasn't selected this run (e.g. judge off), or
-                                            #   (L117) no check ran at all
+                                            #   (L117) no check ran at all. A case with an
+                                            #   `error` is "failed" (L205)
     fired_checks: list[str]                 # fired (passed=False) and NOT errored
     missing_expected: list[str]             # expected_flags that did NOT fire
     unexpected_fired: list[str]             # fired but not expected, ALL severities — a
@@ -506,8 +508,21 @@ class CaseResult(BaseModel):                # ONE (case, repeat) pair
     usage: TokenUsage | None                # L186: summarize's, every attempt. Both
     validation_attempts: int | None = Field(ge=1)   # None together, only when a
                                             #   crash lost the case's cost (§8.7)
+    summarize_wall_s: float = Field(ge=0, allow_inf_nan=False)
+                                            # L201: summarize's wall time — every attempt,
+                                            #   and the SDK's transport retries with their
+                                            #   backoff (§8.7)
+    draft: SOAPNoteDraft | None             # L203: what the model returned; None when
+                                            #   summarize returned no draft. Grounding and
+                                            #   the checks are pure, so a run replays free
     errored_checks: list[str] = Field(default_factory=list)   # v1.3 (L43)
     error: str | None = None                # pipeline failure CODE — never a message (L53)
+
+    @model_validator(mode="after")
+    def _cost_known_together(self) -> "CaseResult":    # L212: L186's "None together"
+        if (self.usage is None) != (self.validation_attempts is None):
+            raise ValueError("usage and validation_attempts are None together")
+        return self
 
 class CorpusMetrics(BaseModel):             # v1.3 (L3): four numbers, never one
     detection_recall: float | None          # detection repeats passed / applicable
@@ -515,10 +530,11 @@ class CorpusMetrics(BaseModel):             # v1.3 (L3): four numbers, never one
     model_fidelity: float | None            # fidelity repeats passed / applicable
     fidelity_caught: float | None           # of fidelity repeats that FAILED without a
                                             #   pipeline error, the fraction where a LIVE
-                                            #   (reference-free) check fired
-    pass_rate: float                        # kept for continuity; never quoted alone
+                                            #   (reference-free) CRITICAL fired (L206)
+    pass_rate: float | None                 # kept for continuity; never quoted alone (L205)
     flaky_cases: list[str]                  # D11: pass fraction strictly between 0 and 1
     # None, not 1.0, over an empty denominator — a vacuous metric is not a perfect one.
+    # A repeat is applicable unless it is not_applicable (L205).
 
 class ChecksConfig(BaseModel):              # L187: the knobs that decide verdicts,
     model_config = ConfigDict(frozen=True)  #   built at the edge only and passed in
@@ -527,7 +543,7 @@ class ChecksConfig(BaseModel):              # L187: the knobs that decide verdic
 
 class CorpusRunRecord(BaseModel):
     ran_at: datetime
-    git_sha: str
+    git_sha: str                            # L207: both read before the first call
     git_dirty: bool                         # v1.3 (L45): D5 runs on uncommitted code by
                                             #   design — the record says so
     model: str
@@ -537,14 +553,22 @@ class CorpusRunRecord(BaseModel):
                                             #   now it changes the lineage too
     checks_config: ChecksConfig             # L187: so does a knob, so it's recorded
     judge_enabled: bool
-    repeats: int                            # D11
-    n_cases: int                            # distinct MODEL cases (injected ones are pytest's)
+    repeats: int = Field(ge=1)              # D11 (L212)
+    concurrency: int = Field(ge=1)          # L202: contention lands in the wall times and
+                                            #   the upstream failures
+    n_cases: int = Field(ge=1)              # distinct MODEL cases (injected ones are pytest's)
     metrics: CorpusMetrics
     usage: TokenUsage                       # summarize, incl. failed attempts (L13, L49):
                                             #   the sum of the cases' known usages (L186)
     judge_usage: TokenUsage                 # kept separate — the split IS the cost story
     cases: list[CaseResult]                 # n_cases × repeats rows: debug regressions,
                                             #   don't just watch a number move
+
+    @model_validator(mode="after")
+    def _one_row_per_repeat(self) -> "CorpusRunRecord":   # L212
+        if len(self.cases) != self.n_cases * self.repeats:
+            raise ValueError("cases holds n_cases * repeats rows")
+        return self
 ```
 
 ---
@@ -1893,7 +1917,11 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   and its item types forbid extra fields, so a typo'd `draft:` can't turn an injected case
   into a paid model case, and a typo'd `must_preserve:` can't leave a fidelity trap with
   nothing to check.
-- **`corpus_version` is derived** — a hash over the sorted contents of `evals/cases/`.
+- **`corpus_version` is derived** (L204) — over the model cases a run scores: each case's
+  `model_dump_json()`, sorted by id, hashed to twelve hex digits like `prompt_version`
+  (L114). Injected cases are pytest's, so editing one leaves a model run's lineage alone. A
+  YAML comment or a key's order doesn't move it, and an edit to a case's content does
+  (measured); so does a schema change that adds a defaulted field, which errs safe.
 - **Size:** ≥ 24 **model** cases, ≥ 6 per species; injected cases as many as the coverage
   rule demands (they're free).
 - **The coverage rule (restated v1.3 for L42), unit-tested free:** for every registered
@@ -2149,13 +2177,22 @@ detection_recall     = detection repeats passed / detection repeats applicable
 control_specificity  = control repeats passed   / control repeats applicable
 model_fidelity       = fidelity repeats passed  / fidelity repeats applicable
 fidelity_caught      = of fidelity repeats that FAILED without a pipeline error, the fraction
-                       where at least one reference-free (live) check fired
+                       where at least one reference-free (live) CRITICAL fired
+pass_rate            = repeats passed / repeats applicable, every species (never alone)
 ```
 
 `fidelity_caught` is the number the interview sentence (§2) was reaching for: *when the model
 got it wrong, would production have seen it?* Recall for the fabrication checks is not in
 this record at all — it is the injected tier, and it is 100% or CI is red. Every metric is
-`None`, not 1.0, over an empty denominator.
+`None`, not 1.0, over an empty denominator, `pass_rate` included (L205), and a repeat is
+applicable unless it is `not_applicable`. A case with a pipeline `error` is `failed`: no
+note reached the checks, and that never reads as safe (invariant 12).
+
+`fidelity_caught` counts a live CRITICAL alone (L206). It claims what production would have
+shown, and counting a WARNING would let an incidental one (a degenerate quote) score a catch
+on a fidelity failure, which lands exactly on the CI-only gaps the omission table declares
+(D17), the gaps the metric exists to expose. Undercounting the narrow WARNING slice
+(`new_prescription_preserved`) errs safe, and a WARNING stays visible in `unexpected_fired`.
 
 **The scorer, with lineage (v1.1; hardened v1.2 and v1.3; at the edge, L188).**
 
@@ -2167,49 +2204,60 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
     if not model_cases:
         raise ValueError("no model cases — refusing to emit metrics over nothing")
 
+    git_sha, git_dirty = current_git_sha(), git_is_dirty()     # L207: before any spend
     config = settings.checks_config()                          # L187: built once,
     sem = asyncio.Semaphore(settings.corpus_concurrency)       #   here, and recorded whole
 
     async def run_one(case: EvalCase, repeat: int) -> tuple[CaseResult, TokenUsage]:
         async with sem:
-            judge = judge_factory() if judge_factory else None   # per case: its usage is its own
             result: SummarizationResult | None = None
-            try:
+            wall_s: float | None = None
+            started = time.perf_counter()                      # L201: inside the semaphore
+            try:                                               # L208: every step inside
                 result = await summarize(case.raw_text, client=client)
-                note   = ground(result.draft, case.raw_text, config=config)
+                wall_s = time.perf_counter() - started
+                judge  = judge_factory() if judge_factory else None   # per case: its usage
+                note   = ground(result.draft, case.raw_text, config=config)   # is its own
                 report = await run_checks(note, case.raw_text, case, mode="ci",
                                           config=config, judge=judge)
-            except OrchestratorError as e:
-                failed = errored_case(case, repeat, e.code, usage=e.usage,
-                                      validation_attempts=e.validation_attempts)
+                return (case_result(case, repeat, report, result,     # via case_verdict()
+                                    summarize_wall_s=wall_s),
+                        report.judge_usage)
+            except OrchestratorError as e:                     # summarize raised: its clock
+                failed = errored_case(                         #   stops here
+                    case, repeat, e.code, usage=e.usage,
+                    validation_attempts=e.validation_attempts, draft=None,
+                    summarize_wall_s=time.perf_counter() - started)
                 return failed, TokenUsage()
             except Exception as e:     # v1.3 (L46): parity with run_checks — an APIError on
                 logger.error(          #   one case can't escape gather and discard the rest
                     "case_crashed code=case_errored case=%s exc_type=%s frames=%s",
                     case.id, type(e).__name__, format_frames(e))         # L113: L69's form
-                # L186: a crash after summarize returned keeps the cost it already knows
+                # L186, L203: a crash after summarize returned keeps the cost and the draft
                 meta = result.metadata if result is not None else None
                 failed = errored_case(
                     case, repeat, type(e).__name__,
                     usage=None if meta is None else meta.usage,
                     validation_attempts=None if meta is None else meta.validation_attempts,
+                    draft=None if result is None else result.draft,
+                    summarize_wall_s=(time.perf_counter() - started if wall_s is None
+                                      else wall_s),
                 )
                 return failed, TokenUsage()
-        return (case_result(case, repeat, report, result.metadata),   # via case_verdict()
-                report.judge_usage)
 
     pairs = await asyncio.gather(*(run_one(c, r) for c in model_cases
                                    for r in range(settings.corpus_repeats)))   # D11
     results = [cr for cr, _ in pairs]
     record = CorpusRunRecord(
         ran_at=datetime.now(timezone.utc),
-        git_sha=current_git_sha(), git_dirty=git_is_dirty(),        # L45
+        git_sha=git_sha, git_dirty=git_dirty,                       # L45, L207
         model=settings.model, prompt_version=PROMPT_VERSION,        # L46: known without a
-        corpus_version=corpus_version(cases),                       #   successful call, so an
-        checks_version=CHECKS_VERSION,                              #   all-failed run is still
-        checks_config=config,                                       #   recorded: the one
-        judge_enabled=judge_factory is not None,                    #   most need to see
+        corpus_version=corpus_version(model_cases),                 #   successful call, so
+        checks_version=CHECKS_VERSION,                              #   an all-failed run is
+        checks_config=config,                                       #   still recorded: the
+        judge_enabled=judge_factory is not None,                    #   one most need to see
         repeats=settings.corpus_repeats,
+        concurrency=settings.corpus_concurrency,                    # L202
         n_cases=len(model_cases),
         metrics=corpus_metrics(results),
         usage=sum((r.usage for r in results if r.usage is not None), TokenUsage()),  # L186
@@ -2224,7 +2272,12 @@ v1.2 had three ways to lose a record — one error unwinding the run, an empty c
 by zero, sequential awaits — and fixed them. v1.3 closes the last two: a non-orchestrator
 exception on one case (an upstream `APIError`) no longer escapes `gather` and discards the
 other 23; and a run where every case failed still writes its record, because lineage no
-longer depends on a successful call.
+longer depends on a successful call. L208 closes two more: building the judge and building
+the case's result sat outside the per-case `try`, so a raise in either escaped `gather` and
+discarded every row. And the tree is read before the first call (L207), since one read after
+a long run can name code that never ran. `git_is_dirty` counts untracked files, because an
+untracked case YAML runs, and skips what `.gitignore` excludes; outside a git checkout
+`current_git_sha` raises before anything is spent.
 
 **Why `score_corpus` is an edge module (L188).** It reads `settings`, calls the API through
 `summarize`, shells out to git, and writes `runs/`: every side effect the domain refuses.
@@ -2238,6 +2291,21 @@ a pipeline failure, and from the `RunMetadata` again when a crash comes after `s
 returned. They are `None` only when a crash lost the case's cost (an `APIError` inside
 `summarize`), so the record's `usage` is the sum of the known costs: a floor, never a
 guess.
+
+**What a case keeps, and how a run starts (L201–L203, L210).** `summarize_wall_s` is
+`time.perf_counter()` around the `await`, started inside the semaphore. The SDK's timeout
+clocks each HTTP attempt, not the call (measured), so the wall time holds every validation
+attempt and every transport retry with its backoff. L185's bound is read from the rows with
+no `error` and one validation attempt, naming its inputs: a hidden transport retry only
+lowers the throughput read, which errs safe, and corpus replies are short, so the samples
+sit far below the full output budget. `concurrency` is on the record because contention
+lands in those times (429 retries and their backoff) and in the failure count. `draft` makes
+a run replayable: grounding and the checks are pure functions of the draft, the raw text,
+the config, and the code at the run's commit (D5), so reading a run, or a check change
+against it, costs no API call. A run starts from `python -m backend.corpus`, which loads the
+cases, prints the planned calls (n × k, and the ceiling with validation retries), and exits;
+`--spend` runs it with `get_client()` (§5.2) and prints the record's metrics and where it
+was written.
 
 `CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`,
 `grounding.py`, and `schemas.py` (L189), computed at import — derived like every other
@@ -2805,9 +2873,11 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   `llm_timeout_s`, `judge_timeout_s` (L54); `fuzzy_score_cutoff`; `min_input_chars`;
   `min_quote_content_tokens` (D15; default 2, L161) — the cutoff and the token minimum
   reach the domain only through `settings.checks_config()`, called at the edge (L187);
-  `judge_enabled`; `persist_enabled`; `corpus_concurrency`; `corpus_repeats` (D11);
+  `judge_enabled`; `persist_enabled`; `corpus_concurrency` (`ge=1`, default 1, L209);
+  `corpus_repeats` (D11, `ge=1`, default 3);
   `daily_token_budget`, `max_request_tokens` (L56); `rate_limit`; `forwarded_allow_ips`
-  (L58); `runs_path`; CORS origins. Clinical knowledge — including `NEGATION_WINDOW` —
+  (L58); `runs_path` (default `backend/evals/runs/corpus_runs.jsonl`, §13, L209); CORS
+  origins. Clinical knowledge — including `NEGATION_WINDOW` —
   lives in `clinical/lexicons.py`. The literal numbers in this spec's code samples are
   `settings.*` in the repo.
 - **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
@@ -2903,6 +2973,13 @@ in the push workflow — it spends real money.
 - **Import boundary (L188)** — an AST walk over `grounding.py`, `evals/`, `schemas.py`, and
   `tracebacks.py` finds no import of `backend.config`, `anthropic`, or `fastapi`, at module
   level or inside a function.
+- **The scorer, with a fake client (L211)** — `score_corpus` over canned responses: a case
+  whose `summarize` raises an `APIError` is one errored row and the others still score
+  (L46); a run where every case fails still writes its record (L46); each row's usage and
+  attempts come from its own path (L186) and the record's usage is their sum; a raise in
+  `case_result` or the judge factory loses one row, not the run (L208); git is read before
+  the first call (L207); each row keeps its draft and wall time (L201, L203); the record
+  lands at `runs_path`. No network, and no git of the real tree.
 - **Judge plumbing (phase 2c)** — a fake `Judge` that times out yields an errored WARNING,
   the note is returned, and `all_critical_passed` is unchanged.
 - **The sink actually sinks (phase 3)** — the integration test asserts a `notes` row with the
@@ -3113,12 +3190,15 @@ annotated tag is the record, audited alongside the lines above.
 □ typed must_not_add, polarity-aware reference checks (L10, L36) · must_preserve /
   must_not_add registered with requires_reference · must_preserve joins
   detect_dropped_allergy's expected_flags (L145)
-□ corpus_version, over the cases 2a's loader reads (L116)
-□ score_corpus in corpus.py, edge (L188): concurrency · per-case catch parity + all-failed
-  runs recorded (L46) · k repeats + flaky_cases (D11) · failed-attempt usage counted (L49),
-  per case (L186)
+□ corpus_version, over the model cases a run scores (L116, L204)
+□ config: corpus_repeats · corpus_concurrency · runs_path (L209)
+□ score_corpus in corpus.py, edge (L188): concurrency · per-case catch parity, every step
+  inside the try (L208), + all-failed runs recorded (L46) · k repeats + flaky_cases (D11) ·
+  failed-attempt usage counted (L49), per case (L186) · each case's wall time and draft
+  (L201, L203) · lineage read before the first call (L207) · python -m backend.corpus
+  behind --spend (L210) · its fake-client tests (L211)
 □ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · checks_config (L187) ·
-  CorpusMetrics (L3)
+  concurrency (L202) · CorpusMetrics (L3, L205, L206) · its domains (L212)
 □ one baseline run on the chosen pinned model, committed with its change (D5)
 □ README scorecard sentence (§2) drafted from real numbers, with n and k
 ```
@@ -3146,6 +3226,8 @@ annotated tag is the record, audited alongside the lines above.
 □ deployed: persist_enabled=false · rate limit behind proxy headers (L58) · reserve-before-
   spend budget, one worker (L56) · CORS · /health · PHI-safe logging (L53)
 □ README: product layer · four-metric scorecard with n and k · cost line (§5.5) · CI badge
+□ the manual-dispatch corpus workflow (D5, L213): score_corpus on dispatch, its record
+  uploaded as a build artifact, the key a repository secret that ci.yml never reads
 □ §17 audited line by line
 ```
 

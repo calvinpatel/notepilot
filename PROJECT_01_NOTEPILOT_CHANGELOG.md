@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -14,6 +14,113 @@ predate the ledger; their deltas are cited by section.
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
 
+---
+
+## v1.5 — the corpus record and its scorer (minor)
+
+Theme: what 2b's record keeps, decided before 2b builds it. #7's entry 14 was due before
+`score_corpus`; the true deadline was earlier, the commit that adds `CaseResult`. Deciding
+it showed the record couldn't serve the readings #7 schedules for 2b's baseline, and
+walking §14's 2b checklist against main (Oct 14, at 9ff7f3c) found three ways §8.7's scorer
+could lose its record, its lineage read after the run, and details it left unstated. The
+input is that walk and its decisions, signed by Cal on Oct 14, 2026. #7 closes with this
+revision; "spec: deferred amendments" opens with its entries 1 to 13 and 15. Invariant 15's
+statement changes its wording (`corpus_version`'s inputs); no invariant is added, removed,
+renumbered, or retitled, and no standing instruction changes, so CLAUDE.md is unchanged.
+
+**WARNING**
+- **L203 §4.2, §8.7 — a case keeps the model's draft.** Amendment (found deciding #7 entry
+  14): #7 schedules entries 10, 11, and 15 to be read against 2b's baseline, and the record
+  couldn't answer them. A bare-name quote that passes every check leaves no trace in a
+  `CaseResult` (entry 10); an unexpected `med_status_consistency` can't be told true from
+  false without its claim (entry 11); no span is recorded (entry 15). `CaseResult.draft`
+  keeps what the model returned, `None` only when `summarize` returned no draft. Grounding
+  and the checks are pure, so a committed run replays against the code at its commit (D5)
+  with no API call. The cost is the record's size, which the baseline measures.
+- **L205 §4.2, §8.7 — a pipeline failure is a failed case; `pass_rate` can be `None`.**
+  Fill: `errored_case`'s status was unstated. `fidelity_caught`'s definition ("FAILED
+  without a pipeline error") implies `failed`, and a case whose note never reached the
+  checks must not read as safe (invariant 12). Conflict: `pass_rate: float` sat under the
+  rule "None, not 1.0, over an empty denominator", and a run whose every repeat is
+  `not_applicable` would divide by zero in `corpus_metrics`, after `gather`, losing the
+  record the run paid for. The rule wins: `pass_rate` is `float | None`. A repeat is
+  applicable unless it is `not_applicable`.
+- **L206 §2, §4.2, §8.7 — `fidelity_caught` counts a live CRITICAL.** Fill: §8.7 said "at
+  least one reference-free (live) check fired" and named no severity. The metric claims
+  what production would have shown. Counting a WARNING lets an incidental one (a degenerate
+  quote) score a catch on a fidelity failure, and that lands exactly on the CI-only gaps
+  the omission table declares (D17), the gaps the metric exists to expose. Counting
+  CRITICAL alone undercounts the narrow WARNING slice (`new_prescription_preserved`), which
+  errs safe; a WARNING stays visible in `unexpected_fired`.
+- **L207 §4.2, §8.7 — the lineage is read before the first call.** Conflict: L45 records
+  `git_sha` and `git_dirty` so the record names the code that ran, and §8.7's code read
+  both after `gather`, while `PROMPT_VERSION` and `CHECKS_VERSION` are fixed at import: a
+  tree read after a long run can name code that never ran. Both are read before any spend.
+  `git_is_dirty` counts untracked files and skips ignored ones; outside a git checkout
+  `current_git_sha` raises, before anything is spent. Measured Oct 14:
+  `git status --porcelain` lists an untracked case YAML
+  (`?? backend/evals/cases/new_case.yaml`) and nothing for a file under the ignored
+  `.venv/`; `git rev-parse HEAD` outside a repository exits 128.
+- **L208 §8.7 — every per-case step is inside the `try`.** Conflict: L46 says one case's
+  exception can't escape `gather` and discard the rest, and §8.7's code built the judge
+  inside the semaphore but outside the `try`, and the case's result outside both. A raise
+  in either discarded every row. The judge is now built after `summarize` returns (only
+  `run_checks` needs it), and `case_result` runs inside the `try`. The judge's half is
+  unreachable until 2c; `case_result`'s is reachable through any bug, which is why
+  `run_checks` catches its own.
+
+**INFO**
+- **L201 §4.2, §8.7 — a case records summarize's wall time.** Amendment (#7 entry 14):
+  L185's bound was measured once per pin, on one call (L198), while a corpus run makes
+  every call the bound depends on and kept none of the timings.
+  `CaseResult.summarize_wall_s` (finite, `ge=0`) is `time.perf_counter()` around the
+  `await`, inside the semaphore. Measured Oct 14 on SDK 1.9.0 against a local server that
+  never answers (`timeout=0.5`, `max_retries=2`): `APITimeoutError` after 2.81 s, three
+  attempts starting at 0.05, 0.93, and 2.31 s. The timeout clocks each attempt, and the
+  wall time also holds the SDK's retries and backoff (0.5 s initial, 8 s maximum, its
+  constants). The bound is read from rows with no error and one validation attempt, naming
+  its inputs; a hidden transport retry only lowers the throughput read, which errs safe.
+  Corpus replies are short, so the samples sit far below the 20,000-token budget, and
+  reading the bound from them assumes a steady rate. Declined: the entry's other half,
+  throughput's distribution in `CorpusMetrics`, since those are L3's verdict numbers and a
+  percentile there would freeze an analysis the rows already allow; and timing inside
+  `summarize`, which would ride `RunMetadata` onto the wire (L76).
+- **L202 §4.2, §8.7 — the record carries its concurrency.** Amendment (with L201):
+  `CorpusRunRecord.concurrency` (`ge=1`) beside `repeats`. Contention lands in L201's wall
+  times, as 429 retries and their backoff, and in how many cases fail upstream, so neither
+  reads honestly without it.
+- **L204 §3.1 inv. 15, §8.5, §8.7, §14 — `corpus_version` hashes the model cases a run
+  scores.** Conflict: §8.5 hashed "the sorted contents of `evals/cases/`", invariant 15
+  "hash(cases dir)"; §8.7 called `corpus_version(cases)` on parsed cases; §14 said "over
+  the cases 2a's loader reads." The directory form moves a model run's lineage when an
+  injected case changes, though the run never reads one. §8.7 wins, narrowed to the cases
+  scored: each enters as its `model_dump_json()`, sorted by id, twelve hex digits. Measured
+  Oct 14 over the 20 injected cases (the form doesn't depend on species): two loads agree;
+  a YAML comment and two swapped top-level keys leave it unchanged; an edit to one case's
+  raw text moves it.
+- **L209 §10 — 2b's corpus knobs.** Fill: `corpus_repeats` `ge=1`, default 3 (D11);
+  `corpus_concurrency` `ge=1`, default 1; `runs_path` defaults to
+  `backend/evals/runs/corpus_runs.jsonl` (§13). Concurrency defaults to 1 because the
+  account's rate limits for the pinned model aren't known in the design room, a 429 that
+  outlasts the SDK's retries fails its case, and contention lands in L201's times. At the
+  smoke run's 4.37 s a call (L198), 72 calls take about 5 minutes. Raise it in `.env` once
+  the limits are known; the record says what ran (L202).
+- **L210 §8.7 — a run starts from `python -m backend.corpus`, behind `--spend`.** Fill:
+  §8.7 made `corpus.py` the place a real run gets its client and never said how a run
+  starts. Without the flag the module loads the cases, prints the planned calls (n × k, and
+  the ceiling with validation retries), and exits; with it, it runs `score_corpus` with
+  `get_client()` and prints the record's metrics and its path. Spending is never a default.
+- **L211 §11 — the scorer's free tests.** Fill: §11 named none, and with a fake client
+  `score_corpus` is deterministic: L46's parity and recorded all-failed runs, L186's usage
+  per path and its sum, L207's read order, L208's two holes, and L201's and L203's fields.
+- **L212 §4.2 — the record's domains.** Fill: `CaseResult.repeat` `ge=0`;
+  `CorpusRunRecord.repeats`, `concurrency`, and `n_cases` `ge=1`; `cases` holds `n_cases` ×
+  `repeats` rows; `usage` and `validation_attempts` are `None` together, as L186's comment
+  said, now a validator.
+- **L213 §14 — the manual-dispatch workflow joins phase 3.** Fill: D5 and §11 describe a
+  workflow that runs the model corpus on dispatch and uploads the record, and no phase's
+  checklist built it. It needs the API key as a repository secret; §10's "CI needs no
+  secret" stays true of `ci.yml`. Phase 3 is the phase that deploys.
 ---
 
 ## v1.4.2 — §8.8 states the laterality gap (patch)
