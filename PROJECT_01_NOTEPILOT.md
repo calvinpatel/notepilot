@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.4.1** (patch — v1.4's smoke run, October 2026). Supersedes v1.4.
+**Spec version: v1.4.2** (patch — §8.8 states the laterality gap, October 2026). Supersedes
+v1.4.1.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2308,6 +2309,15 @@ know, stated plainly (v1.3):
   nothing; so does a finding the span never names, which is the judge's and `must_not_add`'s
   to catch. A span holding both polarities ("denies chest pain at rest, reports chest pain
   on exertion") passes a claim keeping either one, since qualifiers aren't extracted.
+- **Laterality** (L200). No extractor reads a side and no check compares one (§7, §8.4), so
+  a wrong side has only the judge behind it (2c, WARNING-tier). A claim reading "Right knee
+  pain after a fall" under the verbatim quote "Left knee pain after a fall" grounds at Tier
+  1 and fires nothing. A quote that swaps the side itself fires nothing when it clears the
+  fuzzy cutoff, and most do: mid-note, "Pain in L arm since this morning" against "R arm"
+  scores 96.9, and a 43-character left/right swap 93.0. "Left" and "right" differ in
+  length, so a short one can fall below it: "Left knee pain after a fall" mid-note scores
+  88.9 and is flagged `UNSUPPORTED`, which the clinician sees (all measured, cutoff 90).
+  Wrong-site is a never-event class; the check waits for a later minor revision.
 - **A span that cuts off its cue** (L157). The claim-local family reads the span (L35), so a
   cue outside it is invisible. A bare name grounds at Tier 1 and reads at the defaults
   (active, present, definite), so a flip away from stopped, denied, or hedged passes every
