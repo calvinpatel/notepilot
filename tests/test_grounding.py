@@ -39,7 +39,7 @@ def _normalizes_to(text: str, i: int) -> str:
 def test_whitespace_runs_collapse_and_the_map_skips_them() -> None:
     norm = NormalizedText.of("Pt  denies\tCP")
     assert norm.text == "pt denies cp"
-    assert norm.index_map == [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    assert norm.index_map == (0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 
 
 def test_to_original_ends_after_the_last_matched_character() -> None:
@@ -58,7 +58,15 @@ def test_punctuation_variants_and_the_micro_sign_fold() -> None:
 def test_a_two_character_lowercase_maps_both_characters_to_its_original() -> None:
     norm = NormalizedText.of("\u0130V")
     assert norm.text == "i\u0307v"
-    assert norm.index_map == [0, 0, 1]
+    assert norm.index_map == (0, 0, 1)
+
+
+def test_the_map_is_a_tuple_so_the_text_is_frozen_and_hashable() -> None:
+    # L192: frozen=True blocked reassigning a list map, not appending to it, and a list
+    # field made the generated __hash__ raise TypeError (both measured at 3874f3a)
+    norm = NormalizedText.of("Pt  denies")
+    assert type(norm.index_map) is tuple
+    assert hash(norm) == hash(NormalizedText.of("Pt  denies"))
 
 
 def test_a_match_ending_inside_an_expansion_spans_the_whole_original_character() -> None:
@@ -89,7 +97,8 @@ def test_each_original_character_maps_to_what_it_normalizes_to(text: str) -> Non
     # L62: stated per original character, so a lower() that returns two can't break it
     norm = NormalizedText.of(text)
     assert len(norm.index_map) == len(norm.text)
-    assert norm.index_map == sorted(norm.index_map)  # normalized order is original order
+    # normalized order is original order; list(), since a tuple never equals sorted()'s list
+    assert list(norm.index_map) == sorted(norm.index_map)
     contributed = [""] * len(text)
     for c, i in zip(norm.text, norm.index_map, strict=True):
         contributed[i] += c

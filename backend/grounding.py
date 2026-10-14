@@ -44,7 +44,7 @@ PUNCT_MAP: Mapping[str, str] = {
 @dataclass(frozen=True)
 class NormalizedText:
     text: str
-    index_map: list[int]  # normalized index -> original index
+    index_map: tuple[int, ...]  # normalized index -> original index (L192: a tuple)
 
     @classmethod
     def of(cls, text: str) -> Self:
@@ -65,7 +65,7 @@ class NormalizedText:
                 out.append(c)
                 index_map.append(i)
             prev_space = False
-        return cls("".join(out), index_map)
+        return cls("".join(out), tuple(index_map))  # L192: frozen once, here
 
     def to_original(self, n_start: int, n_end: int) -> tuple[int, int]:
         """Half-open normalized [n_start, n_end) -> half-open original span (§6.2).
