@@ -2,7 +2,8 @@
 
 A claim-local check runs one extractor over a claim's text and its source span and compares
 the two (L35); allergy_preserved compares the raw text with the whole note. Registration is
-this module's import side effect: runner.py imports it (§8.7).
+this module's import side effect: runner.py imports it (§8.7). Every check takes the config
+(L190); a check reads its knob from it, never from settings (L187).
 """
 
 from collections.abc import Callable, Iterable, Mapping
@@ -26,9 +27,8 @@ from backend.clinical.extract import (
     new_prescriptions,
 )
 from backend.clinical.lexicons import CROSS_REACTIVITY, DOSE_MASS_UG, DRUG_CLASS, R1_GROUP
-from backend.config import settings
 from backend.evals.registry import Finding, register_check
-from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
+from backend.schemas import ChecksConfig, ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 
 
 def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:
@@ -57,7 +57,7 @@ def named_drugs(text: str) -> set[str]:
 
 @register_check(name="drug_in_quote", severity=Severity.CRITICAL)
 def check_drug_in_quote(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per drug a claim names that its source span doesn't (§8.4, L35, L136).
 
@@ -81,7 +81,7 @@ def check_drug_in_quote(
 
 @register_check(name="hallucinated_medication", severity=Severity.CRITICAL)
 def check_hallucinated_medication(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per drug in a claim grounding flagged UNSUPPORTED (§8.4, L136).
 
@@ -138,7 +138,7 @@ def _statuses(statuses: set[MedStatus]) -> str:
 
 @register_check(name="med_status_consistency", severity=Severity.CRITICAL)
 def check_med_status_consistency(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per drug a claim and its span both name, at a status the span lacks (D13).
 
@@ -159,7 +159,7 @@ def _polarities(polarities: set[bool]) -> str:
 
 @register_check(name="negation_consistency", severity=Severity.CRITICAL)
 def check_negation_consistency(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per finding a claim and its span both name, at a polarity the span lacks.
 
@@ -233,7 +233,7 @@ def _describe(reading: _Reading) -> str:
 
 @register_check(name="diagnosis_in_quote", severity=Severity.CRITICAL)
 def check_diagnosis_in_quote(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per diagnosis a claim names that its span doesn't support (D7, D12, L140).
 
@@ -297,7 +297,7 @@ def _doses(doses: Iterable[Dose]) -> str:
 
 @register_check(name="dose_consistency", severity=Severity.WARNING)
 def check_dose_consistency(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per drug a claim and its span both name, at a dose the span doesn't chart.
 
@@ -326,7 +326,7 @@ def check_dose_consistency(
 
 @register_check(name="allergy_preserved", severity=Severity.CRITICAL)
 def check_allergy_preserved(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per allergy the raw text states and no claim does (§8.4).
 
@@ -393,7 +393,7 @@ def contraindication(allergen: str, drug: str) -> tuple[Severity, str] | None:
 
 @register_check(name="allergy_contraindication", severity=Severity.CRITICAL, origin="source")
 def check_allergy_contraindication(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per allergy and active drug that D9's ladder pairs (§8.4; D9, D14).
 
@@ -436,7 +436,7 @@ def check_allergy_contraindication(
 
 @register_check(name="new_prescription_preserved", severity=Severity.WARNING)
 def check_new_prescription_preserved(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per drug the raw text starts and no claim names (§8.4, L41).
 
@@ -454,18 +454,18 @@ def check_new_prescription_preserved(
 
 @register_check(name="quote_informativeness", severity=Severity.WARNING)
 def check_quote_informativeness(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding per claim whose source span says too little to ground it (§8.4, D15).
 
-    A span is informative with settings.min_quote_content_tokens content tokens (L161), or
+    A span is informative with config.min_quote_content_tokens content tokens (L161), or
     when it states NKDA or NKA, a statement in one word (L158), or when each of its content
     tokens is a word stating its finding absent ("afebrile", L174). A bare lexicon name is
     not: "pain" grounds wherever a source mentions pain (§6.5). The check reads the span,
     what the claim cites, not the model's quote (L159); a claim with no span is skipped
     (§8.4).
     """
-    minimum = settings.min_quote_content_tokens
+    minimum = config.min_quote_content_tokens
     findings: list[Finding] = []
     for claim in note.claims:
         span = span_text(claim, raw_text)
@@ -487,7 +487,7 @@ def check_quote_informativeness(
 
 @register_check(name="empty_note_on_clinical_input", severity=Severity.WARNING)
 def check_empty_note_on_clinical_input(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
 ) -> list[Finding]:
     """One finding when the note holds no claim and the raw text names an entity (§8.4, L55).
 

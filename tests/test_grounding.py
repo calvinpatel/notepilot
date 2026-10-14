@@ -9,9 +9,9 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 from rapidfuzz import fuzz
 
-from backend import config, grounding
 from backend.grounding import PUNCT_MAP, NormalizedText, _snap, ground, ground_claim
-from backend.schemas import ClaimDraft, ClinicalClaim, SafetyFlag, SOAPNoteDraft
+from backend.schemas import ChecksConfig, ClaimDraft, ClinicalClaim, SafetyFlag, SOAPNoteDraft
+from tests.fakes import CHECKS_CONFIG, checks_config_with
 
 # Non-ASCII on purpose (L26): U+0130, whose lower() returns two characters, the PUNCT_MAP
 # keys, and several kinds of whitespace, drawn by name beside arbitrary characters. Texts are
@@ -143,9 +143,9 @@ _NOTE = (
 )
 
 
-def _ground(quote: str, raw: str = _NOTE) -> ClinicalClaim:
+def _ground(quote: str, raw: str = _NOTE, *, config: ChecksConfig = CHECKS_CONFIG) -> ClinicalClaim:
     draft = ClaimDraft(text="fact-1", section="S", source_quote=quote)
-    return ground_claim(draft, raw, NormalizedText.of(raw), claim_id=0)
+    return ground_claim(draft, raw, NormalizedText.of(raw), claim_id=0, config=config)
 
 
 def _span_text(claim: ClinicalClaim, raw: str = _NOTE) -> str:
@@ -183,7 +183,7 @@ def test_tier_3_a_close_paraphrase_is_paraphrased_on_whole_words(quote: str, spa
     assert claim.flags == (SafetyFlag.PARAPHRASED,)
     assert _span_text(claim) == span
     assert claim.grounding_score is not None
-    assert claim.grounding_score >= config.settings.fuzzy_score_cutoff
+    assert claim.grounding_score >= CHECKS_CONFIG.fuzzy_score_cutoff
 
 
 _SNAP_RAW = "Hypothyroidism, stable on levothyroxine 75 mcg daily."
@@ -214,7 +214,7 @@ def test_tier_4_a_near_miss_keeps_its_score() -> None:
     assert claim.flags == (SafetyFlag.UNSUPPORTED,)
     assert claim.source_span is None
     assert claim.grounding_score is not None
-    assert claim.grounding_score < config.settings.fuzzy_score_cutoff
+    assert claim.grounding_score < CHECKS_CONFIG.fuzzy_score_cutoff
 
 
 @pytest.mark.parametrize(
@@ -233,7 +233,7 @@ def test_numeric_guard_demotes_a_number_the_span_lacks(quote: str, raw: str) -> 
     assert claim.flags == (SafetyFlag.UNSUPPORTED,)
     assert claim.source_span is None
     assert claim.grounding_score is not None
-    assert claim.grounding_score >= config.settings.fuzzy_score_cutoff  # the guard, not the cutoff
+    assert claim.grounding_score >= CHECKS_CONFIG.fuzzy_score_cutoff  # the guard, not the cutoff
 
 
 def test_detect_vital_drift() -> None:
@@ -241,28 +241,26 @@ def test_detect_vital_drift() -> None:
     claim = _ground("BP 184/92, HR 88")
     assert claim.flags == (SafetyFlag.UNSUPPORTED,)
     assert claim.grounding_score is not None
-    assert claim.grounding_score >= config.settings.fuzzy_score_cutoff
+    assert claim.grounding_score >= CHECKS_CONFIG.fuzzy_score_cutoff
 
 
-def test_the_cutoff_comes_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    # L105: a cutoff just above this quote's score demotes it
+def test_the_cutoff_comes_from_the_config() -> None:
+    # L105: a cutoff just above this quote's score demotes it; L187: the config carries it
     quote = "Increase metformin to 1000mg BID"
     score = _ground(quote).grounding_score
     assert score is not None
-    raised = config.settings.model_copy(update={"fuzzy_score_cutoff": score + 0.01})
-    monkeypatch.setattr(grounding, "settings", raised)
-    claim = _ground(quote)
+    raised = checks_config_with(fuzzy_score_cutoff=score + 0.01)
+    claim = _ground(quote, config=raised)
     assert claim.flags == (SafetyFlag.UNSUPPORTED,)
     assert claim.grounding_score == score
 
 
-def test_the_cutoff_is_inclusive(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_cutoff_is_inclusive() -> None:
     quote = "Increase metformin to 1000mg BID"
     score = _ground(quote).grounding_score
     assert score is not None
-    exact = config.settings.model_copy(update={"fuzzy_score_cutoff": score})
-    monkeypatch.setattr(grounding, "settings", exact)
-    assert _ground(quote).flags == (SafetyFlag.PARAPHRASED,)
+    exact = checks_config_with(fuzzy_score_cutoff=score)
+    assert _ground(quote, config=exact).flags == (SafetyFlag.PARAPHRASED,)
 
 
 def test_an_empty_raw_text_grounds_nothing() -> None:
@@ -300,7 +298,7 @@ def test_an_unvalidated_blank_draft_fails_loudly() -> None:
     # programming error, and building its ClinicalClaim raises
     draft = ClaimDraft.model_construct(text="fact-1", section="S", source_quote="   ")
     with pytest.raises(ValidationError) as exc:
-        ground_claim(draft, _NOTE, NormalizedText.of(_NOTE), claim_id=0)
+        ground_claim(draft, _NOTE, NormalizedText.of(_NOTE), claim_id=0, config=CHECKS_CONFIG)
     (err,) = exc.value.errors()
     assert err["type"] == "string_too_short"
     assert err["loc"] == ("source_quote",)
@@ -313,14 +311,14 @@ def test_ground_stamps_ids_in_draft_order() -> None:
             ClaimDraft(text="fact-2", section="P", source_quote="not in the note"),
         ]
     )
-    note = ground(draft, _NOTE)
+    note = ground(draft, _NOTE, config=CHECKS_CONFIG)
     assert [c.id for c in note.claims] == [0, 1]
     assert [c.text for c in note.claims] == ["fact-1", "fact-2"]
     assert note.claims[1].flags == (SafetyFlag.UNSUPPORTED,)
 
 
 def test_ground_of_an_empty_draft_is_an_empty_note() -> None:
-    assert ground(SOAPNoteDraft(claims=[]), _NOTE).claims == ()
+    assert ground(SOAPNoteDraft(claims=[]), _NOTE, config=CHECKS_CONFIG).claims == ()
 
 
 # --- the ladder's properties (§11; L62) ------------------------------------------

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from backend import config
 from backend.clinical.lexicons import (
     ALLERGY_ALIASES,
     DIAGNOSES,
@@ -16,7 +15,6 @@ from backend.clinical.lexicons import (
     FINDINGS,
     GENERIC_DRUGS,
 )
-from backend.evals import checks
 from backend.evals.checks import (
     check_allergy_contraindication,
     check_allergy_preserved,
@@ -36,6 +34,7 @@ from backend.evals.checks import (
 )
 from backend.evals.registry import REGISTRY, Finding
 from backend.schemas import ClinicalClaim, SafetyFlag, Section, Severity, SOAPNote
+from tests.fakes import CHECKS_CONFIG, checks_config_with
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -124,31 +123,31 @@ def test_drug_in_quote_is_a_reference_free_critical_check() -> None:
 
 def test_drug_in_quote_fires_on_a_drug_its_span_doesnt_name() -> None:
     note, raw = _note(("Start amoxicillin", "Will start antibiotics"))
-    findings = check_drug_in_quote(note, raw)
+    findings = check_drug_in_quote(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == ["amoxicillin"]
     assert findings[0].claim_ids == (0,)
 
 
 def test_drug_in_quote_passes_a_drug_its_span_names_by_brand() -> None:
     note, raw = _note(("Continue lisinopril 10 mg daily", "Zestril 10 mg daily, continue"))
-    assert check_drug_in_quote(note, raw) == []
+    assert check_drug_in_quote(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_drug_in_quote_leaves_a_status_difference_to_status() -> None:
     # D13: "not on apixaban" names apixaban; the flip to active is status, not presence
     note, raw = _note(("Continue apixaban", "pt not on apixaban"))
-    assert check_drug_in_quote(note, raw) == []
+    assert check_drug_in_quote(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_drug_in_quote_fires_on_a_swapped_stop_order() -> None:
     # L136: as active drugs alone, both sides read empty and this passed
     note, raw = _note(("Discontinue metformin", "discontinue lisinopril"))
-    assert _named(check_drug_in_quote(note, raw)) == ["metformin"]
+    assert _named(check_drug_in_quote(note, raw, config=CHECKS_CONFIG)) == ["metformin"]
 
 
 def test_drug_in_quote_fires_on_an_allergen_written_as_an_order() -> None:
     note, raw = _note(("Start amoxicillin", "allergic to amoxicillin"))
-    assert _named(check_drug_in_quote(note, raw)) == ["amoxicillin"]
+    assert _named(check_drug_in_quote(note, raw, config=CHECKS_CONFIG)) == ["amoxicillin"]
 
 
 def test_drug_in_quote_reads_the_span_never_the_quote() -> None:
@@ -162,7 +161,9 @@ def test_drug_in_quote_reads_the_span_never_the_quote() -> None:
         source_span=(0, len(raw)),
         flags=(SafetyFlag.PARAPHRASED,),
     )
-    assert _named(check_drug_in_quote(SOAPNote(claims=(claim,)), raw)) == ["amoxicillin"]
+    assert _named(check_drug_in_quote(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG)) == [
+        "amoxicillin"
+    ]
 
 
 def test_drug_in_quote_reads_the_claims_own_span_not_the_raw_text() -> None:
@@ -170,20 +171,20 @@ def test_drug_in_quote_reads_the_claims_own_span_not_the_raw_text() -> None:
         ("Continue amoxicillin", "continue amoxicillin"),
         ("Start amoxicillin", "Will start antibiotics"),
     )
-    assert [f.claim_ids for f in check_drug_in_quote(note, raw)] == [(1,)]
+    assert [f.claim_ids for f in check_drug_in_quote(note, raw, config=CHECKS_CONFIG)] == [(1,)]
 
 
 def test_drug_in_quote_skips_a_claim_that_grounds_nowhere() -> None:
     # §8.4: an ungrounded claim is grounding's red badge, not a span comparison
     note, raw = _note(("Start amoxicillin", None))
-    assert check_drug_in_quote(note, raw) == []
+    assert check_drug_in_quote(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_drug_in_quote_finds_each_drug_once_in_name_order() -> None:
     # the whole vocabulary, in reverse: name order has to come from the check's sort
     text = "Start " + ", ".join(sorted(GENERIC_DRUGS, reverse=True))
     note, raw = _note((text, "Start antibiotics"))
-    findings = check_drug_in_quote(note, raw)
+    findings = check_drug_in_quote(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == sorted(GENERIC_DRUGS)
     assert {f.claim_ids for f in findings} == {(0,)}
 
@@ -203,7 +204,7 @@ def test_hallucinated_medication_is_a_reference_free_critical_check() -> None:
 
 def test_hallucinated_medication_fires_on_a_drug_in_a_claim_that_grounds_nowhere() -> None:
     note, raw = _note(("Continue lisinopril", "continue lisinopril"), ("Start amoxicillin", None))
-    findings = check_hallucinated_medication(note, raw)
+    findings = check_hallucinated_medication(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == ["amoxicillin"]
     assert findings[0].claim_ids == (1,)
 
@@ -212,12 +213,12 @@ def test_hallucinated_medication_fires_on_a_drug_in_a_claim_that_grounds_nowhere
 def test_hallucinated_medication_fires_on_a_drug_named_at_any_status(text: str) -> None:
     # L136: as active drugs alone, an ungrounded stop or denial named nothing
     note, raw = _note((text, None))
-    assert _named(check_hallucinated_medication(note, raw)) == ["apixaban"]
+    assert _named(check_hallucinated_medication(note, raw, config=CHECKS_CONFIG)) == ["apixaban"]
 
 
 def test_hallucinated_medication_passes_a_claim_that_grounds_nowhere_and_names_no_drug() -> None:
     note, raw = _note(("Follow up in one week", None))
-    assert check_hallucinated_medication(note, raw) == []
+    assert check_hallucinated_medication(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_hallucinated_medication_passes_a_paraphrased_claim() -> None:
@@ -230,7 +231,7 @@ def test_hallucinated_medication_passes_a_paraphrased_claim() -> None:
         source_span=(0, len(raw)),
         flags=(SafetyFlag.PARAPHRASED,),
     )
-    assert check_hallucinated_medication(SOAPNote(claims=(claim,)), raw) == []
+    assert check_hallucinated_medication(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG) == []
 
 
 def test_hallucinated_medication_reads_groundings_flag_never_the_span() -> None:
@@ -245,14 +246,16 @@ def test_hallucinated_medication_reads_groundings_flag_never_the_span() -> None:
         source_span=(0, len(raw)),
         flags=(SafetyFlag.UNSUPPORTED,),
     )
-    assert _named(check_hallucinated_medication(SOAPNote(claims=(claim,)), raw)) == ["amoxicillin"]
+    assert _named(
+        check_hallucinated_medication(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG)
+    ) == ["amoxicillin"]
 
 
 def test_hallucinated_medication_finds_each_drug_once_in_name_order() -> None:
     # the whole vocabulary, in reverse: name order has to come from the check's sort
     text = "Start " + ", ".join(sorted(GENERIC_DRUGS, reverse=True))
     note, raw = _note((text, None))
-    findings = check_hallucinated_medication(note, raw)
+    findings = check_hallucinated_medication(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == sorted(GENERIC_DRUGS)
     assert {f.claim_ids for f in findings} == {(0,)}
 
@@ -260,8 +263,10 @@ def test_hallucinated_medication_finds_each_drug_once_in_name_order() -> None:
 def test_the_presence_checks_split_a_note_by_whether_each_claim_grounds() -> None:
     # a grounded claim is drug_in_quote's, an ungrounded one hallucinated_medication's
     note, raw = _note(("Start amoxicillin", "Will start antibiotics"), ("Start azithromycin", None))
-    assert [f.claim_ids for f in check_drug_in_quote(note, raw)] == [(0,)]
-    assert [f.claim_ids for f in check_hallucinated_medication(note, raw)] == [(1,)]
+    assert [f.claim_ids for f in check_drug_in_quote(note, raw, config=CHECKS_CONFIG)] == [(0,)]
+    assert [
+        f.claim_ids for f in check_hallucinated_medication(note, raw, config=CHECKS_CONFIG)
+    ] == [(1,)]
 
 
 # --- med_status_consistency (§8.4, D13, L124, L167, L172) ---------------------------------
@@ -280,7 +285,7 @@ def test_med_status_consistency_is_a_reference_free_critical_check() -> None:
 def test_med_status_consistency_fires_on_a_continued_drug_written_as_stopped() -> None:
     # D13's dangerous direction
     note, raw = _note(("Discontinue apixaban", "continue apixaban"))
-    findings = check_med_status_consistency(note, raw)
+    findings = check_med_status_consistency(note, raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [
         "apixaban: stopped in the claim, active in its source span"
     ]
@@ -300,7 +305,7 @@ def test_med_status_consistency_fires_on_a_stopped_drug_written_as_active(
 ) -> None:
     # a post-cue stop (L125) and a negation, which status reads as stopped (L124)
     note, raw = _note((text, span))
-    assert len(check_med_status_consistency(note, raw)) == 1
+    assert len(check_med_status_consistency(note, raw, config=CHECKS_CONFIG)) == 1
 
 
 @pytest.mark.parametrize(
@@ -316,7 +321,7 @@ def test_med_status_consistency_fires_on_a_refused_restart_written_as_an_order(
 ) -> None:
     # L167: the refusal stops the drug, so the order is the flip
     note, raw = _note((text, span))
-    assert [f.detail for f in check_med_status_consistency(note, raw)] == [
+    assert [f.detail for f in check_med_status_consistency(note, raw, config=CHECKS_CONFIG)] == [
         "apixaban: active in the claim, stopped in its source span"
     ]
 
@@ -324,14 +329,14 @@ def test_med_status_consistency_fires_on_a_refused_restart_written_as_an_order(
 def test_med_status_consistency_fires_on_a_contracted_refused_stop_written_as_a_stop() -> None:
     # L172: the contraction is a continue order, so the stop is the flip
     note, raw = _note(("Stop apixaban", "don't stop apixaban"))
-    assert [f.detail for f in check_med_status_consistency(note, raw)] == [
+    assert [f.detail for f in check_med_status_consistency(note, raw, config=CHECKS_CONFIG)] == [
         "apixaban: stopped in the claim, active in its source span"
     ]
 
 
 def test_med_status_consistency_passes_a_status_both_sides_assert() -> None:
     note, raw = _note(("Hold metformin", "metformin held"))
-    assert check_med_status_consistency(note, raw) == []
+    assert check_med_status_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_med_status_consistency_passes_one_of_the_spans_statuses() -> None:
@@ -339,12 +344,12 @@ def test_med_status_consistency_passes_one_of_the_spans_statuses() -> None:
     note, raw = _note(
         ("Restart metformin in 48 hours", "metformin held, restart metformin in 48 hours")
     )
-    assert check_med_status_consistency(note, raw) == []
+    assert check_med_status_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_med_status_consistency_fires_on_a_status_the_span_lacks_beside_one_it_has() -> None:
     note, raw = _note(("Hold metformin, restart metformin in 48 hours", "restart metformin"))
-    findings = check_med_status_consistency(note, raw)
+    findings = check_med_status_consistency(note, raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [
         "metformin: active and stopped in the claim, active in its source span"
     ]
@@ -354,7 +359,9 @@ def test_med_status_consistency_reads_the_claims_own_span_not_the_raw_text() -> 
     note, raw = _note(
         ("Continue apixaban", "continue apixaban"), ("Continue apixaban", "apixaban held")
     )
-    assert [f.claim_ids for f in check_med_status_consistency(note, raw)] == [(1,)]
+    assert [f.claim_ids for f in check_med_status_consistency(note, raw, config=CHECKS_CONFIG)] == [
+        (1,)
+    ]
 
 
 def test_med_status_consistency_reads_the_span_never_the_quote() -> None:
@@ -368,12 +375,14 @@ def test_med_status_consistency_reads_the_span_never_the_quote() -> None:
         source_span=(0, len(raw)),
         flags=(SafetyFlag.PARAPHRASED,),
     )
-    assert _named(check_med_status_consistency(SOAPNote(claims=(claim,)), raw)) == ["apixaban"]
+    assert _named(
+        check_med_status_consistency(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG)
+    ) == ["apixaban"]
 
 
 def test_med_status_consistency_skips_a_claim_that_grounds_nowhere() -> None:
     note, raw = _note(("Discontinue apixaban", None))
-    assert check_med_status_consistency(note, raw) == []
+    assert check_med_status_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_med_status_consistency_finds_each_drug_once_in_name_order() -> None:
@@ -382,7 +391,7 @@ def test_med_status_consistency_finds_each_drug_once_in_name_order() -> None:
     text = ", ".join(f"stop {d}" for d in drugs)
     span = ", ".join(f"continue {d}" for d in drugs)
     note, raw = _note((text, span))
-    findings = check_med_status_consistency(note, raw)
+    findings = check_med_status_consistency(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == sorted(GENERIC_DRUGS)
     assert {f.claim_ids for f in findings} == {(0,)}
 
@@ -400,8 +409,8 @@ def test_presence_and_status_split_one_error_into_one_finding(
 ) -> None:
     # D13: a drug only one side names is presence's; a status on a drug both name is status's
     note, raw = _note((text, span))
-    assert _named(check_drug_in_quote(note, raw)) == presence
-    assert _named(check_med_status_consistency(note, raw)) == status
+    assert _named(check_drug_in_quote(note, raw, config=CHECKS_CONFIG)) == presence
+    assert _named(check_med_status_consistency(note, raw, config=CHECKS_CONFIG)) == status
 
 
 # --- negation_consistency (§8.4, L33, L139, L173) -----------------------------------------
@@ -419,7 +428,7 @@ def test_negation_consistency_is_a_reference_free_critical_check() -> None:
 
 def test_negation_consistency_fires_on_a_denied_finding_written_as_reported() -> None:
     note, raw = _note(("Reports chest pain", "denies chest pain"))
-    findings = check_negation_consistency(note, raw)
+    findings = check_negation_consistency(note, raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [
         "chest pain: present in the claim, absent in its source span"
     ]
@@ -428,13 +437,13 @@ def test_negation_consistency_fires_on_a_denied_finding_written_as_reported() ->
 
 def test_negation_consistency_fires_on_a_reported_finding_written_as_denied() -> None:
     note, raw = _note(("Denies fever", "reports fever and chills"))
-    assert _named(check_negation_consistency(note, raw)) == ["fever"]
+    assert _named(check_negation_consistency(note, raw, config=CHECKS_CONFIG)) == ["fever"]
 
 
 def test_negation_consistency_fires_on_an_absence_word_written_as_present() -> None:
     # L173: "afebrile" reads as fever, absent, so L139's span now meets a fever flip
     note, raw = _note(("Febrile", "Temp 37.0, afebrile"))
-    assert [f.detail for f in check_negation_consistency(note, raw)] == [
+    assert [f.detail for f in check_negation_consistency(note, raw, config=CHECKS_CONFIG)] == [
         "fever: present in the claim, absent in its source span"
     ]
 
@@ -442,12 +451,12 @@ def test_negation_consistency_fires_on_an_absence_word_written_as_present() -> N
 def test_negation_consistency_passes_the_claim_an_absence_word_states() -> None:
     # L173: L139's faithful example, which compared nothing, now compares and agrees
     note, raw = _note(("No fever", "Temp 37.0, afebrile"))
-    assert check_negation_consistency(note, raw) == []
+    assert check_negation_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_negation_consistency_passes_a_polarity_both_sides_assert() -> None:
     note, raw = _note(("Denies chest pain", "denies chest pain or shortness of breath"))
-    assert check_negation_consistency(note, raw) == []
+    assert check_negation_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize(
@@ -462,7 +471,7 @@ def test_negation_consistency_passes_a_polarity_both_sides_assert() -> None:
 def test_negation_consistency_leaves_a_finding_the_span_doesnt_name(text: str, span: str) -> None:
     # L139: compared per finding, for findings both sides name; §8.8 states the recall cost
     note, raw = _note((text, span))
-    assert check_negation_consistency(note, raw) == []
+    assert check_negation_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize(
@@ -472,7 +481,7 @@ def test_negation_consistency_passes_one_of_the_spans_polarities(text: str) -> N
     # polarity(text) ⊆ polarity(span): with qualifiers unread, a claim keeping either half of
     # a mixed span passes, the faithful half and the selective one alike (§8.8, L139)
     note, raw = _note((text, "denies chest pain at rest, reports chest pain on exertion"))
-    assert check_negation_consistency(note, raw) == []
+    assert check_negation_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_negation_consistency_fires_on_a_polarity_the_span_lacks_beside_one_it_has() -> None:
@@ -482,7 +491,7 @@ def test_negation_consistency_fires_on_a_polarity_the_span_lacks_beside_one_it_h
             "reports chest pain on exertion",
         )
     )
-    findings = check_negation_consistency(note, raw)
+    findings = check_negation_consistency(note, raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [
         "chest pain: absent and present in the claim, present in its source span"
     ]
@@ -490,7 +499,9 @@ def test_negation_consistency_fires_on_a_polarity_the_span_lacks_beside_one_it_h
 
 def test_negation_consistency_reads_the_claims_own_span_not_the_raw_text() -> None:
     note, raw = _note(("Denies fever", "denies fever"), ("Denies fever", "reports fever"))
-    assert [f.claim_ids for f in check_negation_consistency(note, raw)] == [(1,)]
+    assert [f.claim_ids for f in check_negation_consistency(note, raw, config=CHECKS_CONFIG)] == [
+        (1,)
+    ]
 
 
 def test_negation_consistency_reads_the_span_never_the_quote() -> None:
@@ -504,12 +515,14 @@ def test_negation_consistency_reads_the_span_never_the_quote() -> None:
         source_span=(0, len(raw)),
         flags=(SafetyFlag.PARAPHRASED,),
     )
-    assert _named(check_negation_consistency(SOAPNote(claims=(claim,)), raw)) == ["chest pain"]
+    assert _named(
+        check_negation_consistency(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG)
+    ) == ["chest pain"]
 
 
 def test_negation_consistency_skips_a_claim_that_grounds_nowhere() -> None:
     note, raw = _note(("Reports chest pain", None))
-    assert check_negation_consistency(note, raw) == []
+    assert check_negation_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_negation_consistency_finds_each_finding_once_in_name_order() -> None:
@@ -518,7 +531,7 @@ def test_negation_consistency_finds_each_finding_once_in_name_order() -> None:
     text = ", ".join(f"denies {n}" for n in names)
     span = ", ".join(f"reports {n}" for n in names)
     note, raw = _note((text, span))
-    findings = check_negation_consistency(note, raw)
+    findings = check_negation_consistency(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == sorted(FINDINGS)
     assert {f.claim_ids for f in findings} == {(0,)}
 
@@ -539,7 +552,7 @@ def test_diagnosis_in_quote_is_a_reference_free_critical_check() -> None:
 def test_diagnosis_in_quote_fires_on_an_invented_diagnosis() -> None:
     # D7 and D12's trap: a vital sign written as a diagnosis
     note, raw = _note(("Hypertensive urgency", "BP 190/110 on arrival"))
-    findings = check_diagnosis_in_quote(note, raw)
+    findings = check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)
     assert [(f.detail, f.severity) for f in findings] == [
         (
             "hypertensive urgency: definite in the claim, not named in its source span",
@@ -551,7 +564,9 @@ def test_diagnosis_in_quote_fires_on_an_invented_diagnosis() -> None:
 
 def test_diagnosis_in_quote_fires_on_an_upgrade() -> None:
     note, raw = _note(("Pulmonary embolism", "r/o PE, CTA ordered"))
-    assert [(f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw)] == [
+    assert [
+        (f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)
+    ] == [
         (
             "pulmonary embolism: definite in the claim, rule-out in its source span",
             Severity.CRITICAL,
@@ -561,9 +576,9 @@ def test_diagnosis_in_quote_fires_on_an_upgrade() -> None:
 
 def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
     note, raw = _note(("Possible pneumonia", "pneumonia"))
-    assert [(f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw)] == [
-        ("pneumonia: possible in the claim, definite in its source span", Severity.WARNING)
-    ]
+    assert [
+        (f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)
+    ] == [("pneumonia: possible in the claim, definite in its source span", Severity.WARNING)]
 
 
 @pytest.mark.parametrize(
@@ -587,7 +602,7 @@ def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
 )
 def test_diagnosis_in_quote_passes_a_reading_the_span_supports(text: str, span: str) -> None:
     note, raw = _note((text, span))
-    assert check_diagnosis_in_quote(note, raw) == []
+    assert check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize(
@@ -615,12 +630,14 @@ def test_diagnosis_in_quote_reads_exclusions(text: str, span: str, severity: Sev
     # L140: an exclusion the span doesn't make is CRITICAL; asserting what the span excludes is
     # CRITICAL as definite or probable, and a WARNING as possible or rule-out, which reopen it
     note, raw = _note((text, span))
-    assert [f.severity for f in check_diagnosis_in_quote(note, raw)] == [severity]
+    assert [f.severity for f in check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)] == [
+        severity
+    ]
 
 
 def test_diagnosis_in_quote_describes_an_exclusion() -> None:
     note, raw = _note(("PE ruled out", "r/o PE"))
-    assert [f.detail for f in check_diagnosis_in_quote(note, raw)] == [
+    assert [f.detail for f in check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)] == [
         "pulmonary embolism: excluded in the claim, rule-out in its source span"
     ]
 
@@ -629,7 +646,9 @@ def test_diagnosis_in_quote_reads_the_claims_own_span_not_the_raw_text() -> None
     note, raw = _note(
         ("Likely pneumonia", "likely pneumonia"), ("Likely pneumonia", "r/o pneumonia")
     )
-    assert [f.claim_ids for f in check_diagnosis_in_quote(note, raw)] == [(1,)]
+    assert [f.claim_ids for f in check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)] == [
+        (1,)
+    ]
 
 
 def test_diagnosis_in_quote_reads_the_span_never_the_quote() -> None:
@@ -643,20 +662,20 @@ def test_diagnosis_in_quote_reads_the_span_never_the_quote() -> None:
         source_span=(0, len(raw)),
         flags=(SafetyFlag.PARAPHRASED,),
     )
-    assert _named(check_diagnosis_in_quote(SOAPNote(claims=(claim,)), raw)) == [
-        "pulmonary embolism"
-    ]
+    assert _named(
+        check_diagnosis_in_quote(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG)
+    ) == ["pulmonary embolism"]
 
 
 def test_diagnosis_in_quote_skips_a_claim_that_grounds_nowhere() -> None:
     note, raw = _note(("Hypertensive urgency", None))
-    assert check_diagnosis_in_quote(note, raw) == []
+    assert check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_diagnosis_in_quote_finds_each_diagnosis_once_in_name_order() -> None:
     # every listed diagnosis, in reverse: name order has to come from the check's sort
     note, raw = _note((", ".join(sorted(DIAGNOSES, reverse=True)), "Assessment deferred"))
-    findings = check_diagnosis_in_quote(note, raw)
+    findings = check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == sorted(DIAGNOSES)
     assert {f.claim_ids for f in findings} == {(0,)}
 
@@ -676,7 +695,7 @@ def test_dose_consistency_is_a_reference_free_warning() -> None:
 
 def test_dose_consistency_fires_on_a_tenfold_dose() -> None:
     note, raw = _note(("Continue lisinopril 100 mg daily", "lisinopril 10 mg daily"))
-    findings = check_dose_consistency(note, raw)
+    findings = check_dose_consistency(note, raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [
         "lisinopril: 100 mg daily in the claim, 10 mg daily in its source span"
     ]
@@ -698,7 +717,7 @@ def test_dose_consistency_passes_a_dose_the_span_charts(text: str, span: str) ->
     # L141: mass compares in micrograms, exactly (in floats, 1.005 * 1000 is 1004.999...), and
     # a dose the claim charts without a frequency matches the span's at any
     note, raw = _note((text, span))
-    assert check_dose_consistency(note, raw) == []
+    assert check_dose_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize(
@@ -714,12 +733,12 @@ def test_dose_consistency_passes_a_dose_the_span_charts(text: str, span: str) ->
 )
 def test_dose_consistency_fires_on_a_dose_the_span_doesnt_chart(text: str, span: str) -> None:
     note, raw = _note((text, span))
-    assert len(check_dose_consistency(note, raw)) == 1
+    assert len(check_dose_consistency(note, raw, config=CHECKS_CONFIG)) == 1
 
 
 def test_dose_consistency_names_a_missing_dose() -> None:
     note, raw = _note(("Continue metformin 1000 mg bid", "continue metformin"))
-    assert [f.detail for f in check_dose_consistency(note, raw)] == [
+    assert [f.detail for f in check_dose_consistency(note, raw, config=CHECKS_CONFIG)] == [
         "metformin: 1000 mg bid in the claim, no dose in its source span"
     ]
 
@@ -736,7 +755,7 @@ def test_dose_consistency_names_a_missing_dose() -> None:
 def test_each_mass_unit_charts_the_same_dose_as_the_others(text: str, span: str) -> None:
     # facts, not the table read back: each pair pins two of DOSE_MASS_UG's three sizes
     note, raw = _note((text, span))
-    assert check_dose_consistency(note, raw) == []
+    assert check_dose_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_only_ml_and_units_carry_no_mass() -> None:
@@ -747,8 +766,8 @@ def test_only_ml_and_units_carry_no_mass() -> None:
 
 def test_dose_consistency_leaves_a_drug_the_span_doesnt_name_to_presence() -> None:
     note, raw = _note(("Start amoxicillin 500 mg", "Will start antibiotics"))
-    assert _named(check_drug_in_quote(note, raw)) == ["amoxicillin"]
-    assert check_dose_consistency(note, raw) == []
+    assert _named(check_drug_in_quote(note, raw, config=CHECKS_CONFIG)) == ["amoxicillin"]
+    assert check_dose_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_dose_consistency_reads_the_claims_own_span_not_the_raw_text() -> None:
@@ -757,7 +776,7 @@ def test_dose_consistency_reads_the_claims_own_span_not_the_raw_text() -> None:
         ("Metformin 500 mg bid", "metformin 850 mg bid"),
     )
     # the first claim's span charts 500 mg, so only a check reading the raw text passes both
-    assert [f.claim_ids for f in check_dose_consistency(note, raw)] == [(1,)]
+    assert [f.claim_ids for f in check_dose_consistency(note, raw, config=CHECKS_CONFIG)] == [(1,)]
 
 
 def test_dose_consistency_reads_the_span_never_the_quote() -> None:
@@ -771,12 +790,14 @@ def test_dose_consistency_reads_the_span_never_the_quote() -> None:
         source_span=(0, len(raw)),
         flags=(SafetyFlag.PARAPHRASED,),
     )
-    assert _named(check_dose_consistency(SOAPNote(claims=(claim,)), raw)) == ["lisinopril"]
+    assert _named(check_dose_consistency(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG)) == [
+        "lisinopril"
+    ]
 
 
 def test_dose_consistency_skips_a_claim_that_grounds_nowhere() -> None:
     note, raw = _note(("Lisinopril 100 mg daily", None))
-    assert check_dose_consistency(note, raw) == []
+    assert check_dose_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_dose_consistency_finds_each_drug_once_in_name_order() -> None:
@@ -785,7 +806,7 @@ def test_dose_consistency_finds_each_drug_once_in_name_order() -> None:
     text = ", ".join(f"{d} 20 mg" for d in drugs)
     span = ", ".join(f"{d} 10 mg" for d in drugs)
     note, raw = _note((text, span))
-    findings = check_dose_consistency(note, raw)
+    findings = check_dose_consistency(note, raw, config=CHECKS_CONFIG)
     assert _named(findings) == sorted(GENERIC_DRUGS)
     assert {f.claim_ids for f in findings} == {(0,)}
 
@@ -805,7 +826,7 @@ def test_allergy_preserved_is_a_reference_free_critical_check() -> None:
 
 def test_allergy_preserved_fires_on_an_allergy_no_claim_states() -> None:
     note, raw = _note(("Start azithromycin", "start azithromycin"))
-    findings = check_allergy_preserved(note, raw + " PCN allergy.")
+    findings = check_allergy_preserved(note, raw + " PCN allergy.", config=CHECKS_CONFIG)
     assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
         ("penicillin: in the source, not the note", (), None)
     ]
@@ -813,7 +834,7 @@ def test_allergy_preserved_fires_on_an_allergy_no_claim_states() -> None:
 
 def test_allergy_preserved_passes_an_allergy_a_claim_states_in_other_words() -> None:
     note, raw = _note(("PCN allergy", "allergic to penicillin"))
-    assert check_allergy_preserved(note, raw) == []
+    assert check_allergy_preserved(note, raw, config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize("section", ["S", "O", "A", "P"])
@@ -823,18 +844,20 @@ def test_allergy_preserved_reads_a_claim_in_any_section(section: Section) -> Non
     claim = ClinicalClaim(
         id=0, text="Sulfa allergy", section=section, source_quote=raw, source_span=(0, len(raw))
     )
-    assert check_allergy_preserved(SOAPNote(claims=(claim,)), raw) == []
+    assert check_allergy_preserved(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG) == []
 
 
 def test_allergy_preserved_reads_a_claim_that_grounds_nowhere() -> None:
     # the allergy is in the note; whether its claim grounds is the red badge's question
     note, raw = _note(("Allergic to amoxicillin", None))
-    assert check_allergy_preserved(note, raw + "Allergic to amoxicillin.") == []
+    assert (
+        check_allergy_preserved(note, raw + "Allergic to amoxicillin.", config=CHECKS_CONFIG) == []
+    )
 
 
 def test_allergy_preserved_leaves_an_allergy_only_the_note_states() -> None:
     note, raw = _note(("Sulfa allergy", None))
-    assert check_allergy_preserved(note, raw + "Start azithromycin.") == []
+    assert check_allergy_preserved(note, raw + "Start azithromycin.", config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize(
@@ -845,7 +868,7 @@ def test_allergy_preserved_lowers_a_dropped_statement_to_a_warning(
     raw: str, statement: str
 ) -> None:
     # D10, L144: an undocumented allergy status prompts a re-ask
-    findings = check_allergy_preserved(SOAPNote(claims=()), raw)
+    findings = check_allergy_preserved(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert [(f.detail, f.severity) for f in findings] == [
         (f"{statement}: in the source, not the note", Severity.WARNING)
     ]
@@ -854,7 +877,7 @@ def test_allergy_preserved_lowers_a_dropped_statement_to_a_warning(
 def test_allergy_preserved_keeps_nkda_and_nka_apart() -> None:
     # D10: NKA says more than NKDA, so a note writing one for the other drops the source's
     note, raw = _note(("No known allergies", None))
-    findings = check_allergy_preserved(note, raw + "NKDA.")
+    findings = check_allergy_preserved(note, raw + "NKDA.", config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == ["nkda: in the source, not the note"]
 
 
@@ -862,7 +885,7 @@ def test_allergy_preserved_finds_each_allergy_once_in_name_order() -> None:
     # every allergen the lexicon names, in reverse: name order has to come from the check's sort
     allergens = (set(ALLERGY_ALIASES.values()) | GENERIC_DRUGS) - {"nkda", "nka"}
     raw = "Allergies: " + ", ".join(sorted(allergens, reverse=True))
-    findings = check_allergy_preserved(SOAPNote(claims=()), raw)
+    findings = check_allergy_preserved(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert [f.detail.partition(":")[0] for f in findings] == sorted(allergens)
 
 
@@ -982,7 +1005,7 @@ def test_allergy_contraindication_names_the_drug_claim_and_the_allergy_claim() -
         ("Allergic to amoxicillin", "allergic to amoxicillin"),
         ("Start amoxicillin", "start amoxicillin"),
     )
-    findings = check_allergy_contraindication(note, raw)
+    findings = check_allergy_contraindication(note, raw, config=CHECKS_CONFIG)
     assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
         (
             "amoxicillin allergy on record; amoxicillin: the allergen itself",
@@ -994,14 +1017,16 @@ def test_allergy_contraindication_names_the_drug_claim_and_the_allergy_claim() -
 
 def test_allergy_contraindication_reads_an_allergy_no_claim_states() -> None:
     note, raw = _note(("Start amoxicillin", "start amoxicillin"))
-    findings = check_allergy_contraindication(note, raw + " PCN allergy.")
+    findings = check_allergy_contraindication(note, raw + " PCN allergy.", config=CHECKS_CONFIG)
     assert [f.claim_ids for f in findings] == [(0,)]
 
 
 def test_allergy_contraindication_puts_a_prescription_the_note_dropped_on_the_banner() -> None:
     # L51, §9.7: the drug is in no claim, so the finding names none, the allergy claim included
     note, raw = _note(("PCN allergy", "PCN allergy"))
-    findings = check_allergy_contraindication(note, raw + ". Start amoxicillin.")
+    findings = check_allergy_contraindication(
+        note, raw + ". Start amoxicillin.", config=CHECKS_CONFIG
+    )
     assert [(f.detail, f.claim_ids) for f in findings] == [
         ("penicillin allergy on record; amoxicillin: in the allergen's class (penicillin)", ())
     ]
@@ -1010,7 +1035,7 @@ def test_allergy_contraindication_puts_a_prescription_the_note_dropped_on_the_ba
 def test_allergy_contraindication_carries_the_rungs_severity() -> None:
     # D14: an unspecified penicillin allergy against a cephalosporin is a WARNING
     note, raw = _note(("Start cephalexin", "start cephalexin"))
-    (finding,) = check_allergy_contraindication(note, raw + " PCN allergy.")
+    (finding,) = check_allergy_contraindication(note, raw + " PCN allergy.", config=CHECKS_CONFIG)
     assert finding.severity is Severity.WARNING
 
 
@@ -1018,7 +1043,7 @@ def test_allergy_contraindication_carries_the_rungs_severity() -> None:
 def test_allergy_contraindication_passes_a_drug_no_claim_asserts_as_active(text: str) -> None:
     # stopping the drug a patient is allergic to is the right order
     note, raw = _note((text, text.lower()))
-    assert check_allergy_contraindication(note, raw + ". PCN allergy.") == []
+    assert check_allergy_contraindication(note, raw + ". PCN allergy.", config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize("section", ["S", "O", "A", "P"])
@@ -1033,12 +1058,15 @@ def test_allergy_contraindication_reads_a_drug_in_any_section(section: Section) 
         source_quote="Continue amoxicillin",
         source_span=(0, len("Continue amoxicillin")),
     )
-    assert len(check_allergy_contraindication(SOAPNote(claims=(claim,)), raw)) == 1
+    assert (
+        len(check_allergy_contraindication(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG))
+        == 1
+    )
 
 
 def test_allergy_contraindication_reads_an_allergy_only_a_claim_states() -> None:
     note, raw = _note(("Sulfa and PCN allergies", None), ("Start ampicillin", "start ampicillin"))
-    findings = check_allergy_contraindication(note, raw)
+    findings = check_allergy_contraindication(note, raw, config=CHECKS_CONFIG)
     assert [f.claim_ids for f in findings] == [(1, 0)]
 
 
@@ -1046,7 +1074,9 @@ def test_allergy_contraindication_orders_findings_by_drug_then_allergen() -> Non
     # every listed drug, started and listed as an allergy, each in reverse: order is the check's
     drugs = sorted(GENERIC_DRUGS, reverse=True)
     note, raw = _note(("Start " + ", ".join(drugs), "start " + ", ".join(drugs)))
-    findings = check_allergy_contraindication(note, raw + ". " + ", ".join(drugs) + " allergies")
+    findings = check_allergy_contraindication(
+        note, raw + ". " + ", ".join(drugs) + " allergies", config=CHECKS_CONFIG
+    )
     pairs = [
         (f.detail.split("; ")[1].partition(":")[0], f.detail.partition(" allergy")[0])
         for f in findings
@@ -1070,7 +1100,9 @@ def test_new_prescription_preserved_is_a_reference_free_warning() -> None:
 
 def test_new_prescription_preserved_fires_on_a_start_no_claim_names() -> None:
     note, raw = _note(("Follow up in one week", "follow up in one week"))
-    findings = check_new_prescription_preserved(note, raw + ". Start amoxicillin 500 mg tid.")
+    findings = check_new_prescription_preserved(
+        note, raw + ". Start amoxicillin 500 mg tid.", config=CHECKS_CONFIG
+    )
     assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
         ("amoxicillin: started in the source, not the note", (), None)
     ]
@@ -1078,7 +1110,7 @@ def test_new_prescription_preserved_fires_on_a_start_no_claim_names() -> None:
 
 def test_new_prescription_preserved_passes_a_start_a_claim_names_by_another_name() -> None:
     note, raw = _note(("Start amoxicillin-clavulanate 875 mg bid", "start Augmentin 875 mg bid"))
-    assert check_new_prescription_preserved(note, raw) == []
+    assert check_new_prescription_preserved(note, raw, config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize(
@@ -1087,12 +1119,17 @@ def test_new_prescription_preserved_passes_a_start_a_claim_names_by_another_name
 def test_new_prescription_preserved_leaves_a_start_named_at_another_status(text: str) -> None:
     # L156: the drug is in the note; its status is med_status_consistency's (D13)
     note, raw = _note((text, None))
-    assert check_new_prescription_preserved(note, raw + "Start amoxicillin.") == []
+    assert (
+        check_new_prescription_preserved(note, raw + "Start amoxicillin.", config=CHECKS_CONFIG)
+        == []
+    )
 
 
 def test_new_prescription_preserved_fires_on_a_start_the_note_writes_as_an_allergy() -> None:
     note, raw = _note(("Allergic to amoxicillin", None))
-    findings = check_new_prescription_preserved(note, raw + "Start amoxicillin.")
+    findings = check_new_prescription_preserved(
+        note, raw + "Start amoxicillin.", config=CHECKS_CONFIG
+    )
     assert [f.detail for f in findings] == ["amoxicillin: started in the source, not the note"]
 
 
@@ -1103,13 +1140,18 @@ def test_new_prescription_preserved_reads_a_claim_in_any_section(section: Sectio
     claim = ClinicalClaim(
         id=0, text="Start amoxicillin", section=section, source_quote=raw, source_span=(0, len(raw))
     )
-    assert check_new_prescription_preserved(SOAPNote(claims=(claim,)), raw) == []
+    assert (
+        check_new_prescription_preserved(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG) == []
+    )
 
 
 def test_new_prescription_preserved_reads_a_claim_that_grounds_nowhere() -> None:
     # the drug is in the note; whether its claim grounds is the red badge's question
     note, raw = _note(("Start amoxicillin", None))
-    assert check_new_prescription_preserved(note, raw + "Start amoxicillin.") == []
+    assert (
+        check_new_prescription_preserved(note, raw + "Start amoxicillin.", config=CHECKS_CONFIG)
+        == []
+    )
 
 
 def test_new_prescription_preserved_leaves_drugs_the_source_doesnt_start() -> None:
@@ -1118,13 +1160,13 @@ def test_new_prescription_preserved_leaves_drugs_the_source_doesnt_start() -> No
         ("Continue metformin 500 mg bid", "continue metformin 500 mg bid"),
         ("Start lisinopril", None),
     )
-    assert check_new_prescription_preserved(note, raw) == []
+    assert check_new_prescription_preserved(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_new_prescription_preserved_finds_each_drug_once_in_name_order() -> None:
     # the whole vocabulary started, in reverse: name order has to come from the check's sort
     raw = ", ".join(f"{drug} started" for drug in sorted(GENERIC_DRUGS, reverse=True))
-    findings = check_new_prescription_preserved(SOAPNote(claims=()), raw)
+    findings = check_new_prescription_preserved(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert [f.detail.partition(":")[0] for f in findings] == sorted(GENERIC_DRUGS)
 
 
@@ -1145,7 +1187,7 @@ def test_quote_informativeness_is_a_reference_free_warning() -> None:
 def test_quote_informativeness_fires_on_a_bare_lexicon_name(span: str) -> None:
     # L158: a name alone grounds wherever the source says it, and drops the words around it
     note, raw = _note(("Abdominal pain after meals", span))
-    findings = check_quote_informativeness(note, raw)
+    findings = check_quote_informativeness(note, raw, config=CHECKS_CONFIG)
     assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
         ("content tokens in its span: 1, fewer than 2", (0,), None)
     ]
@@ -1154,27 +1196,27 @@ def test_quote_informativeness_fires_on_a_bare_lexicon_name(span: str) -> None:
 @pytest.mark.parametrize(("span", "count"), [("the", 0), ("pain in the", 1)])
 def test_quote_informativeness_counts_no_function_word(span: str, count: int) -> None:
     note, raw = _note(("Abdominal pain after meals", span))
-    findings = check_quote_informativeness(note, raw)
+    findings = check_quote_informativeness(note, raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [f"content tokens in its span: {count}, fewer than 2"]
 
 
 @pytest.mark.parametrize("span", ["chest pain", "hold metformin", "500 mg"])
 def test_quote_informativeness_passes_a_span_at_the_minimum(span: str) -> None:
     note, raw = _note(("A claim", span))
-    assert check_quote_informativeness(note, raw) == []
+    assert check_quote_informativeness(note, raw, config=CHECKS_CONFIG) == []
 
 
 @pytest.mark.parametrize("span", ["NKDA", "NKA"])
 def test_quote_informativeness_passes_a_statement_in_one_word(span: str) -> None:
     # L158: D10's statements say everything they mean in one word
     note, raw = _note(("No known allergies", span))
-    assert check_quote_informativeness(note, raw) == []
+    assert check_quote_informativeness(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_quote_informativeness_passes_a_word_that_states_its_findings_absence() -> None:
     # L174: it reads absent under any cue (L173), so the span says all it means
     note, raw = _note(("Afebrile", "afebrile"))
-    assert check_quote_informativeness(note, raw) == []
+    assert check_quote_informativeness(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_quote_informativeness_reads_the_span_not_the_quote() -> None:
@@ -1190,14 +1232,14 @@ def test_quote_informativeness_reads_the_span_not_the_quote() -> None:
         source_span=(start, start + len("pain")),
         flags=(SafetyFlag.PARAPHRASED,),
     )
-    findings = check_quote_informativeness(SOAPNote(claims=(claim,)), raw)
+    findings = check_quote_informativeness(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG)
     assert [f.claim_ids for f in findings] == [(0,)]
 
 
 def test_quote_informativeness_skips_a_claim_that_grounds_nowhere() -> None:
     # a quote that grounds nowhere is the red badge's, however short
     note, raw = _note(("Pain", None))
-    assert check_quote_informativeness(note, raw + "Pain.") == []
+    assert check_quote_informativeness(note, raw + "Pain.", config=CHECKS_CONFIG) == []
 
 
 def test_quote_informativeness_finds_each_claim_in_claim_order() -> None:
@@ -1206,17 +1248,14 @@ def test_quote_informativeness_finds_each_claim_in_claim_order() -> None:
         ("Denies chest pain at rest", "denies chest pain at rest"),
         ("Chills", "chills"),
     )
-    findings = check_quote_informativeness(note, raw)
+    findings = check_quote_informativeness(note, raw, config=CHECKS_CONFIG)
     assert [f.claim_ids for f in findings] == [(0,), (2,)]
 
 
-def test_quote_informativeness_reads_its_minimum_from_settings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    raised = config.settings.model_copy(update={"min_quote_content_tokens": 3})
-    monkeypatch.setattr(checks, "settings", raised)
+def test_quote_informativeness_reads_its_minimum_from_the_config() -> None:
+    raised = checks_config_with(min_quote_content_tokens=3)  # L187
     note, raw = _note(("Chest pain", "chest pain"))
-    findings = check_quote_informativeness(note, raw)
+    findings = check_quote_informativeness(note, raw, config=raised)
     assert [f.detail for f in findings] == ["content tokens in its span: 2, fewer than 3"]
 
 
@@ -1235,7 +1274,7 @@ def test_empty_note_on_clinical_input_is_a_reference_free_warning() -> None:
 
 def test_empty_note_on_clinical_input_fires_on_an_empty_note_over_a_clinical_source() -> None:
     raw = "Follow-up visit. Denies chest pain or fever. Continue lisinopril 10 mg daily."
-    findings = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw)
+    findings = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
         ("no claims; the source names: chest pain, fever, lisinopril", (), None)
     ]
@@ -1260,7 +1299,7 @@ def test_empty_note_on_clinical_input_fires_on_an_empty_note_over_a_clinical_sou
 )
 def test_empty_note_on_clinical_input_counts_each_kind_of_entity(raw: str, entity: str) -> None:
     # L164: a negated drug, a pertinent negative, or a statement is what a faithful note says
-    findings = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw)
+    findings = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [f"no claims; the source names: {entity}"]
 
 
@@ -1268,19 +1307,21 @@ def test_empty_note_on_clinical_input_passes_a_note_with_any_claim() -> None:
     # claims == () is the rule: a claim that grounds nowhere is the red badge's, not this
     # check's
     note, raw = _note(("Follow up in one week", None))
-    assert check_empty_note_on_clinical_input(note, raw + "Denies fever.") == []
+    assert (
+        check_empty_note_on_clinical_input(note, raw + "Denies fever.", config=CHECKS_CONFIG) == []
+    )
 
 
 def test_empty_note_on_clinical_input_passes_a_source_naming_no_entity() -> None:
     raw = "Please summarize this paragraph about the history of the printing press."
-    assert check_empty_note_on_clinical_input(SOAPNote(claims=()), raw) == []
+    assert check_empty_note_on_clinical_input(SOAPNote(claims=()), raw, config=CHECKS_CONFIG) == []
 
 
 def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> None:
     # every drug, finding, and diagnosis, in reverse: name order has to come from the sort
     vocabulary = GENERIC_DRUGS | FINDINGS | DIAGNOSES
     raw = ", ".join(sorted(vocabulary, reverse=True))
-    (finding,) = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw)
+    (finding,) = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert finding.detail == "no claims; the source names: " + ", ".join(sorted(vocabulary))
 
 

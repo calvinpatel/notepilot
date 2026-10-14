@@ -53,10 +53,10 @@ from starlette.types import Message as ASGIMessage
 from backend.api import CatchAllMiddleware, RequestIdMiddleware, SummarizeResponse, app
 from backend.config import Settings, settings
 from backend.evals.judge import Judge
-from backend.evals.registry import REGISTRY, Check, Finding, register_check
+from backend.evals.registry import REGISTRY, Check, CheckFn, Finding, register_check
 from backend.evals.runner import CHECKS_VERSION
 from backend.orchestrator import PROMPT_VERSION, OrchestratorError, get_client
-from backend.schemas import EvalCase, Severity, SOAPNote, TokenUsage
+from backend.schemas import ChecksConfig, EvalCase, Severity, SOAPNote, TokenUsage
 from tests.fakes import FakeLLMClient, text_message, tool_use_message
 
 _REPO_ROOT: Final = Path(__file__).resolve().parent.parent
@@ -176,17 +176,24 @@ def test_happy_path_returns_note_report_and_metadata(
 
 
 def _record_into(
-    seen: list[tuple[SOAPNote, str, EvalCase | None]],
-) -> Callable[[SOAPNote, str, EvalCase | None], list[Finding]]:
-    def record(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
-        seen.append((note, raw_text, case))
+    seen: list[tuple[SOAPNote, str, EvalCase | None, ChecksConfig]],
+) -> CheckFn:
+    def record(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+    ) -> list[Finding]:
+        seen.append((note, raw_text, case, config))
         return []
 
     return record
 
 
 def _judged_clean(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+    note: SOAPNote,
+    raw_text: str,
+    case: EvalCase | None = None,
+    *,
+    config: ChecksConfig,
+    judge: Judge,
 ) -> list[Finding]:
     return []
 
@@ -195,7 +202,7 @@ def test_route_checks_the_note_it_returns_against_the_exact_paste(
     client: TestClient, install_fake: Installer, registry: dict[str, Check]
 ) -> None:
     # registry is emptied for the test, so the route selects among these three alone
-    seen: list[tuple[SOAPNote, str, EvalCase | None]] = []
+    seen: list[tuple[SOAPNote, str, EvalCase | None, ChecksConfig]] = []
     register_check(name="recorder", severity=Severity.WARNING)(_record_into(seen))
     register_check(name="reference", severity=Severity.WARNING, requires_reference=True)(
         _record_into(seen)
@@ -204,10 +211,11 @@ def test_route_checks_the_note_it_returns_against_the_exact_paste(
     install_fake([tool_use_message(VALID_INPUT)])
     body = client.post("/summarize", json={"raw_text": GROUNDED_PASTE}).json()
     assert set(body["report"]["checks_run"]) == {"recorder"}  # production mode, no judge
-    ((note, raw_text, case),) = seen
+    ((note, raw_text, case, config),) = seen
     assert note.model_dump(mode="json") == body["note"]
     assert raw_text == GROUNDED_PASTE  # L87: never stripped
     assert case is None
+    assert config == settings.checks_config()  # L187: built at the edge, from settings
 
 
 def test_response_model_is_the_edge_shape() -> None:

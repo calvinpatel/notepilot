@@ -17,11 +17,17 @@ _fake_binds, never called, bind each side here so `mypy backend/ tests/` checks 
 FakeJudge satisfies Judge with a fixed usage. Its entailment is unscripted: a call fails the
 test through pytest.fail, for the same reason as a call past FakeLLMClient's script.
 _fake_judge_binds binds it.
+
+CHECKS_CONFIG is the config the domain's tests pass to grounding and the checks (L187),
+built from Settings' declared defaults rather than the process's settings, so an exported
+FUZZY_SCORE_CUTOFF can't change what a test asserts. checks_config_with replaces knobs and
+validates the result: model_copy(update=...) would skip ChecksConfig's bounds.
 """
 
 import copy
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from typing import Final
 
 import pytest
 from anthropic import AsyncAnthropic
@@ -40,9 +46,26 @@ from anthropic.types import (
     Usage,
 )
 
+from backend.config import Settings
 from backend.evals.judge import Judge
 from backend.orchestrator import SUMMARY_TOOL, LLMClient
-from backend.schemas import TokenUsage
+from backend.schemas import ChecksConfig, TokenUsage
+
+CHECKS_CONFIG: Final = ChecksConfig.model_validate(
+    {name: Settings.model_fields[name].default for name in ChecksConfig.model_fields}
+)
+
+
+def checks_config_with(**knobs: object) -> ChecksConfig:
+    """CHECKS_CONFIG with the given knobs replaced, through ChecksConfig's validation.
+
+    An unknown name raises: validation ignores extra keys, so a misspelled knob would leave
+    the default in place and the test would pass on it.
+    """
+    unknown = knobs.keys() - ChecksConfig.model_fields.keys()
+    if unknown:
+        raise TypeError(f"not a ChecksConfig knob: {sorted(unknown)}")
+    return ChecksConfig.model_validate(CHECKS_CONFIG.model_dump() | knobs)
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,7 @@ from backend.evals.judge import Judge
 from backend.evals.registry import REGISTRY, stamp
 from backend.schemas import (
     CaseStatus,
+    ChecksConfig,
     EvalCase,
     EvalReport,
     EvalResult,
@@ -62,12 +63,14 @@ async def run_checks(
     case: EvalCase | None = None,
     *,
     mode: Literal["production", "ci"],
+    config: ChecksConfig,
     judge: Judge | None = None,
 ) -> EvalReport:
     """Run the selected checks on one note (§8.7).
 
     Selected: every check in ci mode, the reference-free ones in production, and a judged
-    check only when a judge is given (L49).
+    check only when a judge is given (L49). Every check gets the config (L190), which the
+    caller builds at the edge (L187).
     """
     selected = [
         c
@@ -79,9 +82,9 @@ async def run_checks(
     for check in selected:
         try:
             out = (
-                check.fn(note, raw_text, case, judge=judge)
+                check.fn(note, raw_text, case, config=config, judge=judge)
                 if check.needs_judge
-                else check.fn(note, raw_text, case)
+                else check.fn(note, raw_text, case, config=config)
             )
             findings = await out if inspect.isawaitable(out) else out
             stamped = [stamp(check, f) for f in findings]  # a bad finding is a bad check

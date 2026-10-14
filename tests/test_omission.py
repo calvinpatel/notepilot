@@ -1,7 +1,6 @@
 """The omission law: a test per row of §8.4's omission table (D17, invariant 17)."""
 
 import inspect
-from collections.abc import Callable
 
 import pytest
 
@@ -14,13 +13,12 @@ from backend.evals.checks import (
     check_med_status_consistency,
     check_negation_consistency,
 )
-from backend.evals.registry import REGISTRY, Finding
-from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
-
-type _CheckFn = Callable[[SOAPNote, str, EvalCase | None], list[Finding]]
+from backend.evals.registry import REGISTRY, CheckFn
+from backend.schemas import ClinicalClaim, SafetyFlag, Severity, SOAPNote
+from tests.fakes import CHECKS_CONFIG
 
 # §8.4's row for the consistency family and hallucinated_medication: the model omits the claim
-FAMILY: dict[str, _CheckFn] = {
+FAMILY: dict[str, CheckFn] = {
     "diagnosis_in_quote": check_diagnosis_in_quote,
     "drug_in_quote": check_drug_in_quote,
     "hallucinated_medication": check_hallucinated_medication,
@@ -55,7 +53,9 @@ def test_an_omitted_claim_leaves_the_family_nothing_to_contradict(name: str) -> 
         source_quote="counseled on diet",
         flags=(SafetyFlag.UNSUPPORTED,),
     )
-    assert FAMILY[name](SOAPNote(claims=(grounded, ungrounded)), raw, None) == []
+    assert (
+        FAMILY[name](SOAPNote(claims=(grounded, ungrounded)), raw, None, config=CHECKS_CONFIG) == []
+    )
 
 
 def test_an_omitted_allergy_is_allergy_preserveds_subject() -> None:
@@ -70,7 +70,7 @@ def test_an_omitted_allergy_is_allergy_preserveds_subject() -> None:
         source_quote=start_order,
         source_span=(start, start + len(start_order)),
     )
-    findings = check_allergy_preserved(SOAPNote(claims=(claim,)), raw, None)
+    findings = check_allergy_preserved(SOAPNote(claims=(claim,)), raw, None, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == ["penicillin: in the source, not the note"]
 
 
@@ -90,21 +90,25 @@ def test_an_omitted_allergy_still_reaches_the_contraindication() -> None:
     # §8.4's row for allergy_contraindication: the allergy is read from the raw text
     raw = "Allergic to amoxicillin. Start amoxicillin 500 mg tid."
     note = SOAPNote(claims=(_claim(raw, "Start amoxicillin 500 mg tid"),))
-    assert [f.claim_ids for f in check_allergy_contraindication(note, raw, None)] == [(0,)]
+    assert [
+        f.claim_ids for f in check_allergy_contraindication(note, raw, None, config=CHECKS_CONFIG)
+    ] == [(0,)]
 
 
 def test_an_omitted_new_drug_still_reaches_the_contraindication_at_the_banner() -> None:
     # §8.4's row: the drug is read through new_prescriptions(raw_text) (L51)
     raw = "PCN allergy. Start amoxicillin 500 mg tid."
     note = SOAPNote(claims=(_claim(raw, "PCN allergy"),))
-    assert [f.claim_ids for f in check_allergy_contraindication(note, raw, None)] == [()]
+    assert [
+        f.claim_ids for f in check_allergy_contraindication(note, raw, None, config=CHECKS_CONFIG)
+    ] == [()]
 
 
 def test_an_omitted_continued_home_medication_is_a_ci_only_gap() -> None:
     # §8.4's row: no live check sees it; must_preserve(kind="medication") covers it in CI
     raw = "NSAID allergy. Continue ibuprofen 400 mg prn."
     note = SOAPNote(claims=(_claim(raw, "NSAID allergy"),))
-    assert check_allergy_contraindication(note, raw, None) == []
+    assert check_allergy_contraindication(note, raw, None, config=CHECKS_CONFIG) == []
 
 
 def test_every_critical_check_has_an_omission_row() -> None:

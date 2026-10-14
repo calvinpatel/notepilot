@@ -211,8 +211,9 @@ async def summarize_endpoint(
     """
     note_id = uuid4()
     result = await summarize(req.raw_text, client=client)
-    note = ground(result.draft, req.raw_text)  # spans index the exact paste (L87)
-    report = await run_checks(note, req.raw_text, mode="production")
+    config = settings.checks_config()  # L187: built here, at the edge, and passed inward
+    note = ground(result.draft, req.raw_text, config=config)  # spans index the exact paste (L87)
+    report = await run_checks(note, req.raw_text, mode="production", config=config)
     return SummarizeResponse(note_id=note_id, note=note, report=report, metadata=result.metadata)
 
 

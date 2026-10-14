@@ -7,7 +7,7 @@ import pytest
 
 from backend.evals.loader import CaseLoadError, load_cases
 from backend.evals.registry import Check, Finding, register_check
-from backend.schemas import EvalCase, Severity, SOAPNote
+from backend.schemas import ChecksConfig, EvalCase, Severity, SOAPNote
 
 RAW_SENTINEL = "sentinel-raw-3e9b"
 
@@ -66,7 +66,9 @@ A_LIST = """
 """
 
 
-def _clean(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+def _clean(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
     return []
 
 

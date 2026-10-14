@@ -14,6 +14,7 @@ from backend.evals.registry import Check, Finding, register_check
 from backend.evals.runner import CHECKS_VERSION, case_verdict, checks_version, run_checks
 from backend.schemas import (
     CaseStatus,
+    ChecksConfig,
     ClinicalClaim,
     EvalCase,
     EvalReport,
@@ -22,7 +23,7 @@ from backend.schemas import (
     SOAPNote,
     TokenUsage,
 )
-from tests.fakes import FakeJudge
+from tests.fakes import CHECKS_CONFIG, FakeJudge
 
 _C, _W = Severity.CRITICAL, Severity.WARNING
 RAW = "raw text"
@@ -48,12 +49,19 @@ def _errored(check: str, severity: Severity) -> EvalResult:
     )
 
 
-def _clean(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+def _clean(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
     return []
 
 
 def _judged_clean(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+    note: SOAPNote,
+    raw_text: str,
+    case: EvalCase | None = None,
+    *,
+    config: ChecksConfig,
+    judge: Judge,
 ) -> list[Finding]:
     return []
 
@@ -62,7 +70,9 @@ class _Crash(Exception):
     """A local type: a hard-coded exc_type literal can't match a builtin's name."""
 
 
-def _crashing(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+def _crashing(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
     try:
         raise ValueError(CAUSE_SENTINEL)
     except ValueError as cause:
@@ -95,7 +105,9 @@ async def test_run_checks_selects_by_mode_and_judge(
     register_check(name="reference-judged", severity=_W, requires_reference=True, needs_judge=True)(
         _judged_clean
     )
-    report = await run_checks(_note(), RAW, mode=mode, judge=FakeJudge() if with_judge else None)
+    report = await run_checks(
+        _note(), RAW, mode=mode, config=CHECKS_CONFIG, judge=FakeJudge() if with_judge else None
+    )
     assert report.checks_run == selected  # L44: what ran, so "didn't run" isn't "didn't fire"
     assert {r.check for r in report.results} == selected
 
@@ -105,22 +117,32 @@ async def test_run_checks_passes_each_check_its_arguments(registry: dict[str, Ch
     seen: dict[str, tuple[object, ...]] = {}
 
     @register_check(name="plain", severity=_W)
-    def plain(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
-        seen["plain"] = (note, raw_text, case)
+    def plain(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+    ) -> list[Finding]:
+        seen["plain"] = (note, raw_text, case, config)
         return []
 
     @register_check(name="judged", severity=_W, needs_judge=True)
     async def judged(
-        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+        note: SOAPNote,
+        raw_text: str,
+        case: EvalCase | None = None,
+        *,
+        config: ChecksConfig,
+        judge: Judge,
     ) -> list[Finding]:
-        seen["judged"] = (note, raw_text, case, judge)
+        seen["judged"] = (note, raw_text, case, config, judge)
         return []
 
+    # a config of its own, so `is` proves the one passed in is the one each check gets (L190)
+    config = ChecksConfig(fuzzy_score_cutoff=73.5, min_quote_content_tokens=4)
     note, case, judge = _note(1), _case(), FakeJudge()
-    await run_checks(note, RAW, case, mode="ci", judge=judge)
-    assert [a is b for a, b in zip(seen["plain"], (note, RAW, case), strict=True)] == [True] * 3
-    expected = (note, RAW, case, judge)
-    assert [a is b for a, b in zip(seen["judged"], expected, strict=True)] == [True] * 4
+    await run_checks(note, RAW, case, mode="ci", config=config, judge=judge)
+    want_plain = (note, RAW, case, config)
+    assert [a is b for a, b in zip(seen["plain"], want_plain, strict=True)] == [True] * 4
+    want_judged = (note, RAW, case, config, judge)
+    assert [a is b for a, b in zip(seen["judged"], want_judged, strict=True)] == [True] * 5
 
 
 @pytest.mark.anyio
@@ -131,11 +153,11 @@ async def test_run_checks_turns_findings_into_results_and_a_clean_check_into_a_p
 
     @register_check(name="findings", severity=_C)
     async def findings(
-        note: SOAPNote, raw_text: str, case: EvalCase | None = None
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
     ) -> list[Finding]:
         return [Finding(detail="detail-1", claim_ids=(2,)), Finding(detail="detail-2", severity=_W)]
 
-    report = await run_checks(_note(1, 2), RAW, mode="production")
+    report = await run_checks(_note(1, 2), RAW, mode="production", config=CHECKS_CONFIG)
     assert report.results == [
         EvalResult(check="clean", severity=_C, passed=True),
         EvalResult(check="findings", severity=_C, passed=False, detail="detail-1", claim_ids=(2,)),
@@ -148,8 +170,10 @@ async def test_the_report_carries_the_judges_usage_and_checks_version(
     registry: dict[str, Check],
 ) -> None:
     usage = TokenUsage(input_tokens=7, output_tokens=3)
-    judged = await run_checks(_note(), RAW, mode="production", judge=FakeJudge(usage=usage))
-    unjudged = await run_checks(_note(), RAW, mode="production")
+    judged = await run_checks(
+        _note(), RAW, mode="production", config=CHECKS_CONFIG, judge=FakeJudge(usage=usage)
+    )
+    unjudged = await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
     assert (judged.judge_usage, unjudged.judge_usage) == (usage, TokenUsage())  # L7
     assert judged.checks_version == CHECKS_VERSION  # L45
 
@@ -163,7 +187,7 @@ async def test_a_check_that_raises_becomes_one_errored_result_and_the_rest_run(
 ) -> None:
     register_check(name="crash", severity=_C)(_crashing)
     register_check(name="after", severity=_W)(_clean)
-    report = await run_checks(_note(), RAW, mode="production")
+    report = await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
     assert report.results == [
         _errored("crash", _C),
         EvalResult(check="after", severity=_W, passed=True),
@@ -177,7 +201,7 @@ async def test_a_crashed_check_is_logged_by_structure_never_its_message(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     register_check(name="crash", severity=_C)(_crashing)
-    await run_checks(_note(), RAW, mode="production")
+    await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
     assert MESSAGE_SENTINEL not in caplog.text  # L113: no str(exc), no exc_info
     assert CAUSE_SENTINEL not in caplog.text  # nor the chained cause
     ours = [r for r in caplog.records if r.name == "backend.evals.runner"]
@@ -197,10 +221,12 @@ async def test_a_finding_above_its_checks_severity_errors_the_check(
     registry: dict[str, Check],
 ) -> None:
     @register_check(name="upgrade", severity=_W)
-    def upgrade(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+    def upgrade(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+    ) -> list[Finding]:
         return [Finding(detail="detail-1", severity=_C)]
 
-    report = await run_checks(_note(), RAW, mode="production")
+    report = await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
     assert report.results == [_errored("upgrade", _W)]  # L38
 
 
@@ -213,10 +239,12 @@ async def test_a_finding_naming_a_claim_the_note_lacks_errors_the_check(
 ) -> None:
     # L115: no claim card would show it, and it isn't note-level, so it would render nowhere
     @register_check(name="stray", severity=_C)
-    def stray(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+    def stray(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+    ) -> list[Finding]:
         return [Finding(detail="detail-1", claim_ids=claim_ids)]
 
-    report = await run_checks(_note(1, 2), RAW, mode="production")
+    report = await run_checks(_note(1, 2), RAW, mode="production", config=CHECKS_CONFIG)
     assert report.results == [_errored("stray", _C)]
 
 
@@ -225,12 +253,12 @@ async def test_cancellation_passes_through(registry: dict[str, Check]) -> None:
     # CancelledError is a BaseException: the per-check except must not absorb it
     @register_check(name="cancelled", severity=_C)
     async def cancelled(
-        note: SOAPNote, raw_text: str, case: EvalCase | None = None
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
     ) -> list[Finding]:
         raise asyncio.CancelledError
 
     with pytest.raises(asyncio.CancelledError):
-        await run_checks(_note(), RAW, mode="production")
+        await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
 
 
 # --- CHECKS_VERSION (L45, L114) ---------------------------------------------

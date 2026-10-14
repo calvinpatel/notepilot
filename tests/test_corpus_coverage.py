@@ -21,6 +21,7 @@ from backend.evals.loader import CASES_DIR, load_cases
 from backend.evals.registry import REGISTRY
 from backend.grounding import ground
 from backend.schemas import EvalCase, Severity, SOAPNote
+from tests.fakes import CHECKS_CONFIG
 
 CASES = load_cases(CASES_DIR)
 INJECTED = [case for case in CASES if case.draft is not None]
@@ -29,7 +30,7 @@ CRITICAL = sorted(name for name, c in REGISTRY.items() if c.severity is Severity
 
 def _note(case: EvalCase) -> SOAPNote:
     assert case.draft is not None
-    return ground(case.draft, case.raw_text)
+    return ground(case.draft, case.raw_text, config=CHECKS_CONFIG)
 
 
 def _shares_a_drug(note: SOAPNote, raw_text: str) -> bool:

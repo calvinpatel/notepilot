@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, overload
 
 from backend.evals.judge import Judge
-from backend.schemas import EvalCase, EvalResult, Severity, SOAPNote
+from backend.schemas import ChecksConfig, EvalCase, EvalResult, Severity, SOAPNote
 
 # who creates the danger: the model, or the source text (§8.5, L42)
 type Origin = Literal["model", "source"]
@@ -32,19 +32,33 @@ class Finding:
 # What a check returns: its findings, or an awaitable of them (§8.7)
 type CheckOutput = list[Finding] | Awaitable[list[Finding]]
 
-# A check's signature (§8.4). register_check's decorator is bound by it, so mypy checks a
-# decorated check's parameters and return; Check.fn keeps §8.7's looser type.
-type CheckFn = Callable[[SOAPNote, str, EvalCase | None], CheckOutput]
 
+class CheckFn(Protocol):
+    """A check's signature (§8.4, L190): the note, the raw text, the case, and the config.
 
-class JudgedCheckFn(Protocol):
-    """A judged check's signature: CheckFn's, plus a required keyword judge (§8.7).
-
-    A Protocol, because Callable can't spell a keyword-only parameter.
+    register_check's decorator is bound by it, so mypy checks a decorated check's parameters
+    and return; Check.fn keeps §8.7's looser type. Every check takes the config, whether or
+    not it reads a knob: one signature, and no flag decides which check gets it. A Protocol,
+    because Callable can't spell a keyword-only parameter.
     """
 
     def __call__(
-        self, note: SOAPNote, raw_text: str, case: EvalCase | None, /, *, judge: Judge
+        self, note: SOAPNote, raw_text: str, case: EvalCase | None, /, *, config: ChecksConfig
+    ) -> CheckOutput: ...
+
+
+class JudgedCheckFn(Protocol):
+    """A judged check's signature: CheckFn's, plus a required keyword judge (§8.7)."""
+
+    def __call__(
+        self,
+        note: SOAPNote,
+        raw_text: str,
+        case: EvalCase | None,
+        /,
+        *,
+        config: ChecksConfig,
+        judge: Judge,
     ) -> CheckOutput: ...
 
 

@@ -21,6 +21,7 @@ from pydantic.fields import FieldInfo
 
 from backend.config import Settings, _dotenv_path
 from backend.schemas import ChecksConfig
+from tests.fakes import checks_config_with
 
 
 def test_dotenv_disabled_under_pytest() -> None:
@@ -320,6 +321,21 @@ def _bounds(field: FieldInfo) -> tuple[object, list[str]]:
 def test_checks_config_bounds_match_settings(name: str) -> None:
     # L187: the two bounds are declared twice, in Settings and in ChecksConfig.
     assert _bounds(ChecksConfig.model_fields[name]) == _bounds(Settings.model_fields[name])
+
+
+def test_checks_config_with_validates_the_knob_it_varies() -> None:
+    # tests/fakes.py's helper; model_copy(update=...) would accept 101 (measured)
+    with pytest.raises(ValidationError) as exc:
+        checks_config_with(fuzzy_score_cutoff=101.0)
+    (err,) = exc.value.errors()
+    assert err["type"] == "less_than_equal"
+    assert err["loc"] == ("fuzzy_score_cutoff",)
+
+
+def test_checks_config_with_rejects_an_unknown_knob() -> None:
+    # validation ignores extra keys, so a misspelled knob would leave the default in place
+    with pytest.raises(TypeError, match="fuzzy_cutoff"):
+        checks_config_with(fuzzy_cutoff=50.0)
 
 
 # --- frozen: the boot checks cannot be bypassed after construction ---------------

@@ -7,21 +7,30 @@ import pytest
 
 from backend.evals.judge import Judge
 from backend.evals.registry import Check, Finding, register_check, stamp
-from backend.schemas import EvalCase, EvalResult, Severity, SOAPNote
+from backend.schemas import ChecksConfig, EvalCase, EvalResult, Severity, SOAPNote
 
 _C, _W, _I = Severity.CRITICAL, Severity.WARNING, Severity.INFO
 
 
-def _clean(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+def _clean(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
     return []
 
 
-def _other(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+def _other(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
     return []
 
 
 def _judged(
-    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+    note: SOAPNote,
+    raw_text: str,
+    case: EvalCase | None = None,
+    *,
+    config: ChecksConfig,
+    judge: Judge,
 ) -> list[Finding]:
     return []
 
@@ -72,25 +81,36 @@ def test_register_check_rejects_a_duplicate_name_and_keeps_the_first(
 
 
 def test_register_check_types_a_checks_signature(registry: dict[str, Check]) -> None:
-    # The bound is (note, raw_text, case) -> list[Finding], or an awaitable of one. mypy
-    # holds this half: strict mode fails on an ignore it doesn't need, so the gates break
-    # if the bound stops rejecting the swapped signature or starts rejecting the others.
+    # The bound is (note, raw_text, case, *, config) -> list[Finding], or an awaitable of
+    # one (L190). mypy holds this half: strict mode fails on an ignore it doesn't need, so
+    # the gates break if the bound stops rejecting the swapped or config-less signature or
+    # starts rejecting the others.
     @register_check(name="sync", severity=_W)
-    def sync_check(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+    def sync_check(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+    ) -> list[Finding]:
         return []
 
     @register_check(name="async", severity=_W)
     async def async_check(
-        note: SOAPNote, raw_text: str, case: EvalCase | None = None
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
     ) -> list[Finding]:
         return []
 
     @register_check(name="swapped", severity=_W)  # type: ignore[type-var]
-    def swapped_check(raw_text: str, note: SOAPNote, case: EvalCase | None = None) -> list[Finding]:
+    def swapped_check(
+        raw_text: str, note: SOAPNote, case: EvalCase | None = None, *, config: ChecksConfig
+    ) -> list[Finding]:
         return []
 
-    # nothing checks a signature at runtime: all three register
-    assert set(registry) == {"sync", "async", "swapped"}
+    @register_check(name="no-config", severity=_W)  # type: ignore[type-var]
+    def no_config_check(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None
+    ) -> list[Finding]:
+        return []
+
+    # nothing checks a signature at runtime: all four register
+    assert set(registry) == {"sync", "async", "swapped", "no-config"}
     assert inspect.iscoroutinefunction(registry["async"].fn)
 
 
@@ -99,17 +119,29 @@ def test_register_check_ties_needs_judge_to_the_signature(registry: dict[str, Ch
     # without. Each ignore below is mypy's assertion, as in the test above.
     @register_check(name="judged", severity=_W, needs_judge=True)
     async def judged_check(
-        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+        note: SOAPNote,
+        raw_text: str,
+        case: EvalCase | None = None,
+        *,
+        config: ChecksConfig,
+        judge: Judge,
     ) -> list[Finding]:
         return []
 
     @register_check(name="flag-only", severity=_W, needs_judge=True)  # type: ignore[type-var]
-    def flag_only(note: SOAPNote, raw_text: str, case: EvalCase | None = None) -> list[Finding]:
+    def flag_only(
+        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+    ) -> list[Finding]:
         return []
 
     @register_check(name="judge-only", severity=_W)  # type: ignore[type-var]
     async def judge_only(
-        note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, judge: Judge
+        note: SOAPNote,
+        raw_text: str,
+        case: EvalCase | None = None,
+        *,
+        config: ChecksConfig,
+        judge: Judge,
     ) -> list[Finding]:
         return []
 

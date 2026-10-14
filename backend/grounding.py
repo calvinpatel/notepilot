@@ -2,10 +2,11 @@
 
 Pure and deterministic: no LLM calls (invariant 2). ground() runs every claim down the
 ladder and stamps its id (§6.3). Tier 1 is an exact substring. Tier 2 is an exact match in
-normalized space. Tier 3 is a fuzzy alignment in normalized space, kept at or above
-fuzzy_score_cutoff when every number in the quote is in the span, and flags the claim
+normalized space. Tier 3 is a fuzzy alignment in normalized space, kept at or above the
+config's fuzzy_score_cutoff when every number in the quote is in the span, and flags the claim
 PARAPHRASED. Anything else is UNSUPPORTED (Tier 4), with its score kept when an alignment
-ran (L8). An ungroundable claim is a result, not an exception (invariant 4).
+ran (L8). An ungroundable claim is a result, not an exception (invariant 4). The cutoff is
+passed in as a ChecksConfig, built at the edge: grounding reads no settings (L187).
 
 Comparing in normalized space shifts every index, so NormalizedText keeps, for each
 normalized character, the index of the original character that produced it (§6.2).
@@ -18,8 +19,14 @@ from typing import Self
 
 from rapidfuzz import fuzz
 
-from backend.config import settings
-from backend.schemas import ClaimDraft, ClinicalClaim, SafetyFlag, SOAPNote, SOAPNoteDraft
+from backend.schemas import (
+    ChecksConfig,
+    ClaimDraft,
+    ClinicalClaim,
+    SafetyFlag,
+    SOAPNote,
+    SOAPNoteDraft,
+)
 
 # Folded before comparison. The micro sign U+00B5 and Greek mu U+03BC look identical, and
 # a dose unit may be written with either (L26).
@@ -94,7 +101,7 @@ def _snap(raw_text: str, start: int, end: int) -> tuple[int, int]:
 
 
 def ground_claim(
-    draft: ClaimDraft, raw_text: str, norm: NormalizedText, *, claim_id: int
+    draft: ClaimDraft, raw_text: str, norm: NormalizedText, *, claim_id: int, config: ChecksConfig
 ) -> ClinicalClaim:
     """One claim down the ladder (§6.3). norm is NormalizedText.of(raw_text)."""
     quote = draft.source_quote  # stripped and non-blank at the boundary (L25, L106)
@@ -113,9 +120,7 @@ def ground_claim(
     align = fuzz.partial_ratio_alignment(norm.text, nq)
     if align is not None and align.src_end > align.src_start:
         start, end = _snap(raw_text, *norm.to_original(align.src_start, align.src_end))
-        if align.score >= settings.fuzzy_score_cutoff and _numbers_match(
-            quote, raw_text[start:end]
-        ):
+        if align.score >= config.fuzzy_score_cutoff and _numbers_match(quote, raw_text[start:end]):
             return ClinicalClaim(
                 **base,
                 source_span=(start, end),
@@ -127,11 +132,12 @@ def ground_claim(
     return ClinicalClaim(**base, flags=(SafetyFlag.UNSUPPORTED,))  # Tier 4: nothing aligned
 
 
-def ground(draft: SOAPNoteDraft, raw_text: str) -> SOAPNote:
+def ground(draft: SOAPNoteDraft, raw_text: str, *, config: ChecksConfig) -> SOAPNote:
     """Ground every claim, stamping ids in draft order (§6.3)."""
     norm = NormalizedText.of(raw_text)  # once per note
     return SOAPNote(
         claims=tuple(
-            ground_claim(c, raw_text, norm, claim_id=i) for i, c in enumerate(draft.claims)
+            ground_claim(c, raw_text, norm, claim_id=i, config=config)
+            for i, c in enumerate(draft.claims)
         )
     )
