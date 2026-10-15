@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,74 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.x.y): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.6 — what a reference label asserts (minor)
+
+Theme: what a reference label asserts, decided before 2b builds the checks that read it.
+§8.4 had `must_preserve` survive when a label's normalized text was in the kind's extractor
+output, with polarity for findings alone. Designing 2b's reading functions showed that
+leaves a status flip on a continued home medication, the CI-only gap D17 hands to
+`must_preserve`, passing its own net, and a labeled "r/o PE" kept by a note that writes
+"PE". A label now states one reading in its kind's extractor's terms, and the note must
+keep it. The input is #8's entry 17, from the design room's prototype at 7833526, signed by
+Cal on Oct 14, 2026. #8 closes with this revision; "spec: deferred amendments" opens with
+its entries 1 to 13, 15, and 16. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L215 §8.4, §8.6 — a medication label carries its status.** Amendment (#8 entry 17): as
+  membership in the extractor's output, a `metformin` label was kept by "Not on metformin",
+  and a continued home medication written as discontinued passed `must_preserve`, D17's
+  declared net for that omission; `med_status_consistency` sees the flip only when the
+  claim's own span says otherwise. A label reads through `extract_med_status`: `metformin`
+  is active, `metformin held` stopped, `Glucophage` metformin active. It is kept when some
+  claim reads the drug at that status, so a hold-and-resume course keeps both readings.
+  Measured at 7833526: "Hold metformin" and "Not on metformin" fail a `metformin` label,
+  CRITICAL; "Continue metformin" fails `metformin held`.
+- **L216 §8.4, §8.6 — a labeled diagnosis carries its certainty, compared note-wide.**
+  Amendment (#8 entry 17): a label kept by membership let "PE" keep an "r/o PE" label. A
+  label reads through the diagnosis extractors as a certainty or an exclusion, and the
+  note's strongest certainty is compared with the label's: dropped, excluded against an
+  asserted label, or upgraded, CRITICAL; downgraded, WARNING. An exclusion label is kept by
+  the exclusion; asserting the diagnosis definite or probable, or never naming it, is
+  CRITICAL, and reopening it as possible or rule-out without the exclusion is a WARNING.
+  Reusing `diagnosis_in_quote`'s comparison was prototyped first and misfired: it compares
+  one claim with its span, and a note across claims records a course, so "r/o PE in the ED"
+  with "PE confirmed on CTA" read as a downgrade of a definite label. The note-wide rule
+  keeps that course and keeps a rule-out ending in "PE ruled out" against an exclusion
+  label (measured). "Possible PE" upgrades an "r/o" label, CRITICAL, since possible
+  outranks rule-out, as in `diagnosis_in_quote`.
+- **L219 §4.2, §8.5, §11 — reference labels are validated at load.** Fill: L116's reason
+  holds for labels, since a label no check can read is a case that fails forever. Each
+  label must read as one entity with one reading; `present` applies to findings and agrees
+  with the text; the raw text keeps every `must_preserve` reading, by the check's rule; a
+  `must_not_add` label reads positively and the raw text doesn't add it. Measured at
+  7833526: a bare "penicillin" reads no allergen, "warfarin" and "CP" read nothing
+  (unlisted), "Eliquis" reads apixaban, and "Mother on apixaban" reads apixaban active, so
+  a family-history drug can't be a `must_not_add` label.
+
+**INFO**
+- **L214 §4.2, §8.4 — a label is read by its kind's extractor.** Amendment (#8 entry 17):
+  §4.2's example label was a bare "penicillin", which `extract_allergies` reads as nothing
+  without allergy context (measured), and §8.4 compared a label's normalized text. A
+  label's text is now read by its kind's extractor and states one reading: `PCN allergy`,
+  `metformin held`, `metformin 500 mg BID`, `denies chest pain`, `r/o pulmonary embolism`.
+  A `must_not_add` label is read the same way and fires on a claim's positive reading, as
+  before (L36).
+- **L217 §4.2, §8.4, §8.6 — the reference findings' severities.** Amendment (#8 entry 17):
+  §4.2 had severity follow kind, a dose WARNING and everything else CRITICAL. A dropped
+  NKDA or NKA label is a WARNING, as `allergy_preserved` makes it (D10, L144), and a
+  labeled downgrade or reopened exclusion is a WARNING, as `diagnosis_in_quote` makes it
+  (D12, L140). Each is a finding lowering the check's CRITICAL (L38).
+- **L218 §8.4 — the reference findings' claims, and a missing case.** Fill: a
+  `must_preserve` finding is note-level, since what it misses is in no claim; a
+  `must_not_add` finding names each claim that adds the item. Both checks raise when `case`
+  is `None`, so a run without an answer key errors (invariant 12).
+- **L220 §8.8 — labels read through the extractors.** Fill: the loader checks a label
+  against the raw text through the check's own extractor (L219), so a label can't state
+  what the extractor misreads, and a misread label loads. Measured: "metformin held, then
+  restarted" reads stopped as label and source alike (L168).
 
 ---
 

@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.5** (minor — the corpus record and its scorer, October 2026). Supersedes
-v1.4.2.
+**Spec version: v1.6** (minor — what a reference label asserts, October 2026). Supersedes
+v1.5.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -429,12 +429,15 @@ PreserveKind = Literal["allergy", "medication", "dose", "finding", "diagnosis"]
 
 class PreserveItem(BaseModel):              # DECISION D4: a typed expectation.
     model_config = ConfigDict(extra="forbid")   # L103, as on EvalCase
-    text: str                               # the thing that must survive, e.g. "penicillin"
-    kind: PreserveKind                      # severity follows kind (§8.6): dose → WARNING,
-                                            #   everything else → CRITICAL
+    text: str                               # L214: one reading, as its kind's extractor
+                                            #   reads it: "PCN allergy", "metformin held"
+    kind: PreserveKind                      # CRITICAL, lowered to WARNING for a dose, a
+                                            #   dropped NKDA or NKA, a downgrade, or a
+                                            #   reopened exclusion (§8.6, L217)
     present: bool = True                    # v1.3 (L36): findings carry polarity. "denies
                                             #   chest pain" is preserved as present=False; a
-                                            #   note that flips it has NOT preserved it.
+                                            #   note that flips it has NOT preserved it. On
+                                            #   findings only, agreeing with the text (L219)
 
 NotAddKind = Literal["medication", "finding", "diagnosis"]
 
@@ -1770,8 +1773,8 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `config.min_quote_content_tokens`, or NKDA or NKA, or absence words alone (D15, L158, L159, L174) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw names an entity: named(raw) ∪ allergies(raw) ∪ findings(raw) ∪ diagnoses(raw), asserted or excluded (L55, L164) | total omission reading green |
 | `text_entailment_judge` | WARNING | no (LLM) | text entailed by span, one batched call (D8) | drift no lexicon names |
-| `must_preserve` | by `PreserveItem.kind` | **yes** | labels vs extract_*(note), polarity-aware (L36) | any labeled omission |
-| `must_not_add` | CRITICAL | **yes** | labels vs extract_*(note), positive polarity only (L36) | a labeled invention |
+| `must_preserve` | CRITICAL; a dose, NKDA, NKA, downgrade, or reopened exclusion → WARNING (L217) | **yes** | each label's reading vs the note's, by its kind's extractor (L214–L216) | a labeled omission, status flip, or certainty drift |
+| `must_not_add` | CRITICAL | **yes** | each label vs the note's positive readings (L36, L214) | a labeled invention |
 
 `span` is `raw_text[claim.source_span]` (§6.4, L35). The consistency checks skip claims
 whose span is `None` — those belong to grounding's red badge and `hallucinated_medication`.
@@ -1808,10 +1811,36 @@ Four things to read off the table:
    compares ∅ ⊆ ∅ and passes every check. Both checks read `extract_med_status`'s keys, so
    they partition one key set: a negated mention is named, so "Continue apixaban" against
    "not on apixaban" is status's finding alone.
-4. **`must_preserve` / `must_not_add` use the live primitives.** An item survives if its
-   normalized `text` is in the kind's extractor output over the whole note — with polarity
-   for findings (L36): "denies chest pain" preserves as `present=False`; a flipped note has
-   not preserved it, and a faithful "denies chest pain" is not an invented chest pain.
+4. **`must_preserve` / `must_not_add` read labels with the live primitives (L214).** A
+   label's `text` is read by its kind's extractor and states one reading, which is what the
+   label asserts: `PCN allergy` is penicillin; `metformin` is metformin active and
+   `metformin held` is metformin stopped; `metformin 500 mg BID` is one dose;
+   `denies chest pain` is chest pain absent; `r/o pulmonary embolism` is a rule-out and
+   `pulmonary embolism ruled out` an exclusion. The note's reading is every claim's text,
+   whatever its section (invariant 5). A `must_preserve` item holds when the note keeps its
+   reading: the allergen; the drug at its status (L215); the dose, as `dose_consistency`
+   matches one (L141); the finding at its polarity (L36); the diagnosis as below (L216). A
+   `must_not_add` item fires on a claim that reads it positively: the drug active, the
+   finding present, the diagnosis asserted at any certainty, an invented differential
+   included (D7). A negated, stopped, or excluded mention adds nothing, so a faithful
+   "denies chest pain" is not an invented chest pain (L36).
+
+**A labeled diagnosis is compared note-wide (L216).** A note records a course ("r/o PE in
+the ED", "PE confirmed on CTA"), so `must_preserve` reads the whole note's strongest
+certainty against the label's, not one claim against its span as `diagnosis_in_quote` does.
+Against an asserted label, a note that doesn't name the diagnosis is CRITICAL, and so is one
+that excludes it (an exclusion the source doesn't make, L140); a stronger certainty is an
+upgrade, CRITICAL, and a weaker one a downgrade, WARNING. Against an exclusion label, a note
+asserting the diagnosis definite or probable, or never naming it, is CRITICAL, and one
+reopening it as possible or rule-out without the exclusion is a WARNING; a rule-out that
+ends in the exclusion keeps it.
+
+**The reference findings (L217, L218).** `must_preserve` is CRITICAL, and lowers a finding
+to WARNING for a dose, a dropped NKDA or NKA (D10, L144), a labeled downgrade, or a reopened
+exclusion; `must_not_add` is CRITICAL. A `must_preserve` finding names no claim, since what
+it misses is in none; a `must_not_add` finding names each claim that adds the item. Both
+raise when `case` is `None`, so a call without an answer key errors (invariant 12) rather
+than passing over nothing.
 
 **Diagnoses are compared as readings (D12, L140).** A string's reading of a diagnosis is the
 certainties it asserts and whether it excludes it ("PE ruled out", "no pneumonia"). A
@@ -1917,6 +1946,15 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   and its item types forbid extra fields, so a typo'd `draft:` can't turn an injected case
   into a paid model case, and a typo'd `must_preserve:` can't leave a fidelity trap with
   nothing to check.
+- **Reference labels are validated at load (L219)**, for the same reason: a label no check
+  can read is a case that fails forever. Each label must read as one entity with one reading
+  (§8.4): a bare allergen reads nothing without its allergy context, and neither does an
+  unlisted or misspelled name. `present` applies to findings and must agree with the text,
+  so `present: false` on another kind, or on a finding whose text reads present, is a load
+  error. The raw text must keep every `must_preserve` reading, by the check's own rule. A
+  `must_not_add` label must read positively, and the raw text must not add it, which also
+  rejects a drug the source names in family history: the extractors have no family-history
+  context, so "Mother on apixaban" reads apixaban active (measured).
 - **`corpus_version` is derived** (L204) — over the model cases a run scores: each case's
   `model_dump_json()`, sorted by id, hashed to twelve hex digits like `prompt_version`
   (L114). Injected cases are pytest's, so editing one leaves a model run's lineage alone. A
@@ -1987,11 +2025,13 @@ CRITICAL   dropped allergy · hallucinated med · contraindication (same drug, s
            identical R1) · negation flip · status flip · drug absent from its span ·
            invented or certainty-upgraded diagnosis · a wrong exclusion, or an excluded
            diagnosis asserted definite or probable (L140, L142) · labeled invention ·
-           labeled omission (allergy / medication / finding / diagnosis)
+           labeled omission (allergy / medication / finding / diagnosis) · labeled status
+           flip, certainty upgrade, or wrong exclusion (L215, L216)
 WARNING    dose mismatch · cross-class contraindication with a dissimilar or unknown side
            chain (D9, D14) · dropped NKDA or NKA (D10, L144) · dropped new prescription ·
            degenerate quote · empty note on clinical input · certainty downgrade · reopened
-           exclusion (L140) · not entailed (judge) · labeled dropped dose
+           exclusion (L140) · not entailed (judge) · labeled dropped dose, NKDA, or NKA ·
+           labeled certainty downgrade or reopened exclusion (L217)
 INFO       section misplacement · stylistic drift — the tier is defined, no INFO check
            ships in v1 (§15)
 ```
@@ -2405,6 +2445,11 @@ know, stated plainly (v1.3):
   as the start ("Not starting metformin"). The fix reads a mention's last status cue in its
   clause and lets a negation govern a start cue, which changes the scope rule, so it waits
   for a later minor revision.
+- **Labels read through the extractors** (L220). The loader checks a label against the raw
+  text through the same extractor the check uses (L219), so a label can't state what the
+  extractor misreads, and a misread label loads: "metformin held, then restarted" reads
+  stopped (L168), as label and as source alike (measured). Case authoring avoids the
+  phrasings this section lists.
 - **A list after a word** (L193). A negation, stop, or start post-cue reaches back over a
   list only when the list opens its clause (§7), so a list after a word reads
   adjacent-only: "no fever, but chills, nausea denied" reads the chills present. Reaching
@@ -2962,7 +3007,8 @@ in the push workflow — it spends real money.
   scope cases (L31); `extract_allergies("PCN allergy") == {"penicillin"}` (L30); parsed doses
   compare equal across spacing and case (L33); each `contraindication` rung (D9, D14).
 - **Corpus load + coverage** — every fixture parses; every `expected_flags` entry is
-  registered; the §8.5 coverage rule holds.
+  registered; every reference label reads, the raw text keeps each `must_preserve` reading,
+  and adds no `must_not_add` one (L219); the §8.5 coverage rule holds.
 - **Fail-closed engine** — a raising check yields `errored=True, passed=False` and the others
   still run; a severity-upgrading finding errors its check (L38); an errored expected check
   fails its case (L43); a check absent from `checks_run` makes its case N/A (L44), and so
@@ -3187,9 +3233,10 @@ annotated tag is the record, audited alongside the lines above.
   control_pcn_allergy_azithro, control_hedged_assessment, control_empty_assessment (L23)
 □ one planted danger per trap (D16), enforced in review
 □ the coverage rule's model clause, with the corpus's first model case (L137)
-□ typed must_not_add, polarity-aware reference checks (L10, L36) · must_preserve /
-  must_not_add registered with requires_reference · must_preserve joins
-  detect_dropped_allergy's expected_flags (L145)
+□ typed must_not_add, polarity-aware reference checks (L10, L36) · labels read by their
+  kind's extractor, the note keeping each reading (L214–L218) and the loader validating
+  them (L219) · must_preserve / must_not_add registered with requires_reference ·
+  must_preserve joins detect_dropped_allergy's expected_flags (L145)
 □ corpus_version, over the model cases a run scores (L116, L204)
 □ config: corpus_repeats · corpus_concurrency · runs_path (L209)
 □ score_corpus in corpus.py, edge (L188): concurrency · per-case catch parity, every step
