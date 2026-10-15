@@ -180,9 +180,9 @@ class PreserveItem(BaseModel):
 
     model_config = ConfigDict(extra="forbid")  # L103, as on EvalCase
 
-    text: str  # the thing that must survive, e.g. "penicillin"
+    text: str  # L214: one reading, as its kind's extractor reads it: "PCN allergy"
     kind: PreserveKind
-    present: bool = True  # L36: polarity; "denies chest pain" is preserved as present=False
+    present: bool = True  # L36: a finding's polarity, agreeing with the text (L219)
 
 
 NotAddKind = Literal["medication", "finding", "diagnosis"]

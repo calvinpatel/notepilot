@@ -1,8 +1,12 @@
 """The case loader: evals/cases/<id>.yaml files to EvalCases (spec §8.5; L103, L118, L119).
 
-load_cases reads a directory of case files and checks each answer key against the registry:
-every expected_flags entry must name a registered check. It collects every file's problems
-and raises them together, so one run shows an author the whole directory's.
+load_cases reads a directory of case files and checks each answer key: every expected_flags
+entry must name a registered check, and every reference label must read as one entity with
+one reading, which the raw text keeps (a must_preserve label) or doesn't add (a
+must_not_add one) (L219). Importing checks.py for its label readers registers the roster,
+so the flags are checked against the full roster whatever imported the loader. load_cases
+collects every file's problems and raises them together, so one run shows an author the
+whole directory's.
 
 ruamel.yaml's safe loader reads YAML 1.2, so `no` stays a string, and rejects a duplicate key
 (L118). A problem names the file, then the line or the field, then what's wrong. It never
@@ -17,6 +21,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.constructor import DuplicateKeyError
 from ruamel.yaml.error import MarkedYAMLError, YAMLError
 
+from backend.evals.checks import adds, label_problem, preserve_miss
 from backend.evals.registry import REGISTRY
 from backend.schemas import EvalCase
 
@@ -83,7 +88,26 @@ def _load_one(path: Path, yaml: YAML) -> EvalCase | list[str]:
     unknown = [flag for flag in case.expected_flags if flag not in REGISTRY]
     if unknown:
         problems.append(f"{name}: expected_flags names unregistered checks: {', '.join(unknown)}")
+    problems.extend(f"{name}: {problem}" for problem in _label_problems(case))
     return problems or case
+
+
+def _label_problems(case: EvalCase) -> list[str]:
+    """Each reference label no check can read, or the raw text contradicts (L219)."""
+    problems: list[str] = []
+    for i, preserve in enumerate(case.must_preserve):
+        problem = label_problem(preserve)
+        if problem is None and preserve_miss(preserve, [case.raw_text]) is not None:
+            problem = "the raw text doesn't keep its reading"
+        if problem is not None:
+            problems.append(f"must_preserve.{i}: {problem}")
+    for i, not_add in enumerate(case.must_not_add):
+        problem = label_problem(not_add)
+        if problem is None and adds(not_add, case.raw_text):
+            problem = "the raw text already adds it"
+        if problem is not None:
+            problems.append(f"must_not_add.{i}: {problem}")
+    return problems
 
 
 def _where(exc: MarkedYAMLError) -> str:

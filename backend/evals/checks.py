@@ -1,14 +1,20 @@
-"""The reference-free roster (spec §8.4), and the helpers its checks share.
+"""The reference-free roster (spec §8.4), the helpers its checks share, and the reference
+labels' readings.
 
 A claim-local check runs one extractor over a claim's text and its source span and compares
 the two (L35); allergy_preserved compares the raw text with the whole note. Registration is
-this module's import side effect: runner.py imports it (§8.7). Every check takes the config
-(L190); a check reads its knob from it, never from settings (L187).
+this module's import side effect: runner.py imports it (§8.7), and so does loader.py, for
+the label readers. Every check takes the config (L190); a check reads its knob from it,
+never from settings (L187).
+
+A reference label's text is read by its kind's extractor and states one reading (§8.4 point
+4, L214): read_label reads it, label_problem says why a label can't be read, preserve_miss
+compares a label with texts, and adds says whether a text adds one.
 """
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from decimal import Decimal
-from typing import get_args
+from typing import NoReturn, get_args
 
 from backend.clinical.extract import (
     ABSENCE_WORDS,
@@ -28,7 +34,16 @@ from backend.clinical.extract import (
 )
 from backend.clinical.lexicons import CROSS_REACTIVITY, DOSE_MASS_UG, DRUG_CLASS, R1_GROUP
 from backend.evals.registry import Finding, register_check
-from backend.schemas import ChecksConfig, ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
+from backend.schemas import (
+    ChecksConfig,
+    ClinicalClaim,
+    EvalCase,
+    NotAddItem,
+    PreserveItem,
+    SafetyFlag,
+    Severity,
+    SOAPNote,
+)
 
 
 def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:
@@ -510,3 +525,143 @@ def check_empty_note_on_clinical_input(
         return []
     names = ", ".join(sorted(entities))
     return [Finding(detail=f"no claims; the source names: {names}", claim_ids=())]
+
+
+# --- reference labels (§8.4 point 4; L214-L219) ---------------------------------------------
+
+# What a label reads as, by kind: an allergen nothing more, a drug its status, a dose the
+# dose, a finding its polarity, a diagnosis its certainty or its exclusion (L214)
+type LabelValue = MedStatus | Dose | bool | _Reading | None
+
+
+def _one[T](readings: Mapping[str, set[T]]) -> tuple[str, T] | None:
+    """The one key and its one value, or None for any other count of either."""
+    if len(readings) != 1:
+        return None
+    ((key, values),) = readings.items()
+    return (key, next(iter(values))) if len(values) == 1 else None
+
+
+def _allergen(text: str) -> str | None:
+    allergens = extract_allergies(text)
+    return next(iter(allergens)) if len(allergens) == 1 else None
+
+
+def _diagnosis(text: str) -> tuple[str, _Reading] | None:
+    """One diagnosis at one certainty, or one excluded: never both, never two."""
+    readings = _diagnosis_readings(text)
+    if len(readings) != 1:
+        return None
+    ((name, (certainties, excluded)),) = readings.items()
+    return (name, (certainties, excluded)) if len(certainties) + excluded == 1 else None
+
+
+def read_label(item: PreserveItem | NotAddItem) -> tuple[str, LabelValue] | None:
+    """The one entity a label's text names and the one reading it states, else None (L214)."""
+    match item.kind:
+        case "allergy":
+            allergen = _allergen(item.text)
+            return None if allergen is None else (allergen, None)
+        case "medication":
+            return _one(extract_med_status(item.text))
+        case "dose":
+            return _one(extract_doses(item.text))
+        case "finding":
+            return _one(extract_findings(item.text))
+        case "diagnosis":
+            return _diagnosis(item.text)
+
+
+def label_problem(item: PreserveItem | NotAddItem) -> str | None:
+    """Why no check can read this label, or None (L219). Never quotes the label's text."""
+    if isinstance(item, PreserveItem) and item.kind != "finding" and not item.present:
+        return "present applies to findings"
+    reading = read_label(item)
+    if reading is None:
+        return f"doesn't read as one {item.kind} with one reading"
+    _, value = reading
+    if isinstance(item, PreserveItem):
+        if item.kind == "finding" and value is not item.present:
+            said = "present" if item.present else "absent"
+            return f"labeled {said}, but its text doesn't read it {said}"
+        return None
+    match item.kind:  # a must_not_add label names what a note would add (L36)
+        case "medication":
+            positive = value == "active"
+        case "finding":
+            positive = value is True
+        case "diagnosis":
+            positive = isinstance(value, tuple) and not value[1]
+    return None if positive else "doesn't read as a positive mention"
+
+
+def _unreadable(item: PreserveItem | NotAddItem) -> NoReturn:
+    raise ValueError(f"unreadable {item.kind} label: {label_problem(item)}")
+
+
+def _diagnosis_miss(label: _Reading, note: _Reading) -> Severity | None:
+    """How far a whole note's reading of a diagnosis departs from its label's (L216).
+
+    Strongest certainty against strongest, since a note records a course; an exclusion
+    label is kept by the exclusion, and a rule-out ending in it keeps it.
+    """
+    (wanted, excluded), (said, note_excludes) = label, note
+    if excluded:
+        if said & _CONTRADICTS_AN_EXCLUSION or not (said or note_excludes):
+            return Severity.CRITICAL  # asserted against the exclusion, or never named
+        return None if note_excludes else Severity.WARNING  # reopened
+    if note_excludes or not said:
+        return Severity.CRITICAL  # an exclusion the source doesn't make (L140), or dropped
+    if _strongest(said) < _strongest(wanted):
+        return Severity.CRITICAL  # upgrade
+    if _strongest(said) > _strongest(wanted):
+        return Severity.WARNING  # downgrade
+    return None
+
+
+def preserve_miss(item: PreserveItem, texts: Sequence[str]) -> Severity | None:
+    """None when the texts keep the label's reading, else how badly they miss it (L215-L217).
+
+    Each text is read whole and the readings are pooled, so a course across claims keeps
+    every reading in it. ValueError for a label no check can read (L219).
+    """
+    if label_problem(item) is not None:
+        _unreadable(item)
+    match item.kind:
+        case "allergy":
+            allergen = _allergen(item.text) or _unreadable(item)
+            if any(allergen in extract_allergies(t) for t in texts):
+                return None
+            return Severity.WARNING if allergen in NO_ALLERGY_STATEMENTS else Severity.CRITICAL
+        case "medication":
+            drug, status = _one(extract_med_status(item.text)) or _unreadable(item)
+            kept = any(status in extract_med_status(t).get(drug, set()) for t in texts)
+            return None if kept else Severity.CRITICAL
+        case "dose":
+            drug, dose = _one(extract_doses(item.text)) or _unreadable(item)
+            kept = any(_matches(d, dose) for t in texts for d in extract_doses(t).get(drug, set()))
+            return None if kept else Severity.WARNING
+        case "finding":
+            finding, polarity = _one(extract_findings(item.text)) or _unreadable(item)
+            kept = any(polarity in extract_findings(t).get(finding, set()) for t in texts)
+            return None if kept else Severity.CRITICAL
+        case "diagnosis":
+            name, wanted = _diagnosis(item.text) or _unreadable(item)
+            readings = [_diagnosis_readings(t).get(name, (set(), False)) for t in texts]
+            said: set[Certainty] = set().union(*(certainties for certainties, _ in readings))
+            return _diagnosis_miss(wanted, (said, any(excluded for _, excluded in readings)))
+
+
+def adds(item: NotAddItem, text: str) -> bool:
+    """Whether text reads the label's entity as a positive mention: a drug active, a finding
+    present, a diagnosis at any certainty (L36, L214). ValueError for an unreadable label."""
+    if label_problem(item) is not None:
+        _unreadable(item)
+    name, _ = read_label(item) or _unreadable(item)
+    match item.kind:
+        case "medication":
+            return name in extract_drugs(text)
+        case "finding":
+            return True in extract_findings(text).get(name, set())
+        case "diagnosis":
+            return name in extract_diagnoses(text)

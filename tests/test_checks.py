@@ -1,4 +1,5 @@
-"""Pins the reference-free roster and its helpers (spec §8.4; D6, D9-D17, L35, L55, L136-L174)."""
+"""Pins the reference-free roster and its helpers, and the reference labels' readings (spec
+§8.4; D6, D9-D17, L35, L55, L136-L174, L214-L219)."""
 
 import os
 import subprocess
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.clinical.extract import Dose
 from backend.clinical.lexicons import (
     ALLERGY_ALIASES,
     DIAGNOSES,
@@ -16,6 +18,7 @@ from backend.clinical.lexicons import (
     GENERIC_DRUGS,
 )
 from backend.evals.checks import (
+    adds,
     check_allergy_contraindication,
     check_allergy_preserved,
     check_diagnosis_in_quote,
@@ -29,11 +32,22 @@ from backend.evals.checks import (
     check_quote_informativeness,
     contraindication,
     drug_mentions,
+    label_problem,
     named_drugs,
+    preserve_miss,
+    read_label,
     span_text,
 )
 from backend.evals.registry import REGISTRY, Finding
-from backend.schemas import ClinicalClaim, SafetyFlag, Section, Severity, SOAPNote
+from backend.schemas import (
+    ClinicalClaim,
+    NotAddItem,
+    PreserveItem,
+    SafetyFlag,
+    Section,
+    Severity,
+    SOAPNote,
+)
 from tests.fakes import CHECKS_CONFIG, checks_config_with
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1323,6 +1337,228 @@ def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> 
     raw = ", ".join(sorted(vocabulary, reverse=True))
     (finding,) = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert finding.detail == "no claims; the source names: " + ", ".join(sorted(vocabulary))
+
+
+# --- reference labels (§8.4 point 4; L214-L219) ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "reading"),
+    [
+        ("allergy", "PCN allergy", ("penicillin", None)),
+        ("allergy", "NKDA", ("nkda", None)),
+        ("medication", "metformin", ("metformin", "active")),
+        ("medication", "metformin held", ("metformin", "stopped")),
+        ("medication", "Glucophage", ("metformin", "active")),
+        ("dose", "metformin 500 mg BID", ("metformin", Dose(500.0, "mg", "bid"))),
+        ("finding", "denies chest pain", ("chest pain", False)),
+        ("diagnosis", "pulmonary embolism", ("pulmonary embolism", ({"definite"}, False))),
+        ("diagnosis", "r/o pulmonary embolism", ("pulmonary embolism", ({"rule_out"}, False))),
+        ("diagnosis", "pulmonary embolism ruled out", ("pulmonary embolism", (set(), True))),
+    ],
+)
+def test_read_label_reads_one_entity_and_one_reading(
+    kind: str, text: str, reading: tuple[str, object]
+) -> None:
+    item = PreserveItem.model_validate(
+        {"text": text, "kind": kind, "present": reading[1] is not False}
+    )
+    assert read_label(item) == reading
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [
+        ("allergy", "penicillin"),  # a bare allergen: no allergy context (L214)
+        ("allergy", "PCN and sulfa allergies"),  # two allergens
+        ("medication", "warfarin"),  # unlisted (§8.8)
+        ("medication", "metformin and lisinopril"),  # two drugs
+        ("medication", "continue metformin; hold metformin"),  # one drug, two statuses
+        ("dose", "500 mg"),  # no drug
+        ("dose", "metformin 500 mg BID and lisinopril 10 mg daily"),  # two drugs
+        ("dose", "metformin 500 mg BID, metformin 1000 mg BID"),  # one drug, two doses
+        ("finding", "CP"),  # unlisted
+        ("finding", ""),  # blank
+        ("finding", "chest pain; denies chest pain"),  # one finding, both polarities
+        ("diagnosis", "PE vs pneumonia"),  # two diagnoses
+        ("diagnosis", "r/o PE, PE ruled out"),  # a certainty and an exclusion
+    ],
+)
+def test_read_label_reads_nothing_from_any_other_text(kind: str, text: str) -> None:
+    assert read_label(PreserveItem.model_validate({"text": text, "kind": kind})) is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [
+        ("allergy", "PCN allergy"),
+        ("medication", "metformin"),
+        ("dose", "metformin 500 mg"),
+        ("diagnosis", "pneumonia"),
+    ],
+)
+def test_present_false_applies_to_findings_only(kind: str, text: str) -> None:
+    # each text reads: the problem is present itself, not the text
+    item = PreserveItem.model_validate({"text": text, "kind": kind, "present": False})
+    assert label_problem(item) == "present applies to findings"
+
+
+def test_present_true_on_another_kind_is_its_default() -> None:
+    # spelled out or left to the default, True is the only reading a non-finding can have
+    assert label_problem(PreserveItem(text="metformin", kind="medication", present=True)) is None
+
+
+@pytest.mark.parametrize(("text", "present"), [("chest pain", False), ("denies chest pain", True)])
+def test_a_finding_label_states_its_polarity(text: str, present: bool) -> None:
+    item = PreserveItem(text=text, kind="finding", present=present)
+    said = "present" if present else "absent"
+    assert label_problem(item) == f"labeled {said}, but its text doesn't read it {said}"
+
+
+def test_an_unreadable_label_names_its_kind_never_its_text() -> None:
+    item = PreserveItem(text="penicillin", kind="allergy")
+    assert label_problem(item) == "doesn't read as one allergy with one reading"
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [
+        ("medication", "not on apixaban"),
+        ("finding", "denies chest pain"),
+        ("diagnosis", "pneumonia ruled out"),
+    ],
+)
+def test_a_not_add_label_reads_as_a_positive_mention(kind: str, text: str) -> None:
+    item = NotAddItem.model_validate({"text": text, "kind": kind})
+    assert label_problem(item) == "doesn't read as a positive mention"
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [("medication", "Eliquis"), ("finding", "chest pain"), ("diagnosis", "r/o pneumonia")],
+)
+def test_a_positive_not_add_label_reads(kind: str, text: str) -> None:
+    assert label_problem(NotAddItem.model_validate({"text": text, "kind": kind})) is None
+
+
+def _miss(text: str, kind: str, note: list[str], present: bool = True) -> Severity | None:
+    return preserve_miss(
+        PreserveItem.model_validate({"text": text, "kind": kind, "present": present}), note
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "note", "miss"),
+    [
+        ("metformin", ["Continue metformin"], None),
+        ("metformin", ["Glucophage 500 mg"], None),
+        ("metformin", ["Hold metformin"], Severity.CRITICAL),
+        ("metformin", ["Not on metformin"], Severity.CRITICAL),
+        ("metformin", ["Allergic to metformin"], Severity.CRITICAL),
+        ("metformin held", ["Metformin held for CT"], None),
+        ("metformin held", ["Continue metformin"], Severity.CRITICAL),
+        # a course across claims keeps both readings
+        ("metformin", ["Hold metformin for CT", "Resume metformin in 48 hours"], None),
+        ("metformin held", ["Hold metformin for CT", "Resume metformin in 48 hours"], None),
+    ],
+)
+def test_a_medication_label_keeps_its_status(
+    label: str, note: list[str], miss: Severity | None
+) -> None:
+    assert _miss(label, "medication", note) == miss
+
+
+@pytest.mark.parametrize(
+    ("label", "note", "miss"),
+    [
+        ("pulmonary embolism", ["PE"], None),
+        ("pulmonary embolism", ["r/o PE in the ED", "PE confirmed on CTA"], None),
+        ("pulmonary embolism", ["r/o PE"], Severity.WARNING),
+        ("pulmonary embolism", ["Possible PE"], Severity.WARNING),
+        ("pulmonary embolism", ["PE ruled out"], Severity.CRITICAL),
+        ("pulmonary embolism", ["PE", "PE ruled out"], Severity.CRITICAL),
+        ("pulmonary embolism", ["Pneumonia"], Severity.CRITICAL),
+        ("r/o pulmonary embolism", ["r/o PE"], None),
+        ("r/o pulmonary embolism", ["Possible PE"], Severity.CRITICAL),
+        ("r/o pulmonary embolism", ["PE"], Severity.CRITICAL),
+        ("r/o pulmonary embolism", ["r/o PE", "PE ruled out"], Severity.CRITICAL),
+        ("pulmonary embolism ruled out", ["PE ruled out"], None),
+        ("pulmonary embolism ruled out", ["r/o PE", "CTA negative, PE ruled out"], None),
+        ("pulmonary embolism ruled out", ["r/o PE"], Severity.WARNING),
+        ("pulmonary embolism ruled out", ["Possible PE"], Severity.WARNING),
+        ("pulmonary embolism ruled out", ["PE"], Severity.CRITICAL),
+        ("pulmonary embolism ruled out", ["Probable PE", "PE ruled out"], Severity.CRITICAL),
+        ("pulmonary embolism ruled out", ["Pneumonia"], Severity.CRITICAL),
+    ],
+)
+def test_a_diagnosis_label_is_compared_note_wide(
+    label: str, note: list[str], miss: Severity | None
+) -> None:
+    assert _miss(label, "diagnosis", note) == miss
+
+
+@pytest.mark.parametrize(
+    ("label", "kind", "present", "note", "miss"),
+    [
+        ("PCN allergy", "allergy", True, ["Penicillin allergy"], None),
+        ("PCN allergy", "allergy", True, ["Allergic to amoxicillin"], Severity.CRITICAL),
+        ("NKDA", "allergy", True, ["NKDA"], None),
+        ("NKDA", "allergy", True, ["No known allergies"], Severity.WARNING),
+        ("NKA", "allergy", True, ["NKDA"], Severity.WARNING),
+        ("denies chest pain", "finding", False, ["Denies chest pain"], None),
+        ("denies chest pain", "finding", False, ["Reports chest pain"], Severity.CRITICAL),
+        ("chest pain", "finding", True, ["Denies chest pain"], Severity.CRITICAL),
+        ("metformin 500 mg BID", "dose", True, ["Metformin 0.5 g BID"], None),
+        ("metformin 500 mg BID", "dose", True, ["Metformin 500 mg"], None),
+        ("metformin 500 mg BID", "dose", True, ["Metformin 500 mg daily"], Severity.WARNING),
+        # a frequency the source never states isn't the label's dose, as in dose_consistency
+        ("metformin 500 mg", "dose", True, ["Metformin 500 mg BID"], Severity.WARNING),
+        ("metformin 500 mg BID", "dose", True, ["Lisinopril 500 mg BID"], Severity.WARNING),
+    ],
+)
+def test_the_other_kinds_keep_their_readings(
+    label: str, kind: str, present: bool, note: list[str], miss: Severity | None
+) -> None:
+    assert _miss(label, kind, note, present) == miss
+
+
+@pytest.mark.parametrize(
+    ("label", "kind", "present"),
+    [
+        ("penicillin", "allergy", True),  # reads nothing
+        ("chest pain", "finding", False),  # reads, but its text and present disagree
+        ("metformin", "medication", False),  # reads, but present is a finding's
+    ],
+)
+def test_preserve_miss_refuses_an_unreadable_label(label: str, kind: str, present: bool) -> None:
+    # no reading to compare: an error, never a silent pass or a guessed miss (invariant 12)
+    with pytest.raises(ValueError, match=f"^unreadable {kind} label: "):
+        _miss(label, kind, [label], present)
+
+
+@pytest.mark.parametrize(
+    ("label", "kind", "text", "added"),
+    [
+        ("apixaban", "medication", "Start apixaban", True),
+        ("Eliquis", "medication", "Start apixaban", True),
+        ("apixaban", "medication", "Mother on apixaban", True),  # no family-history context (§8.5)
+        ("apixaban", "medication", "Not on apixaban", False),
+        ("apixaban", "medication", "Apixaban held", False),
+        ("apixaban", "medication", "Allergic to apixaban", False),
+        ("chest pain", "finding", "Reports chest pain", True),
+        ("chest pain", "finding", "Denies chest pain", False),
+        ("pneumonia", "diagnosis", "Possible pneumonia", True),
+        ("pneumonia", "diagnosis", "r/o pneumonia", True),
+        ("pneumonia", "diagnosis", "No pneumonia", False),
+    ],
+)
+def test_adds_reads_a_positive_mention(label: str, kind: str, text: str, added: bool) -> None:
+    assert adds(NotAddItem.model_validate({"text": label, "kind": kind}), text) is added
+
+
+def test_adds_refuses_an_unreadable_label() -> None:
+    with pytest.raises(ValueError, match="^unreadable medication label: "):
+        adds(NotAddItem(text="not on apixaban", kind="medication"), "Start apixaban")
 
 
 # --- registration -------------------------------------------------------------------------

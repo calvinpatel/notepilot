@@ -1,12 +1,15 @@
-"""Pins the case loader (spec §8.5; L103, L118, L119)."""
+"""Pins the case loader (spec §8.5; L103, L118, L119, L219)."""
 
+import os
+import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from backend.evals.loader import CaseLoadError, load_cases
-from backend.evals.registry import Check, Finding, register_check
+from backend.evals.registry import REGISTRY, Check, Finding, register_check
 from backend.schemas import ChecksConfig, EvalCase, Severity, SOAPNote
 
 RAW_SENTINEL = "sentinel-raw-3e9b"
@@ -64,6 +67,20 @@ A_LIST = """
 - x
 - y
 """
+
+LABELED = """
+id: control-2
+species: control
+raw_text: |
+  Allergic to amoxicillin (hives). Start azithromycin 500 mg daily.
+trap: null
+must_preserve:
+  - {text: amoxicillin allergy, kind: allergy}
+must_not_add:
+  - {text: amoxicillin, kind: medication}
+"""
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _clean(
@@ -174,6 +191,80 @@ def test_every_file_must_be_an_id_yaml(tmp_path: Path) -> None:
         "nested.yaml: not a case file; each case is <id>.yaml",
         "notes.txt: not a case file; each case is <id>.yaml",
     )
+
+
+# --- reference labels (§8.5, L219) -------------------------------------------
+
+
+def test_a_readable_label_the_raw_text_keeps_loads(tmp_path: Path) -> None:
+    (case,) = load_cases(_write(tmp_path, {"control-2.yaml": LABELED}))
+    assert [item.text for item in case.must_preserve] == ["amoxicillin allergy"]
+    assert [item.text for item in case.must_not_add] == ["amoxicillin"]
+
+
+@pytest.mark.parametrize(
+    ("label", "problem"),
+    [
+        # a bare allergen reads nothing; the problem never quotes the label's text
+        (
+            "must_preserve: [{text: amoxicillin, kind: allergy}]",
+            "must_preserve.0: doesn't read as one allergy with one reading",
+        ),
+        (
+            "must_preserve: [{text: azithromycin, kind: medication, present: false}]",
+            "must_preserve.0: present applies to findings",
+        ),
+        (
+            "must_preserve: [{text: azithromycin held, kind: medication}]",
+            "must_preserve.0: the raw text doesn't keep its reading",
+        ),
+        (
+            "must_not_add: [{text: azithromycin, kind: medication}]",
+            "must_not_add.0: the raw text already adds it",
+        ),
+        (
+            "must_not_add: [{text: not on amoxicillin, kind: medication}]",
+            "must_not_add.0: doesn't read as a positive mention",
+        ),
+    ],
+    ids=["bare-allergen", "present-on-medication", "raw-doesnt-keep", "raw-adds", "not-positive"],
+)
+def test_a_label_no_check_can_read_is_a_load_error(
+    tmp_path: Path, label: str, problem: str
+) -> None:
+    head = LABELED.split("must_preserve:")[0]  # the case without its labels, ending a line
+    assert _problems(_write(tmp_path, {"control-2.yaml": head + label})) == (
+        f"control-2.yaml: {problem}",
+    )
+
+
+def test_importing_the_loader_registers_the_roster() -> None:
+    """loader.py imports checks.py for its label readers, which registers the roster.
+
+    So load_cases validates expected_flags against the full roster whatever imported it
+    first. Only a fresh interpreter shows what the loader's import does by itself.
+    """
+    script = (
+        "import backend.evals.loader; "
+        "from backend.evals.registry import REGISTRY; "
+        "print(*sorted(REGISTRY))"
+    )
+    existing = os.environ.get("PYTHONPATH")
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(_REPO_ROOT) + (os.pathsep + existing if existing else ""),
+    }
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=_REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.split() == sorted(REGISTRY)
+    assert "allergy_preserved" in completed.stdout.split()  # the roster, not an empty registry
 
 
 # --- how problems read --------------------------------------------------------

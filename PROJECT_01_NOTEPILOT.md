@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6** (minor — what a reference label asserts, October 2026). Supersedes
-v1.5.
+**Spec version: v1.6.1** (patch — the loader imports the label readers, October 2026).
+Supersedes v1.6.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2093,7 +2093,7 @@ def stamp(check: Check, f: Finding) -> EvalResult:
         raise ValueError(f"{check.name}: finding severity exceeds the check's")   # was a comment
     return EvalResult(check=check.name, severity=sev, passed=False,
                       detail=f.detail, claim_ids=f.claim_ids)
-# runner.py imports checks.py for the side effect of registration;
+# runner.py and loader.py (L221) import checks.py, which registers the roster;
 # checks.py imports only register_check + Finding. No cycle.
 ```
 
@@ -3088,9 +3088,11 @@ notepilot/
 │   ├── evals/              ← DOMAIN
 │   │   ├── registry.py     ← Check + Finding (check-internal, sanctioned) · @register_check · stamp
 │   │   ├── judge.py        ← the Judge protocol — a domain interface (phase 2a, L111)
-│   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · their helpers (§7, §8.4)
+│   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · their helpers ·
+│   │   │                      the reference labels' readers (§7, §8.4, L214)
 │   │   ├── runner.py       ← run_checks · case_verdict · corpus_metrics · CHECKS_VERSION (pure)
-│   │   ├── loader.py       ← YAML → EvalCase; validates expected_flags; corpus_version()
+│   │   ├── loader.py       ← YAML → EvalCase; validates expected_flags and reference labels
+│   │   │                      (L219, L221); corpus_version()
 │   │   ├── cases/          ← one YAML per case: model cases AND injected cases (§8.5)
 │   │   └── runs/           ← corpus_runs.jsonl — committed from local runs (D5)
 │   ├── corpus.py           ← EDGE (phase 2b, L188). score_corpus: settings · the API · git · runs/
