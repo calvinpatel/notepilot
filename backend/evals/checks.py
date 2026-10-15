@@ -577,8 +577,9 @@ def label_problem(item: PreserveItem | NotAddItem) -> str | None:
     if isinstance(item, PreserveItem) and item.kind != "finding" and not item.present:
         return "present applies to findings"
     reading = read_label(item)
-    if reading is None:
-        return f"doesn't read as one {item.kind} with one reading"
+    if reading is None:  # an allergy label states the allergen alone, no reading (L214)
+        one = "one allergy" if item.kind == "allergy" else f"one {item.kind} with one reading"
+        return f"doesn't read as {one}"
     _, value = reading
     if isinstance(item, PreserveItem):
         if item.kind == "finding" and value is not item.present:

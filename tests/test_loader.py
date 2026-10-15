@@ -204,7 +204,7 @@ def test_a_readable_label_the_raw_text_keeps_loads(tmp_path: Path) -> None:
         # a bare allergen reads nothing; the problem never quotes the label's text
         (
             "must_preserve: [{text: amoxicillin, kind: allergy}]",
-            "must_preserve.0: doesn't read as one allergy with one reading",
+            "must_preserve.0: doesn't read as one allergy",
         ),
         (
             "must_preserve: [{text: azithromycin, kind: medication, present: false}]",

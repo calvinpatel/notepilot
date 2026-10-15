@@ -1409,9 +1409,21 @@ def test_a_finding_label_states_its_polarity(text: str, present: bool) -> None:
     assert label_problem(item) == f"labeled {said}, but its text doesn't read it {said}"
 
 
-def test_an_unreadable_label_names_its_kind_never_its_text() -> None:
-    item = PreserveItem(text="penicillin", kind="allergy")
-    assert label_problem(item) == "doesn't read as one allergy with one reading"
+@pytest.mark.parametrize(
+    ("kind", "text", "problem"),
+    [
+        # an allergy label states the allergen alone, so it has no reading to name (L214)
+        ("allergy", "penicillin", "doesn't read as one allergy"),
+        ("medication", "warfarin", "doesn't read as one medication with one reading"),
+        ("dose", "500 mg", "doesn't read as one dose with one reading"),
+        ("finding", "CP", "doesn't read as one finding with one reading"),
+        ("diagnosis", "PE vs pneumonia", "doesn't read as one diagnosis with one reading"),
+    ],
+)
+def test_an_unreadable_label_names_its_kind_never_its_text(
+    kind: str, text: str, problem: str
+) -> None:
+    assert label_problem(PreserveItem.model_validate({"text": text, "kind": kind})) == problem
 
 
 @pytest.mark.parametrize(
