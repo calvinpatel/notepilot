@@ -158,7 +158,11 @@ def test_happy_path_returns_note_report_and_metadata(
     fields = ("id", "text", "section", "source_quote", "source_span", "flags")
     assert [claim[f] for f in fields] == [0, "fact-1", "S", "quote-1", [2, 9], []]
     report = body["report"]
-    assert set(report["checks_run"]) == set(REGISTRY)  # 2a: no check needs a reference or judge
+    # production runs the checks that need neither an answer key nor a judge (§8.7)
+    assert set(report["checks_run"]) == {
+        name for name, c in REGISTRY.items() if not (c.requires_reference or c.needs_judge)
+    }
+    assert "must_preserve" not in report["checks_run"]
     assert report["checks_version"] == CHECKS_VERSION
     assert report["all_critical_passed"] is True  # the verdict travels with the report (L102)
     assert report["judge_usage"] == {"input_tokens": 0, "output_tokens": 0}  # no judge (L7)

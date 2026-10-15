@@ -1,5 +1,5 @@
-"""Pins the reference-free roster and its helpers, and the reference labels' readings (spec
-§8.4; D6, D9-D17, L35, L55, L136-L174, L214-L219)."""
+"""Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
+D9-D17, L35, L55, L136-L174, L214-L219)."""
 
 import pytest
 
@@ -22,6 +22,7 @@ from backend.evals.checks import (
     check_empty_note_on_clinical_input,
     check_hallucinated_medication,
     check_med_status_consistency,
+    check_must_preserve,
     check_negation_consistency,
     check_new_prescription_preserved,
     check_quote_informativeness,
@@ -36,6 +37,7 @@ from backend.evals.checks import (
 from backend.evals.registry import REGISTRY, Finding
 from backend.schemas import (
     ClinicalClaim,
+    EvalCase,
     NotAddItem,
     PreserveItem,
     SafetyFlag,
@@ -1567,7 +1569,93 @@ def test_adds_refuses_an_unreadable_label() -> None:
         adds(NotAddItem(text="not on apixaban", kind="medication"), "Start apixaban")
 
 
+# --- must_preserve (§8.4 point 4; D17, L214-L218) ----------------------------------------
+
+
+def _labeled(*labels: dict[str, object]) -> EvalCase:
+    """A fidelity case whose must_preserve holds labels; nothing else about it is read."""
+    return EvalCase.model_validate(
+        {
+            "id": "labeled",
+            "species": "fidelity",
+            "raw_text": "unused",
+            "trap": "labels",
+            "must_preserve": list(labels),
+        }
+    )
+
+
+def test_must_preserve_names_each_label_the_note_doesnt_keep() -> None:
+    note, raw = _note(("Start azithromycin", "Start azithromycin"))
+    case = _labeled(
+        {"text": "PCN allergy", "kind": "allergy"}, {"text": "metformin", "kind": "medication"}
+    )
+    findings = check_must_preserve(note, raw, case, config=CHECKS_CONFIG)
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        ("penicillin (allergy): in the answer key, not kept by the note", (), Severity.CRITICAL),
+        ("metformin (medication): in the answer key, not kept by the note", (), Severity.CRITICAL),
+    ]
+
+
+def test_must_preserve_passes_a_note_that_keeps_every_label() -> None:
+    note, raw = _note(("Penicillin allergy", "PCN allergy"), ("Continue metformin", "metformin"))
+    case = _labeled(
+        {"text": "PCN allergy", "kind": "allergy"}, {"text": "metformin", "kind": "medication"}
+    )
+    assert check_must_preserve(note, raw, case, config=CHECKS_CONFIG) == []
+
+
+def test_must_preserve_carries_a_lowered_severity() -> None:
+    # a dose, a dropped NKDA, a downgrade, a reopened exclusion: WARNING (L217)
+    note, raw = _note(("Metformin 500 mg daily", "Metformin 500 mg daily"))
+    case = _labeled({"text": "metformin 500 mg BID", "kind": "dose"})
+    (finding,) = check_must_preserve(note, raw, case, config=CHECKS_CONFIG)
+    assert finding.severity is Severity.WARNING
+
+
+def test_must_preserve_reads_claims_not_spans() -> None:
+    # the note keeps what its claims say; a span is the source's words, not the note's
+    note, raw = _note(("Start azithromycin", "PCN allergy. Start azithromycin"))
+    case = _labeled({"text": "PCN allergy", "kind": "allergy"})
+    assert [f.detail for f in check_must_preserve(note, raw, case, config=CHECKS_CONFIG)] == [
+        "penicillin (allergy): in the answer key, not kept by the note"
+    ]
+
+
+def test_must_preserve_reads_an_ungrounded_claim_too() -> None:
+    # every claim, grounded or not, whatever its section (invariant 5)
+    note, raw = _note(("PCN allergy", None))
+    case = _labeled({"text": "PCN allergy", "kind": "allergy"})
+    assert check_must_preserve(note, raw, case, config=CHECKS_CONFIG) == []
+
+
+def test_must_preserve_pools_the_notes_claims() -> None:
+    # a course across claims keeps every reading in it (L216)
+    note, raw = _note(
+        ("r/o PE in the ED", "r/o PE in the ED"), ("PE confirmed on CTA", "PE confirmed on CTA")
+    )
+    case = _labeled({"text": "pulmonary embolism", "kind": "diagnosis"})
+    assert check_must_preserve(note, raw, case, config=CHECKS_CONFIG) == []
+
+
+def test_must_preserve_raises_without_a_case() -> None:
+    # no answer key: an error, never a pass over nothing (L218, invariant 12)
+    note, raw = _note(("Start azithromycin", "Start azithromycin"))
+    with pytest.raises(ValueError, match="^must_preserve needs a case's answer key$"):
+        check_must_preserve(note, raw, None, config=CHECKS_CONFIG)
+
+
 # --- registration -------------------------------------------------------------------------
+
+
+def test_must_preserve_is_a_critical_reference_check() -> None:
+    # CI only: production runs the reference-free subset (§8.7)
+    check = REGISTRY["must_preserve"]
+    assert (check.severity, check.requires_reference, check.needs_judge) == (
+        Severity.CRITICAL,
+        True,
+        False,
+    )
 
 
 def test_importing_the_runner_registers_the_roster() -> None:

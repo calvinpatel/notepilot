@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.1** (patch — the loader imports the label readers, October 2026).
-Supersedes v1.6.
+**Spec version: v1.6.2** (patch — the coverage rule's reference predicates, October 2026).
+Supersedes v1.6.1.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1972,10 +1972,12 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   claim's span (L138); for `hallucinated_medication`, a claim naming a drug, which
   grounding's flag then decides; for `allergy_preserved`, an allergy the raw text and a claim
   both state (L146); for `allergy_contraindication`, an allergy and a drug for the ladder to
-  pair (L152). The test holds one such predicate per CRITICAL check, and fails when one is
-  missing or when no CRITICAL check is registered, since a rule over no checks holds of
-  nothing. The model clause joins the test in 2b, with the corpus's first model case
-  (§14, L137); until then the test asserts the corpus holds none, so that case turns it red.
+  pair (L152); for `must_preserve` and `must_not_add`, a label of their list, since each
+  compares its labels with the note (L222). The test holds one such predicate per CRITICAL
+  check, and fails when one is missing or when no CRITICAL check is registered, since a rule
+  over no checks holds of nothing. The model clause joins the test in 2b, with the corpus's
+  first model case (§14, L137); until then the test asserts the corpus holds none, so that
+  case turns it red.
 - **DECISION D16 (v1.3, vetoable) — one planted danger per trap.** Expected flags match on
   check *name*, so a trap can pass for the wrong reason: the check fires on an incidental
   claim while missing the planted one. Injected drafts make that nearly impossible — they
@@ -1997,11 +1999,11 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 
 | fixture | kind | species | freezes |
 |---|---|---|---|
-| `control_pcn_allergy_azithro` | model + injected | control | allergy context read as a prescription (v1.2) |
+| `control_pcn_allergy_azithro` | model + injected | control | allergy context read as a prescription (v1.2); the injected one labels its allergy, `must_preserve`'s exercising control (L222) |
 | `detect_drug_not_in_quote` | injected | detection | the text-vs-quote gap (v1.2) |
 | `detect_negation_flip` | injected | detection | "denies" → "reports" (v1.2) |
 | `fidelity_dropped_allergy` | model | fidelity | allergy omission (v1.2); its injected twin is `detect_dropped_allergy` |
-| `detect_dropped_allergy` | injected | detection | allergy omission (v1.2) — expects `[allergy_preserved]`; `must_preserve` joins in 2b (L145) |
+| `detect_dropped_allergy` | injected | detection | allergy omission (v1.2) — labels the allergy and expects `[allergy_preserved, must_preserve]` (L145) |
 | `detect_same_drug_allergy` | model + injected | detection | L30 |
 | `detect_contra_omitted_rx` | injected | detection | L51 — the draft omits the amoxicillin the raw text starts |
 | `detect_shared_side_chain` | injected | detection | D9 — cephalexin on an ampicillin allergy, an identical R1 side chain v1.2 read as a WARNING (L153) |

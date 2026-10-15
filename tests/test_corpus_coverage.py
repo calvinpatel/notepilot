@@ -1,4 +1,4 @@
-"""§8.5's coverage rule, over the injected corpus (L42, L137, L138, L146, L152).
+"""§8.5's coverage rule, over the injected corpus (L42, L137, L138, L146, L152, L222).
 
 load_cases already holds two of §11's corpus checks: every case parses, and every
 expected_flags entry names a registered check.
@@ -33,9 +33,9 @@ def _note(case: EvalCase) -> SOAPNote:
     return ground(case.draft, case.raw_text, config=CHECKS_CONFIG)
 
 
-def _shares_a_drug(note: SOAPNote, raw_text: str) -> bool:
+def _shares_a_drug(case: EvalCase, note: SOAPNote) -> bool:
     for claim in note.claims:
-        span = span_text(claim, raw_text)
+        span = span_text(claim, case.raw_text)
         if span is not None and named_drugs(claim.text) & named_drugs(span):
             return True
     return False
@@ -45,49 +45,56 @@ def _diagnoses(text: str) -> set[str]:
     return extract_diagnoses(text).keys() | extract_excluded_diagnoses(text)
 
 
-def _shares_a_diagnosis(note: SOAPNote, raw_text: str) -> bool:
+def _shares_a_diagnosis(case: EvalCase, note: SOAPNote) -> bool:
     for claim in note.claims:
-        span = span_text(claim, raw_text)
+        span = span_text(claim, case.raw_text)
         if span is not None and _diagnoses(claim.text) & _diagnoses(span):
             return True
     return False
 
 
-def _shares_a_finding(note: SOAPNote, raw_text: str) -> bool:
+def _shares_a_finding(case: EvalCase, note: SOAPNote) -> bool:
     for claim in note.claims:
-        span = span_text(claim, raw_text)
+        span = span_text(claim, case.raw_text)
         if span is not None and extract_findings(claim.text).keys() & extract_findings(span).keys():
             return True
     return False
 
 
-def _names_a_drug(note: SOAPNote, raw_text: str) -> bool:
+def _names_a_drug(case: EvalCase, note: SOAPNote) -> bool:
     return any(named_drugs(claim.text) for claim in note.claims)
 
 
-def _keeps_an_allergy(note: SOAPNote, raw_text: str) -> bool:
-    return any(extract_allergies(claim.text) & extract_allergies(raw_text) for claim in note.claims)
+def _keeps_an_allergy(case: EvalCase, note: SOAPNote) -> bool:
+    raw = extract_allergies(case.raw_text)
+    return any(extract_allergies(claim.text) & raw for claim in note.claims)
 
 
-def _pairs_an_allergy_with_a_drug(note: SOAPNote, raw_text: str) -> bool:
-    texts = [raw_text, *(claim.text for claim in note.claims)]
+def _pairs_an_allergy_with_a_drug(case: EvalCase, note: SOAPNote) -> bool:
+    texts = [case.raw_text, *(claim.text for claim in note.claims)]
     allergens = {a for text in texts for a in extract_allergies(text)} - NO_ALLERGY_STATEMENTS
-    drugs = {drug for drug, _ in drug_mentions(note)} | new_prescriptions(raw_text)
+    drugs = {drug for drug, _ in drug_mentions(note)} | new_prescriptions(case.raw_text)
     return bool(allergens and drugs)
 
 
+def _carries_a_preserve_label(case: EvalCase, note: SOAPNote) -> bool:
+    return bool(case.must_preserve)
+
+
 # A control exercises a check when the check has something to compare on it (L138, L146,
-# L152): for the claim-local family, a key its extractor finds in both a claim's text and that
-# claim's span; for hallucinated_medication, a claim naming a drug, which grounding's flag then
-# decides; for allergy_preserved, an allergy the raw text and a claim both state; for
-# allergy_contraindication, an allergy and a drug for the ladder to pair.
-EXERCISES: dict[str, Callable[[SOAPNote, str], bool]] = {
+# L152, L222): for the claim-local family, a key its extractor finds in both a claim's text and
+# that claim's span; for hallucinated_medication, a claim naming a drug, which grounding's flag
+# then decides; for allergy_preserved, an allergy the raw text and a claim both state; for
+# allergy_contraindication, an allergy and a drug for the ladder to pair; for must_preserve, a
+# label, since the check compares labels with the note.
+EXERCISES: dict[str, Callable[[EvalCase, SOAPNote], bool]] = {
     "allergy_contraindication": _pairs_an_allergy_with_a_drug,
     "allergy_preserved": _keeps_an_allergy,
     "diagnosis_in_quote": _shares_a_diagnosis,
     "drug_in_quote": _shares_a_drug,
     "hallucinated_medication": _names_a_drug,
     "med_status_consistency": _shares_a_drug,
+    "must_preserve": _carries_a_preserve_label,
     "negation_consistency": _shares_a_finding,
 }
 
@@ -110,7 +117,7 @@ def test_each_critical_check_has_an_injected_detection_trap(name: str) -> None:
 def test_each_critical_check_has_an_injected_control_that_exercises_it(name: str) -> None:
     exercises = EXERCISES[name]
     controls = [c for c in INJECTED if c.species == "control"]
-    assert [c.id for c in controls if exercises(_note(c), c.raw_text)]
+    assert [c.id for c in controls if exercises(c, _note(c))]
 
 
 def test_the_corpus_holds_no_model_case_yet() -> None:

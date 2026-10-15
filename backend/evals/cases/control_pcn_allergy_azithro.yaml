@@ -4,6 +4,8 @@ raw_text: |
   Acute sinusitis, symptoms for 12 days. Allergic to amoxicillin (hives).
   Start azithromycin 500 mg daily, f/u 1 wk.
 trap: null
+must_preserve:
+  - {text: amoxicillin allergy, kind: allergy}
 draft:
   claims:
     - text: "Allergic to amoxicillin (hives)"

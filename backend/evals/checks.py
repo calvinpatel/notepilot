@@ -1,5 +1,4 @@
-"""The reference-free roster (spec §8.4), the helpers its checks share, and the reference
-labels' readings.
+"""The §8.4 roster, the helpers its checks share, and the reference labels' readings.
 
 A claim-local check runs one extractor over a claim's text and its source span and compares
 the two (L35); allergy_preserved compares the raw text with the whole note. Registration is
@@ -666,3 +665,36 @@ def adds(item: NotAddItem, text: str) -> bool:
             return True in extract_findings(text).get(name, set())
         case "diagnosis":
             return name in extract_diagnoses(text)
+
+
+@register_check(name="must_preserve", severity=Severity.CRITICAL, requires_reference=True)
+def check_must_preserve(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
+    """One finding per must_preserve label the note doesn't keep (§8.4 point 4; L214-L218).
+
+    Each label's reading is compared with every claim's text, grounded or not, whatever its
+    section (invariant 5), pooled, so a course across claims keeps every reading in it. A
+    finding takes preserve_miss's severity: CRITICAL, or a WARNING for a dose, a dropped NKDA
+    or NKA, a downgrade, or a reopened exclusion (L217). It names no claim, since what it
+    misses is in none (L218). Without a case there is no answer key, so the check raises,
+    and the run records it as errored (invariant 12).
+
+    Omission (D17): an omitted labeled fact is this check's subject, so it fires.
+    """
+    if case is None:
+        raise ValueError("must_preserve needs a case's answer key")
+    texts = [claim.text for claim in note.claims]
+    findings: list[Finding] = []
+    for item in case.must_preserve:
+        miss = preserve_miss(item, texts)
+        if miss is not None:
+            name, _ = read_label(item) or _unreadable(item)
+            findings.append(
+                Finding(
+                    detail=f"{name} ({item.kind}): in the answer key, not kept by the note",
+                    claim_ids=(),
+                    severity=miss,
+                )
+            )
+    return findings

@@ -9,4 +9,6 @@ draft:
     - text: "Start azithromycin 500 mg daily"
       section: P
       source_quote: "Start azithromycin 500 mg daily"
-expected_flags: [allergy_preserved]
+must_preserve:
+  - {text: PCN allergy, kind: allergy}
+expected_flags: [allergy_preserved, must_preserve]

@@ -11,10 +11,11 @@ from backend.evals.checks import (
     check_drug_in_quote,
     check_hallucinated_medication,
     check_med_status_consistency,
+    check_must_preserve,
     check_negation_consistency,
 )
 from backend.evals.registry import REGISTRY, CheckFn
-from backend.schemas import ClinicalClaim, SafetyFlag, Severity, SOAPNote
+from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
 from tests.fakes import CHECKS_CONFIG
 
 # §8.4's row for the consistency family and hallucinated_medication: the model omits the claim
@@ -27,7 +28,7 @@ FAMILY: dict[str, CheckFn] = {
 }
 
 # every CRITICAL check a row below covers
-COVERED = set(FAMILY) | {"allergy_contraindication", "allergy_preserved"}
+COVERED = set(FAMILY) | {"allergy_contraindication", "allergy_preserved", "must_preserve"}
 
 CRITICAL = sorted(name for name, c in REGISTRY.items() if c.severity is Severity.CRITICAL)
 
@@ -109,6 +110,25 @@ def test_an_omitted_continued_home_medication_is_a_ci_only_gap() -> None:
     raw = "NSAID allergy. Continue ibuprofen 400 mg prn."
     note = SOAPNote(claims=(_claim(raw, "NSAID allergy"),))
     assert check_allergy_contraindication(note, raw, None, config=CHECKS_CONFIG) == []
+
+
+def test_an_omitted_labeled_fact_is_must_preserves_subject() -> None:
+    # §8.4's row for must_preserve: the model omits a labeled fact, and the check fires (CI)
+    raw = "PCN allergy. Continue metformin. Will start azithromycin 500 mg daily."
+    case = EvalCase.model_validate(
+        {
+            "id": "omits",
+            "species": "fidelity",
+            "raw_text": raw,
+            "trap": "omission",
+            "must_preserve": [{"text": "metformin", "kind": "medication"}],
+        }
+    )
+    note = SOAPNote(claims=(_claim(raw, "PCN allergy"),))
+    findings = check_must_preserve(note, raw, case, config=CHECKS_CONFIG)
+    assert [f.detail for f in findings] == [
+        "metformin (medication): in the answer key, not kept by the note"
+    ]
 
 
 def test_every_critical_check_has_an_omission_row() -> None:
