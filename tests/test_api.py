@@ -21,13 +21,9 @@ the error tests declare.
 """
 
 import logging
-import os
 import re
-import subprocess
-import sys
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Final, NamedTuple
 from uuid import UUID
 
@@ -58,8 +54,7 @@ from backend.evals.runner import CHECKS_VERSION
 from backend.orchestrator import PROMPT_VERSION, OrchestratorError, get_client
 from backend.schemas import ChecksConfig, EvalCase, Severity, SOAPNote, TokenUsage
 from tests.fakes import FakeLLMClient, text_message, tool_use_message
-
-_REPO_ROOT: Final = Path(__file__).resolve().parent.parent
+from tests.fresh import run_fresh
 
 # Planted inside raw_text as a VALUE (L53): the paste, which must reach neither a body nor a
 # log line. Shorter than the content lengths the tests build around it.
@@ -886,21 +881,7 @@ def test_logging_config_renders_fields_in_the_message() -> None:
             'logging.getLogger("backend.api").warning("code=%s request_id=%s", "c", "r")',
         ]
     )
-    # The inherited environment, plus the repo root on PYTHONPATH: `-c` puts the cwd on
-    # sys.path only when PYTHONSAFEPATH is unset.
-    existing = os.environ.get("PYTHONPATH")
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(_REPO_ROOT) + (os.pathsep + existing if existing else ""),
-    }
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=_REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    completed = run_fresh(script)
     assert completed.returncode == 0, completed.stderr
     last = (completed.stderr.splitlines() or [""])[-1]  # empty stderr fails at the regex
     assert re.fullmatch(

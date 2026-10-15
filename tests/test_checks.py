@@ -1,11 +1,6 @@
 """Pins the reference-free roster and its helpers, and the reference labels' readings (spec
 §8.4; D6, D9-D17, L35, L55, L136-L174, L214-L219)."""
 
-import os
-import subprocess
-import sys
-from pathlib import Path
-
 import pytest
 
 from backend.clinical.extract import Dose
@@ -49,8 +44,7 @@ from backend.schemas import (
     SOAPNote,
 )
 from tests.fakes import CHECKS_CONFIG, checks_config_with
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+from tests.fresh import run_fresh
 
 
 def _note(*claims: tuple[str, str | None]) -> tuple[SOAPNote, str]:
@@ -1575,19 +1569,6 @@ def test_importing_the_runner_registers_the_roster() -> None:
         "from backend.evals.registry import REGISTRY; "
         "print(*sorted(REGISTRY))"
     )
-    # the repo root on PYTHONPATH, as test_api's logging test sets it
-    existing = os.environ.get("PYTHONPATH")
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(_REPO_ROOT) + (os.pathsep + existing if existing else ""),
-    }
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=_REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    completed = run_fresh(script)
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.split() == sorted(REGISTRY)

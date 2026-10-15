@@ -1,8 +1,5 @@
 """Pins the case loader (spec §8.5; L103, L118, L119, L219)."""
 
-import os
-import subprocess
-import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -11,6 +8,7 @@ import pytest
 from backend.evals.loader import CaseLoadError, load_cases
 from backend.evals.registry import REGISTRY, Check, Finding, register_check
 from backend.schemas import ChecksConfig, EvalCase, Severity, SOAPNote
+from tests.fresh import run_fresh
 
 RAW_SENTINEL = "sentinel-raw-3e9b"
 
@@ -79,8 +77,6 @@ must_preserve:
 must_not_add:
   - {text: amoxicillin, kind: medication}
 """
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _clean(
@@ -249,19 +245,7 @@ def test_importing_the_loader_registers_the_roster() -> None:
         "from backend.evals.registry import REGISTRY; "
         "print(*sorted(REGISTRY))"
     )
-    existing = os.environ.get("PYTHONPATH")
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(_REPO_ROOT) + (os.pathsep + existing if existing else ""),
-    }
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=_REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    completed = run_fresh(script)
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.split() == sorted(REGISTRY)
     assert "allergy_preserved" in completed.stdout.split()  # the roster, not an empty registry
