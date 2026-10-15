@@ -1,4 +1,5 @@
-"""Pins the spine types (spec §4.1, §4.2; L6, L9, L25, L42, L43, L86, L89, L102, L103, L106).
+"""Pins the spine types (spec §4.1, §4.2; D4, L6, L9, L10, L25, L36, L42, L43, L86, L89, L102,
+L103, L106).
 
 Rejection tests validate a dict through model_validate — the §5.4 entry point
 (L12) — and pin the single error's type and loc, so no test passes on an
@@ -15,6 +16,8 @@ from backend.schemas import (
     EvalCase,
     EvalReport,
     EvalResult,
+    NotAddItem,
+    PreserveItem,
     RunMetadata,
     SafetyFlag,
     Severity,
@@ -458,6 +461,92 @@ def test_a_trap_names_its_danger() -> None:
 def test_fidelity_cannot_inject_a_draft() -> None:
     msg = _case_error(_case(species="fidelity", expected_flags=[], draft={"claims": []}))
     assert "a fidelity trap tests the MODEL; it cannot inject a draft" in msg
+
+
+# --- the reference items (§4.2, §8.5; D4, L10, L36, L103) ----------------------
+
+
+def test_preserve_item_is_present_by_default() -> None:
+    # L36: polarity is opt-out; a label states a finding's absence only when it says so
+    item = PreserveItem.model_validate({"text": "item-1", "kind": "finding"})
+    assert item.present is True
+
+
+@pytest.mark.parametrize("kind", ["allergy", "medication", "dose", "finding", "diagnosis"])
+def test_preserve_item_accepts_each_kind(kind: str) -> None:
+    assert PreserveItem.model_validate({"text": "item-1", "kind": kind}).kind == kind
+
+
+@pytest.mark.parametrize("kind", ["medication", "finding", "diagnosis"])
+def test_not_add_item_accepts_each_kind(kind: str) -> None:
+    assert NotAddItem.model_validate({"text": "item-1", "kind": kind}).kind == kind
+
+
+@pytest.mark.parametrize("kind", ["allergy", "dose"])
+def test_not_add_item_rejects_the_kinds_only_preserve_has(kind: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        NotAddItem.model_validate({"text": "item-1", "kind": kind})
+    (err,) = exc.value.errors()
+    assert err["type"] == "literal_error"
+    assert err["loc"] == ("kind",)
+
+
+def test_preserve_item_rejects_unknown_key() -> None:
+    # L103: a misspelled `present` would otherwise leave the item present=True
+    with pytest.raises(ValidationError) as exc:
+        PreserveItem.model_validate({"text": "item-1", "kind": "finding", "presnt": False})
+    (err,) = exc.value.errors()
+    assert err["type"] == "extra_forbidden"
+    assert err["loc"] == ("presnt",)
+
+
+def test_not_add_item_has_no_polarity() -> None:
+    # L36: a not-add label has no polarity field, so `present` on one is rejected
+    with pytest.raises(ValidationError) as exc:
+        NotAddItem.model_validate({"text": "item-1", "kind": "finding", "present": False})
+    (err,) = exc.value.errors()
+    assert err["type"] == "extra_forbidden"
+    assert err["loc"] == ("present",)
+
+
+def test_eval_case_reference_lists_default_empty() -> None:
+    case = EvalCase.model_validate(_case())
+    assert (case.must_preserve, case.must_not_add) == ([], [])
+
+
+def test_eval_case_types_its_reference_items() -> None:
+    case = EvalCase.model_validate(
+        _case(
+            species="fidelity",
+            expected_flags=[],
+            must_preserve=[{"text": "item-1", "kind": "finding", "present": False}],
+            must_not_add=[{"text": "item-2", "kind": "medication"}],
+        )
+    )
+    assert case.must_preserve == [PreserveItem(text="item-1", kind="finding", present=False)]
+    assert case.must_not_add == [NotAddItem(text="item-2", kind="medication")]
+
+
+@pytest.mark.parametrize(
+    ("field", "item", "error", "loc"),
+    [
+        (
+            "must_preserve",
+            {"text": "item-1", "kind": "finding", "extra": 1},
+            "extra_forbidden",
+            "extra",
+        ),
+        ("must_not_add", {"text": "item-1", "kind": "dose"}, "literal_error", "kind"),
+    ],
+)
+def test_eval_case_validates_each_item(
+    field: str, item: dict[str, object], error: str, loc: str
+) -> None:
+    with pytest.raises(ValidationError) as exc:
+        EvalCase.model_validate(_case(**{field: [item]}))
+    (err,) = exc.value.errors()
+    assert err["type"] == error
+    assert err["loc"] == (field, 0, loc)
 
 
 # --- the verdict knobs (§4.2, L187) ---------------------------------------------

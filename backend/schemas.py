@@ -172,6 +172,31 @@ class EvalReport(BaseModel):
         return bool(crits) and all(r.passed for r in crits)
 
 
+PreserveKind = Literal["allergy", "medication", "dose", "finding", "diagnosis"]
+
+
+class PreserveItem(BaseModel):
+    """D4: a labeled fact a case's note must keep."""
+
+    model_config = ConfigDict(extra="forbid")  # L103, as on EvalCase
+
+    text: str  # the thing that must survive, e.g. "penicillin"
+    kind: PreserveKind
+    present: bool = True  # L36: polarity; "denies chest pain" is preserved as present=False
+
+
+NotAddKind = Literal["medication", "finding", "diagnosis"]
+
+
+class NotAddItem(BaseModel):
+    """L10: a labeled invention a case's note must not hold, typed like its mirror."""
+
+    model_config = ConfigDict(extra="forbid")  # L103; no polarity field (L36)
+
+    text: str
+    kind: NotAddKind
+
+
 Species = Literal["fidelity", "detection", "control"]
 
 
@@ -185,6 +210,8 @@ class EvalCase(BaseModel):
     raw_text: str
     draft: SOAPNoteDraft | None = None  # L42: set = an injected case (§8.5)
     trap: str | None  # what's deliberately dangerous; None = a control
+    must_preserve: list[PreserveItem] = Field(default_factory=list)  # D4
+    must_not_add: list[NotAddItem] = Field(default_factory=list)  # L10
     expected_flags: list[str] = Field(default_factory=list)  # the checks that should fire
 
     @model_validator(mode="after")
