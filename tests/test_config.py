@@ -1,4 +1,4 @@
-"""Pins config wiring (spec §10).
+"""Pins config wiring (spec §10; L209, L232, L233).
 
 Settings is built at import time, so test_dotenv_disabled_under_pytest sees the
 environment conftest set before backend was first imported. _dotenv_path is pure,
@@ -20,7 +20,7 @@ from pydantic import SecretStr, ValidationError
 from pydantic.fields import FieldInfo
 
 from backend.config import Settings, _dotenv_path
-from backend.schemas import ChecksConfig
+from backend.schemas import ChecksConfig, CorpusRunRecord
 from tests.fakes import checks_config_with
 
 
@@ -49,6 +49,7 @@ def test_dotenv_path_is_repo_root_env_otherwise(env: dict[str, str]) -> None:
 # each test's arithmetic reads at a glance. Not the production defaults.
 
 _DUMMY_KEY = SecretStr("test-dummy-key")  # module-level: ruff B008 forbids a call in a default
+_RUNS_PATH = Path("runs/corpus_runs.jsonl")
 
 
 def _settings(
@@ -62,6 +63,9 @@ def _settings(
     llm_timeout_s: float = 90.0,
     fuzzy_score_cutoff: float = 50.0,
     min_quote_content_tokens: int = 2,
+    corpus_repeats: int = 2,
+    corpus_concurrency: int = 1,
+    runs_path: Path = _RUNS_PATH,
     model: str = "model-id-1",
     anthropic_api_key: SecretStr = _DUMMY_KEY,
 ) -> Settings:
@@ -77,6 +81,9 @@ def _settings(
         llm_timeout_s=llm_timeout_s,
         fuzzy_score_cutoff=fuzzy_score_cutoff,
         min_quote_content_tokens=min_quote_content_tokens,
+        corpus_repeats=corpus_repeats,
+        corpus_concurrency=corpus_concurrency,
+        runs_path=runs_path,
     )
 
 
@@ -85,6 +92,10 @@ def _settings(
 _RETRY_KNOBS: dict[str, Callable[[int], Settings]] = {
     "max_validation_retries": lambda v: _settings(max_validation_retries=v),
     "sdk_transport_retries": lambda v: _settings(sdk_transport_retries=v),
+}
+_CORPUS_COUNT_KNOBS: dict[str, Callable[[int], Settings]] = {
+    "corpus_repeats": lambda v: _settings(corpus_repeats=v),
+    "corpus_concurrency": lambda v: _settings(corpus_concurrency=v),
 }
 _POSITIVE_FLOAT_KNOBS: dict[str, Callable[[float], Settings]] = {
     "llm_timeout_s": lambda v: _settings(llm_timeout_s=v),
@@ -228,6 +239,51 @@ def test_min_quote_content_tokens_rejects_zero() -> None:
 
 def test_min_quote_content_tokens_accepts_one() -> None:
     assert _settings(min_quote_content_tokens=1).min_quote_content_tokens == 1
+
+
+# --- the corpus knobs: counts ge=1, a .jsonl run log (§8.7, §10; L209, L232) -------
+
+
+@pytest.mark.parametrize("name", list(_CORPUS_COUNT_KNOBS))
+def test_corpus_count_knobs_reject_zero(name: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _CORPUS_COUNT_KNOBS[name](0)
+    (err,) = exc.value.errors()
+    assert err["type"] == "greater_than_equal"
+    assert err["loc"] == (name,)
+
+
+@pytest.mark.parametrize("name", list(_CORPUS_COUNT_KNOBS))
+def test_corpus_count_knobs_accept_one(name: str) -> None:
+    assert getattr(_CORPUS_COUNT_KNOBS[name](1), name) == 1
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "backend/evals/runs/", "runs/corpus_runs.json", "runs/.jsonl"],
+    ids=["empty", "directory", "json", "dotfile"],
+)
+def test_runs_path_rejects_a_path_that_is_not_a_jsonl_file(value: str) -> None:
+    # L232: "" becomes Path("."), the working directory, and a trailing slash is dropped
+    # (measured); each would fail at the run's last step, after the spend
+    with pytest.raises(ValidationError) as exc:
+        _settings(runs_path=Path(value))
+    (err,) = exc.value.errors()
+    assert err["type"] == "runs_path_not_jsonl"
+    assert err["loc"] == ("runs_path",)
+
+
+def test_runs_path_accepts_a_jsonl_file() -> None:
+    assert _settings(runs_path=Path("runs/x.jsonl")).runs_path == Path("runs/x.jsonl")
+
+
+@pytest.mark.parametrize(
+    ("knob", "field"),
+    [("corpus_repeats", "repeats"), ("corpus_concurrency", "concurrency")],
+)
+def test_corpus_count_bounds_match_the_record(knob: str, field: str) -> None:
+    # L233: a knob the record would reject fails at boot, not after the spend
+    assert _bounds(CorpusRunRecord.model_fields[field]) == _bounds(Settings.model_fields[knob])
 
 
 # --- max_output_tokens: derived, checked against the ceiling (L16, L72, L94) ------

@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.5** (patch — the run's rows and metrics, as built, October 2026).
-Supersedes v1.6.4.
+**Spec version: v1.6.6** (patch — the corpus knobs' domains, October 2026). Supersedes
+v1.6.5.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2971,15 +2971,19 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
 - **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
   `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
   `min_input_chars` `ge=1`, `fuzzy_score_cutoff` `ge=0, le=100` and finite (L105),
-  `min_quote_content_tokens` `ge=1` (L161), and a validator rejects
-  `min_input_chars >= max_input_chars`. `ChecksConfig` (§4.2) re-declares its two fields'
-  bounds, so a config built in a test can't go out of range either; a test pins the two
-  copies equal (L187). A negative
+  `min_quote_content_tokens` `ge=1` (L161), `corpus_repeats` and `corpus_concurrency`
+  `ge=1` (L209), and a validator rejects `min_input_chars >= max_input_chars`. Another
+  requires `runs_path` to name a `.jsonl` file (L232): a run writes its record there last,
+  after the spend, so a bad path must fail at boot. `ChecksConfig` (§4.2) re-declares its two
+  fields' bounds, so a config built in a test can't go out of range either; a test pins the
+  two copies equal (L187). `CorpusRunRecord`'s `repeats` and `concurrency` declare the two
+  counts' bounds again, and a test pins those equal too (L233). A negative
   `max_validation_retries` would make §5.4's loop run zero times and report a model failure
   the model never had the chance to cause. `tests/conftest.py` sets a dummy
   `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret, because no test
-  reaches the network. *Test:* a missing key, a negative retry count, and
-  `min_input_chars >= max_input_chars` each raise at `Settings()` construction.
+  reaches the network. *Test:* a missing key, a negative retry count,
+  `min_input_chars >= max_input_chars`, and a `runs_path` that isn't a `.jsonl` file each
+  raise at `Settings()` construction.
 - **Degenerate input (v1.3, L55, L58) — three paths, not one.** A paste whose content
   (stripped length, L87) is shorter than `min_input_chars` → 422 at the route (v1.2's
   example, "hello," never reached the pipeline; this is where it was rejected). A long
@@ -3284,7 +3288,7 @@ annotated tag is the record, audited alongside the lines above.
   them (L219) · must_preserve / must_not_add registered with requires_reference ·
   must_preserve joins detect_dropped_allergy's expected_flags (L145)
 □ corpus_version, over the model cases a run scores (L116, L204)
-□ config: corpus_repeats · corpus_concurrency · runs_path (L209)
+□ config: corpus_repeats · corpus_concurrency · runs_path (L209, L232, L233)
 □ score_corpus in corpus.py, edge (L188): concurrency · per-case catch parity, every step
   inside the try (L208), + all-failed runs recorded (L46) · k repeats + flaky_cases (D11) ·
   failed-attempt usage counted (L49), per case (L186) · each case's wall time and draft

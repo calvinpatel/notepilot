@@ -2,8 +2,9 @@
 
 Every field declares its domain (L77). `max_output_tokens` is a read-only property derived
 from `max_input_chars` and `output_tokens_per_input_char` (L94), checked against the model's
-declared output ceiling at construction (L16, L72). Two boot checks, both as validation
-errors: the derived output ceiling and the input bounds.
+declared output ceiling at construction (L16, L72). Three boot checks beyond the fields'
+bounds, each a validation error: the derived output ceiling, the input bounds, and runs_path's
+.jsonl name (L232).
 
 Tests run with dotenv disabled; see tests/conftest.py.
 """
@@ -14,7 +15,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,7 +32,7 @@ def _dotenv_path(env: Mapping[str, str]) -> Path | None:
 
 
 class Settings(BaseSettings):
-    # frozen: a mutable settings object could bypass both boot checks after construction.
+    # frozen: a mutable settings object could bypass the boot checks after construction.
     model_config = SettingsConfigDict(env_file=_dotenv_path(os.environ), frozen=True)
 
     # min_length=1 and nothing else, ever. A failed constraint prints input_value in the
@@ -74,6 +75,14 @@ class Settings(BaseSettings):
     # degenerate. 2 flags a bare name ("pain") and passes a terse statement ("hold metformin").
     min_quote_content_tokens: int = Field(2, ge=1)
 
+    # 2b's corpus scorer (§8.7, L209). Each case runs corpus_repeats times (D11);
+    # corpus_concurrency bounds the calls in flight, 1 until the account's rate limits are
+    # known. A run appends its record to runs_path (§13). The two counts' bounds are the
+    # record's own (L233).
+    corpus_repeats: int = Field(3, ge=1)
+    corpus_concurrency: int = Field(1, ge=1)
+    runs_path: Path = Path("backend/evals/runs/corpus_runs.jsonl")
+
     def checks_config(self) -> ChecksConfig:
         """The verdict knobs, for the edge to pass inward: the domain reads no settings (L187)."""
         return ChecksConfig(
@@ -85,6 +94,19 @@ class Settings(BaseSettings):
     def max_output_tokens(self) -> int:
         """Derived, never a field (L94): a field could be set from the environment alone."""
         return math.ceil(self.max_input_chars * self.output_tokens_per_input_char)
+
+    @field_validator("runs_path")
+    @classmethod
+    def _runs_path_is_jsonl(cls, value: Path) -> Path:
+        """runs_path names a .jsonl file (L232): a run writes its record last, after it spends."""
+        if value.suffix != ".jsonl":
+            raise PydanticCustomError(
+                "runs_path_not_jsonl",
+                "runs_path={path} must name a .jsonl file: a run appends its record there "
+                "after its calls are paid for, so a bad path would lose the record",
+                {"path": str(value)},
+            )
+        return value
 
     @model_validator(mode="after")
     def _output_fits_model_ceiling(self) -> Self:
