@@ -1,11 +1,11 @@
-"""Pins the case loader (spec §8.5; L103, L118, L119, L219)."""
+"""Pins the case loader and the corpus version (spec §8.5; L103, L118, L119, L204, L219)."""
 
 from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
-from backend.evals.loader import CaseLoadError, load_cases
+from backend.evals.loader import CaseLoadError, corpus_version, load_cases
 from backend.evals.registry import REGISTRY, Check, Finding, register_check
 from backend.schemas import ChecksConfig, EvalCase, Severity, SOAPNote
 from tests.fresh import run_fresh
@@ -295,3 +295,54 @@ def test_a_file_that_isnt_utf8_is_a_load_error(tmp_path: Path) -> None:
     assert _problems(_write(tmp_path, {"control-1.yaml": bytes([0xFF, 0xFE, 0x00])})) == (
         "control-1.yaml: not UTF-8 text",
     )
+
+
+# --- the corpus version (L204) -----------------------------------------------------
+
+SECOND_CONTROL = """
+id: control-2
+species: control
+raw_text: |
+  Pt well. Labs unremarkable.
+trap: null
+"""
+
+# CONTROL with a comment added and its top-level keys reordered
+CONTROL_RESHAPED = """
+# a comment the hash never sees
+species: control
+trap: null
+raw_text: |
+  Pt well. No changes to medications.
+id: control-1
+"""
+
+
+def _loaded(tmp_path: Path, name: str, files: Mapping[str, str]) -> list[EvalCase]:
+    directory = tmp_path / name
+    directory.mkdir()
+    for case_id, text in files.items():
+        (directory / f"{case_id}.yaml").write_text(text, encoding="utf-8")
+    return load_cases(directory)
+
+
+def test_corpus_version_is_twelve_hex_digits(tmp_path: Path) -> None:
+    version = corpus_version(_loaded(tmp_path, "one", {"control-1": CONTROL}))
+    assert len(version) == 12
+    assert set(version) <= set("0123456789abcdef")
+
+
+def test_corpus_version_ignores_comments_key_order_and_case_order(tmp_path: Path) -> None:
+    cases = _loaded(tmp_path, "plain", {"control-1": CONTROL, "control-2": SECOND_CONTROL})
+    reshaped = _loaded(
+        tmp_path, "reshaped", {"control-1": CONTROL_RESHAPED, "control-2": SECOND_CONTROL}
+    )
+    assert corpus_version(cases) == corpus_version(reshaped)
+    assert corpus_version(cases) == corpus_version(cases[::-1])
+
+
+def test_corpus_version_moves_with_a_case_edit(tmp_path: Path) -> None:
+    before = _loaded(tmp_path, "before", {"control-1": CONTROL})
+    edited = CONTROL.replace("No changes", "One change")
+    after = _loaded(tmp_path, "after", {"control-1": edited})
+    assert corpus_version(before) != corpus_version(after)

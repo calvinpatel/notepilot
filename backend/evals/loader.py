@@ -8,12 +8,16 @@ so the flags are checked against the full roster whatever imported the loader. l
 collects every file's problems and raises them together, so one run shows an author the
 whole directory's.
 
+corpus_version hashes the cases a run scores, for its record's lineage (L204).
+
 ruamel.yaml's safe loader reads YAML 1.2, so `no` stays a string, and rejects a duplicate key
 (L118). A problem names the file, then the line or the field, then what's wrong. It never
 carries the file's text: not the parser's snippet, not a duplicate key's values (ruamel's
 message quotes both), and not pydantic's input, which can be the whole raw_text.
 """
 
+import hashlib
+import json
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -58,6 +62,17 @@ def load_cases(directory: Path) -> list[EvalCase]:
     if problems:
         raise CaseLoadError(problems)
     return cases
+
+
+def corpus_version(cases: list[EvalCase]) -> str:
+    """Twelve hex digits, as prompt_version (L114), over the model cases a run scores (L204).
+
+    Each case enters as its model_dump_json(), sorted by id: a YAML comment, the order of a
+    file's keys, and the order of cases leave it unchanged; an edit to a case's raw text
+    moves it.
+    """
+    payload = [case.model_dump_json() for case in sorted(cases, key=lambda case: case.id)]
+    return hashlib.sha256(json.dumps(payload).encode()).hexdigest()[:12]
 
 
 def _load_one(path: Path, yaml: YAML) -> EvalCase | list[str]:
