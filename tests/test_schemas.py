@@ -1,5 +1,5 @@
 """Pins the spine types (spec §4.1, §4.2; D4, L6, L9, L10, L25, L36, L42, L43, L86, L89, L102,
-L103, L106).
+L103, L106, L201, L203, L205, L212, L224-L227).
 
 Rejection tests validate a dict through model_validate — the §5.4 entry point
 (L12) — and pin the single error's type and loc, so no test passes on an
@@ -10,9 +10,12 @@ import pytest
 from pydantic import ValidationError
 
 from backend.schemas import (
+    CaseResult,
     ChecksConfig,
     ClaimDraft,
     ClinicalClaim,
+    CorpusMetrics,
+    CorpusRunRecord,
     EvalCase,
     EvalReport,
     EvalResult,
@@ -565,3 +568,240 @@ def test_checks_config_declares_no_defaults() -> None:
     # The defaults are Settings' (§10). A default here is a second copy that could drift,
     # and a config built without a knob would silently take it.
     assert all(field.is_required() for field in ChecksConfig.model_fields.values())
+
+
+# --- the corpus record (§4.2; L201, L203, L205, L212, L224-L227) ----------------
+
+
+def _row(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "case_id": "case-1",
+        "repeat": 0,
+        "species": "control",
+        "status": "passed",
+        "fired_checks": [],
+        "fired_critical": [],
+        "missing_expected": [],
+        "unexpected_fired": [],
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+        "validation_attempts": 1,
+        "summarize_wall_s": 1.5,
+        "draft": {"claims": [_claim()]},
+    }
+    return {**base, **overrides}
+
+
+def _row_error(data: dict[str, object]) -> str:
+    with pytest.raises(ValidationError) as exc:
+        CaseResult.model_validate(data)
+    (err,) = exc.value.errors()
+    assert err["type"] == "value_error"
+    assert err["loc"] == ()
+    return str(err["msg"])
+
+
+def test_case_result_accepts_a_clean_row() -> None:
+    row = CaseResult.model_validate(_row())
+    assert row.error is None
+    assert row.errored_checks == []
+
+
+def test_case_result_requires_fired_critical() -> None:
+    data = _row()
+    del data["fired_critical"]
+    with pytest.raises(ValidationError) as exc:
+        CaseResult.model_validate(data)
+    (err,) = exc.value.errors()
+    assert err["type"] == "missing"
+    assert err["loc"] == ("fired_critical",)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("repeat", -1, "greater_than_equal"),
+        ("validation_attempts", 0, "greater_than_equal"),
+        ("summarize_wall_s", -0.5, "greater_than_equal"),
+        ("summarize_wall_s", float("inf"), "finite_number"),
+        ("summarize_wall_s", float("nan"), "finite_number"),
+    ],
+    ids=["repeat-negative", "attempts-zero", "wall-negative", "wall-inf", "wall-nan"],
+)
+def test_case_result_rejects_a_value_outside_its_domain(
+    field: str, value: object, error: str
+) -> None:
+    with pytest.raises(ValidationError) as exc:
+        CaseResult.model_validate(_row(**{field: value}))
+    (err,) = exc.value.errors()
+    assert err["type"] == error
+    assert err["loc"] == (field,)
+
+
+@pytest.mark.parametrize(
+    "cost",
+    [
+        {"usage": None, "validation_attempts": 1},
+        {"usage": {"input_tokens": 1, "output_tokens": 1}, "validation_attempts": None},
+    ],
+    ids=["usage-lost", "attempts-lost"],
+)
+def test_case_result_cost_is_known_together(cost: dict[str, object]) -> None:
+    data = _row(status="failed", error="APIError", draft=None, **cost)
+    assert _row_error(data) == "Value error, usage and validation_attempts are None together"
+
+
+@pytest.mark.parametrize("status", ["passed", "not_applicable"])
+def test_case_result_with_an_error_is_failed(status: str) -> None:
+    data = _row(status=status, error="APIError")
+    assert _row_error(data) == "Value error, a case with an error is failed"
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [
+        {"draft": None, "usage": None, "validation_attempts": None},
+        {"draft": None, "validation_attempts": 3},
+        {},
+    ],
+    ids=["crash-in-summarize", "orchestrator-error", "crash-after-summarize"],
+)
+def test_case_result_with_an_error_may_lack_its_draft_or_cost(lost: dict[str, object]) -> None:
+    row = CaseResult.model_validate(_row(status="failed", error="code-1", **lost))
+    assert row.error == "code-1"
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [{"draft": None}, {"usage": None, "validation_attempts": None}],
+    ids=["draft", "cost"],
+)
+def test_case_result_without_an_error_keeps_its_draft_and_cost(lost: dict[str, object]) -> None:
+    data = _row(**lost)
+    assert _row_error(data) == "Value error, a case without an error keeps its draft and its cost"
+
+
+_RATES = (
+    "detection_recall",
+    "control_specificity",
+    "model_fidelity",
+    "fidelity_caught",
+    "pass_rate",
+)
+
+
+def _metrics(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {rate: None for rate in _RATES}
+    return {**base, "flaky_cases": [], **overrides}
+
+
+@pytest.mark.parametrize("rate", _RATES)
+def test_corpus_metrics_accepts_none_and_both_bounds(rate: str) -> None:
+    assert getattr(CorpusMetrics.model_validate(_metrics()), rate) is None
+    assert getattr(CorpusMetrics.model_validate(_metrics(**{rate: 0.0})), rate) == 0.0
+    assert getattr(CorpusMetrics.model_validate(_metrics(**{rate: 1.0})), rate) == 1.0
+
+
+@pytest.mark.parametrize("rate", _RATES)
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [(-0.01, "greater_than_equal"), (1.01, "less_than_equal"), (float("nan"), "less_than_equal")],
+    ids=["below-zero", "above-one", "nan"],
+)
+def test_corpus_metrics_rejects_a_rate_outside_zero_to_one(
+    rate: str, value: float, error: str
+) -> None:
+    with pytest.raises(ValidationError) as exc:
+        CorpusMetrics.model_validate(_metrics(**{rate: value}))
+    (err,) = exc.value.errors()
+    assert err["type"] == error
+    assert err["loc"] == (rate,)
+
+
+def _record(rows: list[tuple[str, int]], **overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "ran_at": "2026-10-15T12:00:00Z",
+        "git_sha": "sha-1",
+        "git_dirty": False,
+        "model": "model-id-1",
+        "prompt_version": "prompt-hash-1",
+        "corpus_version": "corpus-hash-1",
+        "checks_version": "checks-hash-1",
+        "checks_config": {"fuzzy_score_cutoff": 90.0, "min_quote_content_tokens": 2},
+        "judge_enabled": False,
+        "repeats": 2,
+        "concurrency": 1,
+        "n_cases": 2,
+        "metrics": _metrics(),
+        "usage": {"input_tokens": 4, "output_tokens": 4},
+        "judge_usage": {},
+        "cases": [_row(case_id=case_id, repeat=repeat) for case_id, repeat in rows],
+    }
+    return {**base, **overrides}
+
+
+_FULL = [("case-b", 1), ("case-a", 0), ("case-b", 0), ("case-a", 1)]
+
+
+def test_corpus_run_record_accepts_each_case_once_per_repeat_in_any_order() -> None:
+    record = CorpusRunRecord.model_validate(_record(_FULL))
+    assert [(row.case_id, row.repeat) for row in record.cases] == _FULL
+
+
+def test_corpus_run_record_rejects_a_naive_ran_at() -> None:
+    with pytest.raises(ValidationError) as exc:
+        CorpusRunRecord.model_validate(_record(_FULL, ran_at="2026-10-15T12:00:00"))
+    (err,) = exc.value.errors()
+    assert err["type"] == "timezone_aware"
+    assert err["loc"] == ("ran_at",)
+
+
+@pytest.mark.parametrize("field", ["repeats", "concurrency", "n_cases"])
+def test_corpus_run_record_rejects_a_zero_count(field: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        CorpusRunRecord.model_validate(_record(_FULL, **{field: 0}))
+    (err,) = exc.value.errors()
+    assert err["type"] == "greater_than_equal"
+    assert err["loc"] == (field,)
+
+
+def _record_error(data: dict[str, object]) -> str:
+    with pytest.raises(ValidationError) as exc:
+        CorpusRunRecord.model_validate(data)
+    (err,) = exc.value.errors()
+    assert err["type"] == "value_error"
+    assert err["loc"] == ()
+    return str(err["msg"])
+
+
+@pytest.mark.parametrize(
+    ("rows", "n_cases"),
+    [
+        ([("case-a", 0), ("case-a", 0), ("case-a", 1)], 1),
+        ([("case-a", 0), ("case-a", 2)], 1),
+        ([("case-a", 0), ("case-a", 1), ("case-b", 0)], 2),
+        ([("case-a", 0), ("case-a", 0), ("case-a", 7), ("case-b", 0)], 2),
+    ],
+    ids=["duplicate", "repeat-out-of-range", "repeat-missing", "right-count-wrong-rows"],
+)
+def test_corpus_run_record_holds_one_row_per_case_and_repeat(
+    rows: list[tuple[str, int]], n_cases: int
+) -> None:
+    data = _record(rows, n_cases=n_cases)
+    assert _record_error(data) == "Value error, cases holds one row per case and repeat"
+
+
+@pytest.mark.parametrize(
+    ("rows", "n_cases"),
+    [([("case-a", 0), ("case-a", 0)], 2), ([("case-a", 0), ("case-b", 0)], 1)],
+    ids=["fewer-ids", "more-ids"],
+)
+def test_corpus_run_record_n_cases_counts_distinct_case_ids(
+    rows: list[tuple[str, int]], n_cases: int
+) -> None:
+    data = _record(rows, repeats=1, n_cases=n_cases)
+    assert _record_error(data) == "Value error, n_cases counts the distinct case ids"
+
+
+def test_corpus_run_record_round_trips_through_json() -> None:
+    record = CorpusRunRecord.model_validate(_record(_FULL))
+    assert CorpusRunRecord.model_validate_json(record.model_dump_json()) == record

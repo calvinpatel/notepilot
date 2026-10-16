@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,49 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.6.4 — the corpus record's rows (patch)
+
+Theme: 2b's step 3 builds §4.2's record shapes. Reading them against the code that fills
+them (Oct 15, at a7e62ca) found a metric the row can't compute, a validator that counts the
+rows without checking which they are, and rules the comments state and the types don't. The
+spec's models, run as written, accepted the rows and values L225 to L227 quote (measured).
+No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L224 §2, §4.2, §8.7 — a row records which checks fired at CRITICAL.** Conflict: L206
+  counts a fidelity repeat as caught when a live CRITICAL fired, because production would
+  have shown it, and production shows a result's severity. `CaseResult` recorded the fired
+  checks by name, and `corpus_metrics` reads only the rows, so it could read only a check's
+  registered severity. A live CRITICAL check can lower a finding to WARNING (L38):
+  `diagnosis_in_quote`'s downgrade, `allergy_preserved`'s dropped NKDA,
+  `allergy_contraindication`'s cross-class rung. Measured at a7e62ca: a fidelity case
+  labeled `metformin` whose note drops it and writes "Possible pneumonia" citing "Pneumonia
+  on CXR" fires `must_preserve` CRITICAL and `diagnosis_in_quote` WARNING, and fails. Read by
+  name, a live CRITICAL fired; read by result, none did, and production showed no CRITICAL.
+  That is the catch L206 declines, reached through a lowered finding. L206 wins:
+  `CaseResult.fired_critical` names the fired checks with a CRITICAL result, and
+  `fidelity_caught` reads it.
+
+**INFO**
+- **L225 §4.2 — one row per case and repeat.** Conflict: `n_cases` counts the distinct
+  model cases and the rows are one per (case, repeat), while L212's validator compared only
+  the count. It accepted `n_cases=2`, `repeats=2` with rows (a, 0), (a, 0), (a, 7), (b, 0).
+  L203's replay and D11's `flaky_cases` read rows by case and repeat. The validator now
+  requires `n_cases` distinct case ids, each with one row for every repeat from 0 to
+  `repeats` - 1.
+- **L226 §4.2 — a row's error rules are validated.** Fill: L205's "a case with an `error`
+  is failed" was a comment, and the model accepted `error="APIError"` with `status`
+  passed. A row without an error holds the draft and the cost `summarize` returned, since
+  only a pipeline failure or a crash loses either (§8.7); that was unstated. Both are now
+  validators, and the second means every row without an error replays (L203).
+- **L227 §4.2 — the record's time and rates have domains.** Fill, beside L212: `ran_at` is
+  timezone-aware, since a committed timestamp without a zone is ambiguous (a naive one was
+  accepted). Each rate in `CorpusMetrics` is in [0, 1] when it isn't `None` (7.5 and -1
+  were accepted); the bounds also reject NaN and infinity (measured). Declined: format
+  patterns on `git_sha` and the three versions. Each is derived (invariant 15) and its
+  producer is tested, so a pattern is a second copy of its format, and `git_sha`'s would
+  have to choose between git's SHA-1 and SHA-256 object formats.
 
 ## v1.6.3 — must_not_add's omission row (patch)
 

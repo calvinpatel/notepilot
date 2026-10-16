@@ -24,6 +24,7 @@ from enum import Enum
 from typing import Annotated, Literal, Self
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -243,3 +244,85 @@ class ChecksConfig(BaseModel):
 
     fuzzy_score_cutoff: float = Field(ge=0, le=100, allow_inf_nan=False)  # §6.3, L105
     min_quote_content_tokens: int = Field(ge=1)  # §8.4, L161
+
+
+class CaseResult(BaseModel):
+    """One (case, repeat) pair of a corpus run (§4.2, §8.7)."""
+
+    case_id: str
+    repeat: int = Field(ge=0)  # D11: 0 to repeats - 1 (L212, L225)
+    species: Species
+    status: CaseStatus  # L205: a case with an error is failed
+    fired_checks: list[str]  # fired (passed=False) and not errored
+    fired_critical: list[str]  # L224: those with a CRITICAL result, a finding not lowered (L38)
+    missing_expected: list[str]  # expected_flags that did not fire
+    unexpected_fired: list[str]  # fired but not expected, every severity: watched, not gated
+    usage: TokenUsage | None  # L186: summarize's, every attempt
+    validation_attempts: int | None = Field(ge=1)  # None with usage (L212)
+    summarize_wall_s: float = Field(ge=0, allow_inf_nan=False)  # L201
+    draft: SOAPNoteDraft | None  # L203: what the model returned, so a run replays free
+    errored_checks: list[str] = Field(default_factory=list)  # L43
+    error: str | None = None  # the pipeline failure's code, never its message (L53)
+
+    @model_validator(mode="after")
+    def _cost_known_together(self) -> Self:  # L212: L186's "None together"
+        if (self.usage is None) != (self.validation_attempts is None):
+            raise ValueError("usage and validation_attempts are None together")
+        return self
+
+    @model_validator(mode="after")
+    def _an_error_fails_the_case(self) -> Self:  # L205, L226
+        if self.error is not None and self.status != "failed":
+            raise ValueError("a case with an error is failed")
+        return self
+
+    @model_validator(mode="after")
+    def _a_clean_row_replays(self) -> Self:  # L226: summarize returned both
+        if self.error is None and (self.draft is None or self.usage is None):
+            raise ValueError("a case without an error keeps its draft and its cost")
+        return self
+
+
+class CorpusMetrics(BaseModel):
+    """The verdict numbers (L3) and the flaky cases (D11).
+
+    A rate is None over an empty denominator, not 1.0 (L205).
+    """
+
+    detection_recall: float | None = Field(ge=0, le=1)  # L227: a fraction
+    control_specificity: float | None = Field(ge=0, le=1)
+    model_fidelity: float | None = Field(ge=0, le=1)
+    fidelity_caught: float | None = Field(ge=0, le=1)  # L206, L224
+    pass_rate: float | None = Field(ge=0, le=1)  # every species (L205)
+    flaky_cases: list[str]  # D11
+
+
+class CorpusRunRecord(BaseModel):
+    """One model-corpus run with its lineage (§4.2, §8.7)."""
+
+    ran_at: AwareDatetime  # L227: a committed timestamp names its zone
+    git_sha: str  # L207: read before the first call, with git_dirty
+    git_dirty: bool  # L45
+    model: str
+    prompt_version: str
+    corpus_version: str
+    checks_version: str  # L45
+    checks_config: ChecksConfig  # L187
+    judge_enabled: bool
+    repeats: int = Field(ge=1)  # D11 (L212)
+    concurrency: int = Field(ge=1)  # L202
+    n_cases: int = Field(ge=1)  # distinct model cases (L225)
+    metrics: CorpusMetrics
+    usage: TokenUsage  # summarize's, the rows' known usages summed (L186)
+    judge_usage: TokenUsage
+    cases: list[CaseResult]
+
+    @model_validator(mode="after")
+    def _one_row_per_repeat(self) -> Self:  # L212, L225
+        case_ids = {row.case_id for row in self.cases}
+        if len(case_ids) != self.n_cases:
+            raise ValueError("n_cases counts the distinct case ids")
+        expected = sorted((case_id, r) for case_id in case_ids for r in range(self.repeats))
+        if sorted((row.case_id, row.repeat) for row in self.cases) != expected:
+            raise ValueError("cases holds one row per case and repeat")
+        return self

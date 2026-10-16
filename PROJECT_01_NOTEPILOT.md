@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.3** (patch — must_not_add's omission row, October 2026). Supersedes
-v1.6.2.
+**Spec version: v1.6.4** (patch — the corpus record's rows, October 2026). Supersedes
+v1.6.3.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -102,7 +102,7 @@ a test suite only a clinician can author. The moat gets the interview; the plumb
 
 (v1.3, L3: v1.2's sentence said "catches X% of CRITICAL safety violations," and no field
 computed it — `pass_rate` blended three species. The four numbers are `CorpusMetrics`,
-§4.2 / §8.7. X counts a live CRITICAL alone, L206.)
+§4.2 / §8.7. X counts a live CRITICAL result alone, L206, L224.)
 
 That last clause — **evals as regression tests for a stochastic system, with lineage** —
 is the frontier of production AI engineering.
@@ -366,8 +366,7 @@ system is a more senior thing to say than "one model, six jobs.")
 ### 4.2 The eval + run types
 
 ```python
-from datetime import datetime
-from pydantic import computed_field, model_validator
+from pydantic import AwareDatetime, computed_field, model_validator
 
 class Severity(str, Enum):
     CRITICAL = "critical"    # patient-harm potential
@@ -498,13 +497,15 @@ CaseStatus = Literal["passed", "failed", "not_applicable"]
 
 class CaseResult(BaseModel):                # ONE (case, repeat) pair
     case_id: str
-    repeat: int = Field(ge=0)               # D11: 0 … corpus_repeats-1 (L212)
+    repeat: int = Field(ge=0)               # D11: 0 … corpus_repeats-1 (L212, L225)
     species: Species
     status: CaseStatus                      # v1.3 (L44): not_applicable = an expected check
                                             #   wasn't selected this run (e.g. judge off), or
                                             #   (L117) no check ran at all. A case with an
-                                            #   `error` is "failed" (L205)
+                                            #   `error` is "failed" (L205, L226)
     fired_checks: list[str]                 # fired (passed=False) and NOT errored
+    fired_critical: list[str]               # L224: of those, the ones with a CRITICAL
+                                            #   result, a finding not lowered (L38)
     missing_expected: list[str]             # expected_flags that did NOT fire
     unexpected_fired: list[str]             # fired but not expected, ALL severities — a
                                             #   diagnostic, not a gate
@@ -527,14 +528,34 @@ class CaseResult(BaseModel):                # ONE (case, repeat) pair
             raise ValueError("usage and validation_attempts are None together")
         return self
 
+    @model_validator(mode="after")
+    def _an_error_fails_the_case(self) -> "CaseResult":   # L205, L226
+        if self.error is not None and self.status != "failed":
+            raise ValueError("a case with an error is failed")
+        return self
+
+    @model_validator(mode="after")
+    def _a_clean_row_replays(self) -> "CaseResult":   # L226: summarize returned both
+        if self.error is None and (self.draft is None or self.usage is None):
+            raise ValueError("a case without an error keeps its draft and its cost")
+        return self
+
 class CorpusMetrics(BaseModel):             # v1.3 (L3): four numbers, never one
-    detection_recall: float | None          # detection repeats passed / applicable
-    control_specificity: float | None       # control repeats passed / applicable
-    model_fidelity: float | None            # fidelity repeats passed / applicable
-    fidelity_caught: float | None           # of fidelity repeats that FAILED without a
-                                            #   pipeline error, the fraction where a LIVE
-                                            #   (reference-free) CRITICAL fired (L206)
-    pass_rate: float | None                 # kept for continuity; never quoted alone (L205)
+    # L227: a rate is a fraction, in [0, 1] when it isn't None
+    detection_recall: float | None = Field(ge=0, le=1)      # detection repeats passed /
+                                                            #   applicable
+    control_specificity: float | None = Field(ge=0, le=1)   # control repeats passed /
+                                                            #   applicable
+    model_fidelity: float | None = Field(ge=0, le=1)        # fidelity repeats passed /
+                                                            #   applicable
+    fidelity_caught: float | None = Field(ge=0, le=1)       # of fidelity repeats that
+                                                            #   FAILED without a pipeline
+                                                            #   error, the fraction where a
+                                                            #   LIVE (reference-free) check
+                                                            #   fired at CRITICAL (L206,
+                                                            #   L224)
+    pass_rate: float | None = Field(ge=0, le=1)             # kept for continuity; never
+                                                            #   quoted alone (L205)
     flaky_cases: list[str]                  # D11: pass fraction strictly between 0 and 1
     # None, not 1.0, over an empty denominator — a vacuous metric is not a perfect one.
     # A repeat is applicable unless it is not_applicable (L205).
@@ -545,7 +566,7 @@ class ChecksConfig(BaseModel):              # L187: the knobs that decide verdic
     min_quote_content_tokens: int = Field(ge=1)                            # §8.4, L161
 
 class CorpusRunRecord(BaseModel):
-    ran_at: datetime
+    ran_at: AwareDatetime                   # L227: a committed timestamp names its zone
     git_sha: str                            # L207: both read before the first call
     git_dirty: bool                         # v1.3 (L45): D5 runs on uncommitted code by
                                             #   design — the record says so
@@ -559,18 +580,23 @@ class CorpusRunRecord(BaseModel):
     repeats: int = Field(ge=1)              # D11 (L212)
     concurrency: int = Field(ge=1)          # L202: contention lands in the wall times and
                                             #   the upstream failures
-    n_cases: int = Field(ge=1)              # distinct MODEL cases (injected ones are pytest's)
+    n_cases: int = Field(ge=1)              # distinct MODEL cases (injected ones are
+                                            #   pytest's), counted by the rows (L225)
     metrics: CorpusMetrics
     usage: TokenUsage                       # summarize, incl. failed attempts (L13, L49):
                                             #   the sum of the cases' known usages (L186)
     judge_usage: TokenUsage                 # kept separate — the split IS the cost story
-    cases: list[CaseResult]                 # n_cases × repeats rows: debug regressions,
-                                            #   don't just watch a number move
+    cases: list[CaseResult]                 # one row per (case, repeat): debug
+                                            #   regressions, don't just watch a number move
 
     @model_validator(mode="after")
-    def _one_row_per_repeat(self) -> "CorpusRunRecord":   # L212
-        if len(self.cases) != self.n_cases * self.repeats:
-            raise ValueError("cases holds n_cases * repeats rows")
+    def _one_row_per_repeat(self) -> "CorpusRunRecord":   # L212, L225
+        case_ids = {row.case_id for row in self.cases}
+        if len(case_ids) != self.n_cases:
+            raise ValueError("n_cases counts the distinct case ids")
+        expected = sorted((case_id, r) for case_id in case_ids for r in range(self.repeats))
+        if sorted((row.case_id, row.repeat) for row in self.cases) != expected:
+            raise ValueError("cases holds one row per case and repeat")
         return self
 ```
 
@@ -2221,7 +2247,7 @@ detection_recall     = detection repeats passed / detection repeats applicable
 control_specificity  = control repeats passed   / control repeats applicable
 model_fidelity       = fidelity repeats passed  / fidelity repeats applicable
 fidelity_caught      = of fidelity repeats that FAILED without a pipeline error, the fraction
-                       where at least one reference-free (live) CRITICAL fired
+                       where at least one reference-free (live) check fired at CRITICAL
 pass_rate            = repeats passed / repeats applicable, every species (never alone)
 ```
 
@@ -2237,6 +2263,10 @@ shown, and counting a WARNING would let an incidental one (a degenerate quote) s
 on a fidelity failure, which lands exactly on the CI-only gaps the omission table declares
 (D17), the gaps the metric exists to expose. Undercounting the narrow WARNING slice
 (`new_prescription_preserved`) errs safe, and a WARNING stays visible in `unexpected_fired`.
+The severity is the result's, not the check's (L224). A live CRITICAL check can lower a
+finding to WARNING (L38): `diagnosis_in_quote`'s downgrade, `allergy_preserved`'s dropped
+NKDA, `allergy_contraindication`'s cross-class rung. Production showed that finding as a
+WARNING, so the metric reads `CaseResult.fired_critical`, not the names that fired.
 
 **The scorer, with lineage (v1.1; hardened v1.2 and v1.3; at the edge, L188).**
 
@@ -3251,7 +3281,8 @@ annotated tag is the record, audited alongside the lines above.
   (L201, L203) · lineage read before the first call (L207) · python -m backend.corpus
   behind --spend (L210) · its fake-client tests (L211)
 □ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · checks_config (L187) ·
-  concurrency (L202) · CorpusMetrics (L3, L205, L206) · its domains (L212)
+  concurrency (L202) · CorpusMetrics (L3, L205, L206, L224) · its domains (L212,
+  L225–L227)
 □ one baseline run on the chosen pinned model, committed with its change (D5)
 □ README scorecard sentence (§2) drafted from real numbers, with n and k
 ```
