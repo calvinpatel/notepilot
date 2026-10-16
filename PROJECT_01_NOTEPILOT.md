@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.7** (patch — the import boundary refuses edge modules, October 2026).
-Supersedes v1.6.6.
+**Spec version: v1.6.8** (patch — the scorer refuses before it spends, October 2026).
+Supersedes v1.6.7.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2280,13 +2280,21 @@ but for the crash, not for what the model did, and the row records it in `errore
 
 ```python
 # backend/corpus.py — EDGE (L188): settings, the API, git, and runs/ meet here
-async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
-                       judge_factory: Callable[[], Judge] | None) -> CorpusRunRecord:
-    model_cases = [c for c in cases if c.draft is None]        # injected cases are pytest's
+def plan_run(cases: list[EvalCase]) -> RunPlan:     # L235: every refusal, before any spend
+    model_cases = tuple(sorted((c for c in cases if c.draft is None),  # injected cases are
+                               key=lambda c: c.id))                    #   pytest's
     if not model_cases:
         raise ValueError("no model cases — refusing to emit metrics over nothing")
+    duplicated = sorted(i for i, n in Counter(c.id for c in model_cases).items() if n > 1)
+    if duplicated:                                             # the record counts distinct ids
+        raise ValueError(f"duplicate model case ids {duplicated}: the record counts distinct ids")
+    git_sha, git_dirty = current_git_sha(), git_is_dirty()     # L207, L236
+    prepare_runs_path(settings.runs_path)                      # its directory, never the file
+    return RunPlan(model_cases=model_cases, git_sha=git_sha, git_dirty=git_dirty)
 
-    git_sha, git_dirty = current_git_sha(), git_is_dirty()     # L207: before any spend
+async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
+                       judge_factory: Callable[[], Judge] | None) -> CorpusRunRecord:
+    plan = plan_run(cases)
     config = settings.checks_config()                          # L187: built once,
     sem = asyncio.Semaphore(settings.corpus_concurrency)       #   here, and recorded whole
 
@@ -2298,9 +2306,9 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
             try:                                               # L208: every step inside
                 result = await summarize(case.raw_text, client=client)
                 wall_s = time.perf_counter() - started
-                judge  = judge_factory() if judge_factory else None   # per case: its usage
-                note   = ground(result.draft, case.raw_text, config=config)   # is its own
-                report = await run_checks(note, case.raw_text, case, mode="ci",
+                judge  = judge_factory() if judge_factory is not None else None  # per case:
+                note   = ground(result.draft, case.raw_text, config=config)   # its usage
+                report = await run_checks(note, case.raw_text, case, mode="ci",  # is its own
                                           config=config, judge=judge)
                 return (case_result(case, repeat, report, result,     # via case_verdict()
                                     summarize_wall_s=wall_s),
@@ -2327,26 +2335,26 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
                 )
                 return failed, TokenUsage()
 
-    pairs = await asyncio.gather(*(run_one(c, r) for c in model_cases
+    pairs = await asyncio.gather(*(run_one(c, r) for c in plan.model_cases
                                    for r in range(settings.corpus_repeats)))   # D11
     results = [cr for cr, _ in pairs]
     record = CorpusRunRecord(
-        ran_at=datetime.now(timezone.utc),
-        git_sha=git_sha, git_dirty=git_dirty,                       # L45, L207
+        ran_at=datetime.now(UTC),                                   # L239
+        git_sha=plan.git_sha, git_dirty=plan.git_dirty,             # L45, L207
         model=settings.model, prompt_version=PROMPT_VERSION,        # L46: known without a
-        corpus_version=corpus_version(model_cases),                 #   successful call, so
+        corpus_version=corpus_version(list(plan.model_cases)),      #   successful call, so
         checks_version=CHECKS_VERSION,                              #   an all-failed run is
         checks_config=config,                                       #   still recorded: the
         judge_enabled=judge_factory is not None,                    #   one most need to see
         repeats=settings.corpus_repeats,
         concurrency=settings.corpus_concurrency,                    # L202
-        n_cases=len(model_cases),
+        n_cases=len(plan.model_cases),
         metrics=corpus_metrics(results),
         usage=sum((r.usage for r in results if r.usage is not None), TokenUsage()),  # L186
         judge_usage=sum((j for _, j in pairs), TokenUsage()),
         cases=results,
     )
-    append_jsonl(settings.runs_path, record)
+    append_jsonl(settings.runs_path, record)                        # one line (L238)
     return record
 ```
 
@@ -2359,7 +2367,13 @@ the case's result sat outside the per-case `try`, so a raise in either escaped `
 discarded every row. And the tree is read before the first call (L207), since one read after
 a long run can name code that never ran. `git_is_dirty` counts untracked files, because an
 untracked case YAML runs, and skips what `.gitignore` excludes; outside a git checkout
-`current_git_sha` raises before anything is spent.
+`current_git_sha` raises before anything is spent. Every other refusal comes first too
+(L235): `plan_run` sorts the model cases by id, refuses no model case and a duplicated id,
+reads the tree, and makes `runs_path`'s directory but never the file: an untracked record
+would read as a dirty tree. The status read pins `--untracked-files=normal`, so
+`status.showUntrackedFiles` can't hide a case, and `--no-optional-locks`, so it takes no
+index lock (L236). After `gather` nothing is left to refuse: `append_jsonl` appends the
+record as one UTF-8 line (L238).
 
 **Why `score_corpus` is an edge module (L188).** It reads `settings`, calls the API through
 `summarize`, shells out to git, and writes `runs/`: every side effect the domain refuses.
@@ -3067,13 +3081,17 @@ in the push workflow — it spends real money.
   `schemas.py`, and `tracebacks.py` finds no import of `anthropic` or `fastapi`, and none
   of a `backend` module outside the domain (§0), at module level or inside a function: one
   rule refuses `backend.config` and every edge module.
-- **The scorer, with a fake client (L211)** — `score_corpus` over canned responses: a case
-  whose `summarize` raises an `APIError` is one errored row and the others still score
+- **The scorer, with a fake client (L211, L237)** — `score_corpus` over canned responses: a
+  case whose `summarize` raises an `APIError` is one errored row and the others still score
   (L46); a run where every case fails still writes its record (L46); each row's usage and
   attempts come from its own path (L186) and the record's usage is their sum; a raise in
   `case_result` or the judge factory loses one row, not the run (L208); git is read before
-  the first call (L207); each row keeps its draft and wall time (L201, L203); the record
-  lands at `runs_path`. No network, and no git of the real tree.
+  the first call (L207), and every refusal precedes it (L235); each row keeps its draft and
+  its wall time, clocked inside the semaphore (L201, L203); at most `corpus_concurrency`
+  calls are in flight; a crashed case is logged in L113's form; the record lands at
+  `runs_path` as one line (L238). The fake suspends once per call: one that never suspends
+  hides the semaphore and the clock. No network, and no git of the real tree: the git reads
+  run on a repository under `tmp_path` (L236).
 - **Judge plumbing (phase 2c)** — a fake `Judge` that times out yields an errored WARNING,
   the note is returned, and `all_critical_passed` is unchanged.
 - **The sink actually sinks (phase 3)** — the integration test asserts a `notes` row with the
@@ -3174,7 +3192,8 @@ phase 3 (D3). Each module lands in the phase whose exit criteria need it (§14),
 data shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`)
 live in `api.py`. Layer-internal shapes never cross a layer boundary and live in the layer
 that uses them (L104): `Finding` and `Check` in `evals/registry.py`, `NormalizedText` in
-`grounding.py` (§6.2), and the orchestrator's `CallConfig` (§5.2).
+`grounding.py` (§6.2), the orchestrator's `CallConfig` (§5.2), and the scorer's `RunPlan` in
+`corpus.py` (§8.7, L235).
 Extraction's result types (`Dose`, `MedStatus`, `Certainty`) live in `clinical/extract.py`
 and cross into `evals/`, which imports them from there (L132): invariant 13 keeps `clinical/`
 from importing the spine, so they can't live in `schemas.py`. Anything else outside

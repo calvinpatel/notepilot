@@ -6,13 +6,20 @@ to return, so the fake cannot drift from the wire format, or an exception to rai
 can drive the client's failure paths. Every create call is recorded as a RecordedCall,
 deep-copied at call time. Nothing here reaches the network.
 
-A call past the end of the script fails through pytest.fail, never a plain exception: its
+KeyedFakeLLMClient serves a corpus run, where gather decides the order of calls. Its scripts
+are keyed by the raw text in the call's first message and consumed one item per call. Each
+call suspends once before answering, so concurrent calls interleave: a fake that never
+suspends runs each gathered task to completion, and a semaphore or a clock started outside
+it is invisible (measured). It counts the calls in flight and the calls answered.
+
+A call past the end of a script fails through pytest.fail, never a plain exception: its
 Failed is a BaseException, so no `except Exception` in the code under test can turn a
 forgotten script into a response a test could pass on.
 
 mypy checks a Protocol only where something is bound to it. In backend/, get_client's return
-annotation is the only binding of the real client, and nothing binds the fake. _sdk_binds and
-_fake_binds, never called, bind each side here so `mypy backend/ tests/` checks the whole seam.
+annotation is the only binding of the real client, and nothing binds the fakes. _sdk_binds,
+_fake_binds, and _keyed_fake_binds, never called, bind each side here so
+`mypy backend/ tests/` checks the whole seam.
 
 FakeJudge satisfies Judge with a fixed usage. Its entailment is unscripted: a call fails the
 test through pytest.fail, for the same reason as a call past FakeLLMClient's script.
@@ -24,8 +31,9 @@ FUZZY_SCORE_CUTOFF can't change what a test asserts. checks_config_with replaces
 validates the result: model_copy(update=...) would skip ChecksConfig's bounds.
 """
 
+import asyncio
 import copy
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -140,6 +148,60 @@ class FakeLLMClient:
         return self._messages
 
 
+class KeyedFakeMessages:
+    """Answers each call from the script keyed by its raw text, after suspending once."""
+
+    def __init__(self, scripts: Mapping[str, Sequence[Message | Exception]]) -> None:
+        self._scripts = {raw_text: list(script) for raw_text, script in scripts.items()}
+        self.calls: list[str] = []  # each call's raw text, in the order the calls began
+        self.in_flight = 0
+        self.peak_in_flight = 0
+        self.answered = 0  # moves only when a call ends, so a test can read it as a clock
+
+    # The same eight keyword-only parameters as FakeMessages.create, for the same reason.
+    async def create(
+        self,
+        *,
+        model: ModelParam,
+        system: str | Iterable[TextBlockParam],
+        tools: Iterable[ToolUnionParam],
+        messages: Iterable[MessageParam],
+        tool_choice: ToolChoiceParam,
+        max_tokens: int,
+        thinking: ThinkingConfigParam,
+        output_config: OutputConfigParam,
+    ) -> Message:
+        raw_text = next(iter(messages))["content"]  # summarize's first message (L83)
+        if not isinstance(raw_text, str):
+            pytest.fail("the first message's content is not the raw text")
+        self.calls.append(raw_text)
+        self.in_flight += 1
+        self.peak_in_flight = max(self.peak_in_flight, self.in_flight)
+        try:
+            await asyncio.sleep(0)  # the one suspension: other gathered calls run here
+        finally:
+            self.in_flight -= 1
+        self.answered += 1
+        script = self._scripts.get(raw_text, [])
+        if not script:
+            pytest.fail(f"unscripted create call for raw text {raw_text!r}")
+        item = script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+class KeyedFakeLLMClient:
+    """Satisfies LLMClient; `messages` is a property so tests can reach its counters."""
+
+    def __init__(self, scripts: Mapping[str, Sequence[Message | Exception]]) -> None:
+        self._messages = KeyedFakeMessages(scripts)
+
+    @property
+    def messages(self) -> KeyedFakeMessages:
+        return self._messages
+
+
 def tool_use_message(
     tool_input: dict[str, object],
     *,
@@ -196,6 +258,10 @@ def _sdk_binds(client: AsyncAnthropic) -> LLMClient:
 
 
 def _fake_binds(client: FakeLLMClient) -> LLMClient:
+    return client
+
+
+def _keyed_fake_binds(client: KeyedFakeLLMClient) -> LLMClient:
     return client
 
 

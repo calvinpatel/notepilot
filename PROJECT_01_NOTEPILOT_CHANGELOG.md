@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,57 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.6.8 — the scorer refuses before it spends (patch)
+
+Theme: 2b's step 5 adds `corpus.py`. Reading §8.7's `score_corpus` against the code it calls
+found raises that could come after the spend, helpers named but never specified, and
+behaviors the existing fake client can't see. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L235 §8.7, §13 — every refusal comes before the first call, and none creates the
+  record.** Conflict: L46 and L208 keep one case's failure from losing a paid run, and
+  §8.7's code could still raise after `gather` on two inputs. Measured on 5b4dd03: two rows
+  sharing an id make the record fail (`n_cases counts the distinct case ids`), and
+  `score_corpus` took any list; a `runs_path` whose directory doesn't exist, or that is a
+  directory, fails at `append_jsonl`, after the spend. L46 wins: `plan_run` holds every
+  pre-spend step. It sorts the model cases by id, so a run's rows diff by (case, repeat)
+  whatever order the caller passed; refuses no model case and a duplicated id; reads the
+  tree (L207); and makes `runs_path`'s directory, refusing a path that exists and is not a
+  file. It never creates the file. Measured with git 2.43.0: an empty directory is absent
+  from `git status --porcelain`, and an empty untracked `corpus_runs.jsonl` lists as
+  `?? backend/`, so a created record would read every first run as dirty. Unguarded: a full
+  disk, and the directory removed or replaced between `plan_run` and the append. `plan_run`
+  hands `score_corpus` a `RunPlan`, which never leaves `corpus.py`: a layer-internal shape
+  (L104), so §13 names it beside `CallConfig` and its sanctioned exceptions stay three.
+- **L236 §8.7 — the status read pins its untracked mode and takes no lock.** Fill: L207
+  states what `git_is_dirty` counts and not the command. Measured with git 2.43.0, under
+  `status.showUntrackedFiles=no` with an untracked `cases/new.yaml`:
+  `git status --porcelain` prints nothing, and with `--untracked-files=normal` it prints
+  `?? cases/`, L207's motivating case. Porcelain v1 ignores `status.branch` and
+  `status.showStash` (measured), so no other config needs pinning. On a tracked file whose
+  stat changed and bytes didn't, plain `status` rewrites the index and `--no-optional-locks`
+  leaves it untouched (measured), so the read takes no `index.lock` while another git
+  process works the same checkout. `current_git_sha` is `git rev-parse HEAD` with
+  `check=True`.
+- **L237 §11 — the scorer's tests can see its concurrency.** Fill: L211's list ran on a fake
+  that never suspends. Measured on Python 3.14.4, three gathered calls: with a call that
+  never suspends, the peak in flight is 1 with `Semaphore(1)` and 1 without it; with one
+  that suspends once, 1 and 3. A clock started outside the semaphore is invisible the same
+  way. The scorer's fake suspends once per call, and its scripts are keyed by raw text, so
+  no test depends on the order `gather` schedules. §11 adds the semaphore's bound, the clock
+  started inside it, the crashed case's log line in L113's form, and L235's refusals; the
+  git reads run on a repository under `tmp_path`.
+
+**INFO**
+- **L238 §8.7 — `append_jsonl` writes one record per line.** Fill: §8.7 named the helper and
+  nothing else. It opens the file to append, in UTF-8, and writes the record's
+  `model_dump_json()` and a newline; JSON escapes the newlines inside strings, so a record
+  is one line.
+- **L239 §8.7 — the scorer's code passes the repo's lint.** Conflict: §11's free tier runs
+  ruff on every push, and §8.7's `datetime.now(timezone.utc)` fails UP017 at
+  `target-version = "py314"` (measured). The lint wins: `datetime.now(UTC)`. The judge
+  factory is compared with `is not None`, as `judge_enabled` reads it.
 
 ## v1.6.7 — the import boundary refuses edge modules (patch)
 
