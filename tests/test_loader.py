@@ -122,6 +122,14 @@ def test_load_cases_returns_every_case_sorted_by_id(tmp_path: Path) -> None:
     assert detection.draft.claims[0].source_quote == "Will start antibiotics"
 
 
+def test_load_cases_sorts_by_id_not_by_file_name(tmp_path: Path) -> None:
+    # "control-1-b.yaml" sorts before "control-1.yaml", since "-" sorts before ".", and the
+    # ids sort the other way
+    longer = CONTROL.replace("id: control-1", "id: control-1-b")
+    cases = load_cases(_write(tmp_path, {"control-1.yaml": CONTROL, "control-1-b.yaml": longer}))
+    assert [c.id for c in cases] == ["control-1", "control-1-b"]
+
+
 def test_an_empty_directory_loads_no_cases(tmp_path: Path) -> None:
     assert load_cases(tmp_path) == []
 

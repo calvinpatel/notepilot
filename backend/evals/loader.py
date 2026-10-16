@@ -51,7 +51,7 @@ def load_cases(directory: Path) -> list[EvalCase]:
     yaml = YAML(typ="safe", pure=True)
     cases: list[EvalCase] = []
     problems: list[str] = []
-    for path in sorted(directory.iterdir()):  # sorted by file name, which is the id
+    for path in sorted(directory.iterdir()):  # file-name order, which the problems keep
         if path.name.startswith("."):
             continue
         loaded = _load_one(path, yaml)
@@ -61,7 +61,8 @@ def load_cases(directory: Path) -> list[EvalCase]:
             problems.extend(loaded)
     if problems:
         raise CaseLoadError(problems)
-    return cases
+    # a file name is the id plus .yaml, and "." sorts after "-", so the two orders can differ
+    return sorted(cases, key=lambda case: case.id)
 
 
 def corpus_version(cases: list[EvalCase]) -> str:
