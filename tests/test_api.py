@@ -162,7 +162,7 @@ def test_happy_path_returns_note_report_and_metadata(
     assert set(report["checks_run"]) == {
         name for name, c in REGISTRY.items() if not (c.requires_reference or c.needs_judge)
     }
-    assert "must_preserve" not in report["checks_run"]
+    assert {"must_preserve", "must_not_add"}.isdisjoint(report["checks_run"])
     assert report["checks_version"] == CHECKS_VERSION
     assert report["all_critical_passed"] is True  # the verdict travels with the report (L102)
     assert report["judge_usage"] == {"input_tokens": 0, "output_tokens": 0}  # no judge (L7)

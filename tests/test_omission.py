@@ -11,6 +11,7 @@ from backend.evals.checks import (
     check_drug_in_quote,
     check_hallucinated_medication,
     check_med_status_consistency,
+    check_must_not_add,
     check_must_preserve,
     check_negation_consistency,
 )
@@ -28,7 +29,12 @@ FAMILY: dict[str, CheckFn] = {
 }
 
 # every CRITICAL check a row below covers
-COVERED = set(FAMILY) | {"allergy_contraindication", "allergy_preserved", "must_preserve"}
+COVERED = set(FAMILY) | {
+    "allergy_contraindication",
+    "allergy_preserved",
+    "must_preserve",
+    "must_not_add",
+}
 
 CRITICAL = sorted(name for name, c in REGISTRY.items() if c.severity is Severity.CRITICAL)
 
@@ -129,6 +135,37 @@ def test_an_omitted_labeled_fact_is_must_preserves_subject() -> None:
     assert [f.detail for f in findings] == [
         "metformin (medication): in the answer key, not kept by the note"
     ]
+
+
+def test_an_omitted_claim_leaves_must_not_add_nothing_to_fire_on() -> None:
+    # §8.4's row for must_not_add: the claim that would add the label is gone, and an omitted
+    # invention is the faithful note (L223). The source negates apixaban, so the label loads
+    # (L219), and the adding claim cites a span that cuts off the negation (L157).
+    raw = "Not on apixaban. Diet and exercise only."
+    case = EvalCase.model_validate(
+        {
+            "id": "omits",
+            "species": "fidelity",
+            "raw_text": raw,
+            "trap": "omission",
+            "must_not_add": [{"text": "apixaban", "kind": "medication"}],
+        }
+    )
+    start = raw.index("apixaban")
+    adding = ClinicalClaim(
+        id=0,
+        text="Taking apixaban",
+        section="S",
+        source_quote="apixaban",
+        source_span=(start, start + len("apixaban")),
+    )
+    faithful = _claim(raw, "Diet and exercise only", claim_id=1)
+    added = SOAPNote(claims=(adding, faithful))
+    omitted = SOAPNote(claims=(faithful,))
+    assert [f.claim_ids for f in check_must_not_add(added, raw, case, config=CHECKS_CONFIG)] == [
+        (0,)
+    ]
+    assert check_must_not_add(omitted, raw, case, config=CHECKS_CONFIG) == []
 
 
 def test_every_critical_check_has_an_omission_row() -> None:

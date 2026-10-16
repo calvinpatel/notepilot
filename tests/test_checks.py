@@ -22,6 +22,7 @@ from backend.evals.checks import (
     check_empty_note_on_clinical_input,
     check_hallucinated_medication,
     check_med_status_consistency,
+    check_must_not_add,
     check_must_preserve,
     check_negation_consistency,
     check_new_prescription_preserved,
@@ -1645,12 +1646,81 @@ def test_must_preserve_raises_without_a_case() -> None:
         check_must_preserve(note, raw, None, config=CHECKS_CONFIG)
 
 
+# --- must_not_add (§8.4 point 4; D17, L36, L214, L218) -----------------------------------
+
+
+def _not_added(*labels: dict[str, object]) -> EvalCase:
+    """A fidelity case whose must_not_add holds labels; nothing else about it is read."""
+    return EvalCase.model_validate(
+        {
+            "id": "labeled",
+            "species": "fidelity",
+            "raw_text": "unused",
+            "trap": "labels",
+            "must_not_add": list(labels),
+        }
+    )
+
+
+def test_must_not_add_names_the_claims_that_add_each_label() -> None:
+    note, raw = _note(
+        ("Start apixaban", "Start apixaban"),
+        ("Reports chest pain", "Reports chest pain"),
+        ("Continue apixaban", "Continue apixaban"),
+    )
+    case = _not_added(
+        {"text": "apixaban", "kind": "medication"}, {"text": "fever", "kind": "finding"}
+    )
+    findings = check_must_not_add(note, raw, case, config=CHECKS_CONFIG)
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        ("apixaban (medication): labeled not to add, added by the note", (0, 2), None)
+    ]
+
+
+def test_must_not_add_passes_a_mention_that_adds_nothing() -> None:
+    # negated, stopped, denied, excluded: positive readings only (L36)
+    note, raw = _note(
+        ("Not on apixaban", "Not on apixaban"),
+        ("Denies chest pain", "Denies chest pain"),
+        ("Pneumonia ruled out", "Pneumonia ruled out"),
+    )
+    case = _not_added(
+        {"text": "apixaban", "kind": "medication"},
+        {"text": "chest pain", "kind": "finding"},
+        {"text": "pneumonia", "kind": "diagnosis"},
+    )
+    assert check_must_not_add(note, raw, case, config=CHECKS_CONFIG) == []
+
+
+def test_must_not_add_reads_claims_not_spans() -> None:
+    # the note adds what its claims say, wherever their spans point
+    note, raw = _note(("Diet and exercise only", "Start apixaban"))
+    case = _not_added({"text": "apixaban", "kind": "medication"})
+    assert check_must_not_add(note, raw, case, config=CHECKS_CONFIG) == []
+
+
+def test_must_not_add_reads_an_ungrounded_claim_too() -> None:
+    # every claim, grounded or not, whatever its section (invariant 5)
+    note, raw = _note(("Possible pneumonia", None))
+    case = _not_added({"text": "pneumonia", "kind": "diagnosis"})
+    (finding,) = check_must_not_add(note, raw, case, config=CHECKS_CONFIG)
+    assert finding.claim_ids == (0,)
+
+
+def test_must_not_add_raises_without_a_case() -> None:
+    # no answer key: an error, never a pass over nothing (L218, invariant 12)
+    note, raw = _note(("Start apixaban", "Start apixaban"))
+    with pytest.raises(ValueError, match="^must_not_add needs a case's answer key$"):
+        check_must_not_add(note, raw, None, config=CHECKS_CONFIG)
+
+
 # --- registration -------------------------------------------------------------------------
 
 
-def test_must_preserve_is_a_critical_reference_check() -> None:
+@pytest.mark.parametrize("name", ["must_preserve", "must_not_add"])
+def test_the_reference_checks_are_critical_and_ci_only(name: str) -> None:
     # CI only: production runs the reference-free subset (§8.7)
-    check = REGISTRY["must_preserve"]
+    check = REGISTRY[name]
     assert (check.severity, check.requires_reference, check.needs_judge) == (
         Severity.CRITICAL,
         True,

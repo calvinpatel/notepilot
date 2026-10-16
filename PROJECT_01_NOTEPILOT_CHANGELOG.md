@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,27 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.x.y): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.6.3 — must_not_add's omission row (patch)
+
+Theme: `must_not_add` registers in 2b's step 2d. As a CRITICAL check it needs an omission
+row (D17), and §8.4's table gave it the one `must_preserve` has, "omission is their
+subject", which is false of a check whose subject is invention. No invariant moves;
+CLAUDE.md is unchanged.
+
+**INFO**
+- **L223 §8.4, §8.5 — an omission gives must_not_add nothing to fire on.** Conflict: the
+  omission table's shared row called omission the subject of both reference checks, while
+  §8.4 point 4 has `must_not_add` fire on a claim that reads its label positively, so an
+  omitted claim adds nothing and an omitted invention is the faithful note. The row splits:
+  `must_preserve` fires on the omission it labels; `must_not_add` has nothing left to fire
+  on. Its free-tier test pins both halves. §8.5's fixture table gains the injected trap
+  `detect_added_medication`, where a stopped drug is written as taken from a span that cuts
+  off its stop cue (L157): every live check passes, and `must_not_add` fires alone
+  (measured). `control_pcn_allergy_azithro` labels its amoxicillin as `must_not_add`'s
+  exercising control (L222), and neither reference check fires on it (measured).
 
 ---
 

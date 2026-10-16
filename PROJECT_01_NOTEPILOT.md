@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.2** (patch — the coverage rule's reference predicates, October 2026).
-Supersedes v1.6.1.
+**Spec version: v1.6.3** (patch — must_not_add's omission row, October 2026). Supersedes
+v1.6.2.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1875,7 +1875,8 @@ have caught. The contract, per CRITICAL check:
 | | a continued home med | **CI-only gap** → `must_preserve(kind="medication")` |
 | `allergy_preserved` | the allergy | that omission is its subject — fires |
 | consistency family, `hallucinated_medication` | the claim | nothing left to contradict; the omission belongs to `allergy_preserved` / `new_prescription_preserved` live and `must_preserve` in CI |
-| `must_preserve` / `must_not_add` | — | omission is their subject (CI) |
+| `must_preserve` | the labeled fact | that omission is its subject — fires (CI) |
+| `must_not_add` | the claim that adds a label | nothing left that adds it; an omitted invention is the faithful note (CI, L223) |
 
 Each row is a docstring on the check and a free-tier test (§11).
 
@@ -1999,11 +2000,12 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 
 | fixture | kind | species | freezes |
 |---|---|---|---|
-| `control_pcn_allergy_azithro` | model + injected | control | allergy context read as a prescription (v1.2); the injected one labels its allergy, `must_preserve`'s exercising control (L222) |
+| `control_pcn_allergy_azithro` | model + injected | control | allergy context read as a prescription (v1.2); the injected one labels its allergy for `must_preserve` and its amoxicillin for `must_not_add`, each check's exercising control (L222) |
 | `detect_drug_not_in_quote` | injected | detection | the text-vs-quote gap (v1.2) |
 | `detect_negation_flip` | injected | detection | "denies" → "reports" (v1.2) |
 | `fidelity_dropped_allergy` | model | fidelity | allergy omission (v1.2); its injected twin is `detect_dropped_allergy` |
 | `detect_dropped_allergy` | injected | detection | allergy omission (v1.2) — labels the allergy and expects `[allergy_preserved, must_preserve]` (L145) |
+| `detect_added_medication` | injected | detection | L157 — a stopped drug kept as taken, from a span that cuts off its stop cue; every live check passes, and `must_not_add` fires (L223) |
 | `detect_same_drug_allergy` | model + injected | detection | L30 |
 | `detect_contra_omitted_rx` | injected | detection | L51 — the draft omits the amoxicillin the raw text starts |
 | `detect_shared_side_chain` | injected | detection | D9 — cephalexin on an ampicillin allergy, an identical R1 side chain v1.2 read as a WARNING (L153) |

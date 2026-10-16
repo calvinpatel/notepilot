@@ -698,3 +698,34 @@ def check_must_preserve(
                 )
             )
     return findings
+
+
+@register_check(name="must_not_add", severity=Severity.CRITICAL, requires_reference=True)
+def check_must_not_add(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
+    """One finding per must_not_add label some claim adds (§8.4 point 4; L36, L214, L218).
+
+    A claim adds a label when its text, grounded or not, whatever its section (invariant 5),
+    reads the label's entity positively: a drug active, a finding present, a diagnosis at any
+    certainty. A negated, stopped, or excluded mention adds nothing. The finding names every
+    claim that adds the label. Without a case there is no answer key, so the check raises,
+    and the run records it as errored (invariant 12).
+
+    Omission (D17): an omitted claim adds nothing, so this check has nothing to fire on; an
+    omitted invention is the faithful note (L223).
+    """
+    if case is None:
+        raise ValueError("must_not_add needs a case's answer key")
+    findings: list[Finding] = []
+    for item in case.must_not_add:
+        adders = tuple(claim.id for claim in note.claims if adds(item, claim.text))
+        if adders:
+            name, _ = read_label(item) or _unreadable(item)
+            findings.append(
+                Finding(
+                    detail=f"{name} ({item.kind}): labeled not to add, added by the note",
+                    claim_ids=adders,
+                )
+            )
+    return findings

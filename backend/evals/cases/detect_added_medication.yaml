@@ -1,0 +1,14 @@
+id: detect_added_medication
+species: detection
+raw_text: |
+  Type 2 diabetes. Stopped metformin last month for GI upset.
+  Diet and exercise only.
+trap: "the note keeps a stopped drug as taken, quoting a span that cuts off its stop cue (L157)"
+draft:
+  claims:
+    - text: "Taking metformin"
+      section: S
+      source_quote: "metformin last month"
+must_not_add:
+  - {text: metformin, kind: medication}
+expected_flags: [must_not_add]

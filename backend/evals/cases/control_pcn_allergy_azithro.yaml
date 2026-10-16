@@ -6,6 +6,8 @@ raw_text: |
 trap: null
 must_preserve:
   - {text: amoxicillin allergy, kind: allergy}
+must_not_add:
+  - {text: amoxicillin, kind: medication}
 draft:
   claims:
     - text: "Allergic to amoxicillin (hives)"

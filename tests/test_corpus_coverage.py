@@ -81,12 +81,16 @@ def _carries_a_preserve_label(case: EvalCase, note: SOAPNote) -> bool:
     return bool(case.must_preserve)
 
 
+def _carries_a_not_add_label(case: EvalCase, note: SOAPNote) -> bool:
+    return bool(case.must_not_add)
+
+
 # A control exercises a check when the check has something to compare on it (L138, L146,
 # L152, L222): for the claim-local family, a key its extractor finds in both a claim's text and
 # that claim's span; for hallucinated_medication, a claim naming a drug, which grounding's flag
 # then decides; for allergy_preserved, an allergy the raw text and a claim both state; for
-# allergy_contraindication, an allergy and a drug for the ladder to pair; for must_preserve, a
-# label, since the check compares labels with the note.
+# allergy_contraindication, an allergy and a drug for the ladder to pair; for must_preserve
+# and must_not_add, a label of their list, since each compares its labels with the note.
 EXERCISES: dict[str, Callable[[EvalCase, SOAPNote], bool]] = {
     "allergy_contraindication": _pairs_an_allergy_with_a_drug,
     "allergy_preserved": _keeps_an_allergy,
@@ -94,6 +98,7 @@ EXERCISES: dict[str, Callable[[EvalCase, SOAPNote], bool]] = {
     "drug_in_quote": _shares_a_drug,
     "hallucinated_medication": _names_a_drug,
     "med_status_consistency": _shares_a_drug,
+    "must_not_add": _carries_a_not_add_label,
     "must_preserve": _carries_a_preserve_label,
     "negation_consistency": _shares_a_finding,
 }
