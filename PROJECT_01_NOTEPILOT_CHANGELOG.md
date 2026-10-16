@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,34 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.6.5 — the run's rows and metrics, as built (patch)
+
+Theme: 2b's step 3c builds `case_result`, `errored_case`, and `corpus_metrics` (§8.7) over
+v1.6.4's shapes. What an errored row lists, the order of a row's lists, and the denominator
+of a flaky case were unstated; whether an errored check counts as a catch was implied but not
+said; and §13's tree left two of the functions out. No invariant moves; CLAUDE.md is
+unchanged.
+
+**INFO**
+- **L228 §4.2, §8.7 — what a row's lists hold, and their order.** Fill: §8.7 named
+  `errored_case`'s status (L205), cost, and draft (L186, L203), never its lists. No check
+  result reaches an errored row, so it names no fired or errored check, and
+  `missing_expected` holds every expected flag: a detection trap whose pipeline failed
+  missed what it expected. Each list of check names in a row is sorted, so a committed run
+  diffs cleanly and two runs' rows compare line by line.
+- **L229 §4.2, §8.7, D11 — a flaky case's pass fraction is over its applicable repeats.**
+  Fill: D11 named no denominator. The rates count a repeat unless it is `not_applicable`
+  (L205), and so does the pass fraction; a case with no applicable repeat isn't flaky.
+  `flaky_cases` is sorted by id. Whether an errored repeat should count is #9's entry 18.
+- **L230 §8.7 — an errored live CRITICAL is not a catch.** Fill: L206 counts a live CRITICAL
+  that fired. An errored one turns the note red in production (invariant 12), for the crash
+  and not for what the model did, and `fired_critical` holds no errored check (L224), so it
+  doesn't count. The row records it in `errored_checks`.
+- **L231 §13 — runner.py's line names case_result and errored_case.** Conflict: §8.7 keeps
+  `case_result` and `errored_case` in `evals/runner.py` with the other pure parts, and
+  §13's tree listed `run_checks · case_verdict · corpus_metrics · CHECKS_VERSION`. §8.7
+  wins: the tree names all six.
 
 ## v1.6.4 — the corpus record's rows (patch)
 

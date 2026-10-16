@@ -5,6 +5,8 @@ check that raises, returns a finding above its severity (L38), or names a claim 
 lacks (L115) becomes one errored result, logged in L69's form (L113), and the rest still run.
 
 case_verdict scores one case's report against the case's answer key (invariant 11).
+case_result and errored_case build a corpus run's row for one repeat of a case, and
+corpus_metrics reads a run's rows into its rates (L3, L205, L206).
 
 CHECKS_VERSION hashes the source that decides verdicts, so a corpus run records which checks
 judged it (L45, L114).
@@ -22,12 +24,17 @@ import backend.evals.checks  # noqa: F401
 from backend.evals.judge import Judge
 from backend.evals.registry import REGISTRY, stamp
 from backend.schemas import (
+    CaseResult,
     CaseStatus,
     ChecksConfig,
+    CorpusMetrics,
     EvalCase,
     EvalReport,
     EvalResult,
+    Severity,
     SOAPNote,
+    SOAPNoteDraft,
+    SummarizationResult,
     TokenUsage,
 )
 from backend.tracebacks import format_frames
@@ -142,3 +149,116 @@ def case_verdict(report: EvalReport, case: EvalCase) -> CaseStatus:
     fired = {r.check for r in report.results if not r.passed and not r.errored}
     fired_critical = {r.check for r in report.critical_results if not r.passed and not r.errored}
     return "passed" if expected <= fired and fired_critical <= expected else "failed"
+
+
+def case_result(
+    case: EvalCase,
+    repeat: int,
+    report: EvalReport,
+    result: SummarizationResult,
+    *,
+    summarize_wall_s: float,
+) -> CaseResult:
+    """One repeat's row when summarize returned and the checks ran (§8.7).
+
+    The status is case_verdict's. Each list of check names is sorted (L228).
+    """
+    expected = set(case.expected_flags)
+    fired_results = [r for r in report.results if not r.passed and not r.errored]
+    fired = {r.check for r in fired_results}
+    return CaseResult(
+        case_id=case.id,
+        repeat=repeat,
+        species=case.species,
+        status=case_verdict(report, case),
+        fired_checks=sorted(fired),
+        fired_critical=sorted(
+            {r.check for r in fired_results if r.severity is Severity.CRITICAL}  # L224
+        ),
+        missing_expected=sorted(expected - fired),
+        unexpected_fired=sorted(fired - expected),
+        usage=result.metadata.usage,
+        validation_attempts=result.metadata.validation_attempts,
+        summarize_wall_s=summarize_wall_s,
+        draft=result.draft,
+        errored_checks=sorted({r.check for r in report.results if r.errored}),
+    )
+
+
+def errored_case(
+    case: EvalCase,
+    repeat: int,
+    code: str,
+    *,
+    usage: TokenUsage | None,
+    validation_attempts: int | None,
+    draft: SOAPNoteDraft | None,
+    summarize_wall_s: float,
+) -> CaseResult:
+    """One repeat's row when the pipeline failed: failed, with the error's code (L205, L53).
+
+    No check result reached the row, so it names no fired or errored check, and every
+    expected flag is missing (L228). The cost and the draft are whatever survived (L186,
+    L203).
+    """
+    return CaseResult(
+        case_id=case.id,
+        repeat=repeat,
+        species=case.species,
+        status="failed",
+        fired_checks=[],
+        fired_critical=[],
+        missing_expected=sorted(set(case.expected_flags)),
+        unexpected_fired=[],
+        usage=usage,
+        validation_attempts=validation_attempts,
+        summarize_wall_s=summarize_wall_s,
+        draft=draft,
+        error=code,
+    )
+
+
+def _rate(rows: list[CaseResult]) -> float | None:
+    """Repeats passed over repeats applicable; None when no repeat is applicable (L205)."""
+    applicable = [row for row in rows if row.status != "not_applicable"]
+    if not applicable:
+        return None
+    return sum(row.status == "passed" for row in applicable) / len(applicable)
+
+
+def corpus_metrics(results: list[CaseResult]) -> CorpusMetrics:
+    """A corpus run's rates and flaky cases, read from its rows (§8.7; L3, D11).
+
+    fidelity_caught reads each row's fired_critical against the registry: a repeat is caught
+    when a reference-free check fired at CRITICAL (L206, L224). An errored check is not a
+    catch (L230). A case is flaky when its pass fraction over its applicable repeats is
+    strictly between 0 and 1 (L229).
+    """
+    by_species = {
+        species: [row for row in results if row.species == species]
+        for species in ("detection", "control", "fidelity")
+    }
+    failed_fidelity = [
+        row for row in by_species["fidelity"] if row.status == "failed" and row.error is None
+    ]
+    caught = [
+        row
+        for row in failed_fidelity
+        if any(not REGISTRY[check].requires_reference for check in row.fired_critical)
+    ]
+    by_case: dict[str, list[CaseResult]] = {}
+    for row in results:
+        by_case.setdefault(row.case_id, []).append(row)
+    flaky = [
+        case_id
+        for case_id, rows in by_case.items()
+        if (rate := _rate(rows)) is not None and 0 < rate < 1
+    ]
+    return CorpusMetrics(
+        detection_recall=_rate(by_species["detection"]),
+        control_specificity=_rate(by_species["control"]),
+        model_fidelity=_rate(by_species["fidelity"]),
+        fidelity_caught=len(caught) / len(failed_fidelity) if failed_fidelity else None,
+        pass_rate=_rate(results),
+        flaky_cases=sorted(flaky),
+    )

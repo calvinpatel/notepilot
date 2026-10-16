@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.4** (patch — the corpus record's rows, October 2026). Supersedes
-v1.6.3.
+**Spec version: v1.6.5** (patch — the run's rows and metrics, as built, October 2026).
+Supersedes v1.6.4.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -503,6 +503,7 @@ class CaseResult(BaseModel):                # ONE (case, repeat) pair
                                             #   wasn't selected this run (e.g. judge off), or
                                             #   (L117) no check ran at all. A case with an
                                             #   `error` is "failed" (L205, L226)
+    # L228: each list of check names below is sorted
     fired_checks: list[str]                 # fired (passed=False) and NOT errored
     fired_critical: list[str]               # L224: of those, the ones with a CRITICAL
                                             #   result, a finding not lowered (L38)
@@ -556,7 +557,8 @@ class CorpusMetrics(BaseModel):             # v1.3 (L3): four numbers, never one
                                                             #   L224)
     pass_rate: float | None = Field(ge=0, le=1)             # kept for continuity; never
                                                             #   quoted alone (L205)
-    flaky_cases: list[str]                  # D11: pass fraction strictly between 0 and 1
+    flaky_cases: list[str]                  # D11: pass fraction over applicable repeats
+                                            #   strictly between 0 and 1, sorted (L229)
     # None, not 1.0, over an empty denominator — a vacuous metric is not a perfect one.
     # A repeat is applicable unless it is not_applicable (L205).
 
@@ -2249,6 +2251,8 @@ model_fidelity       = fidelity repeats passed  / fidelity repeats applicable
 fidelity_caught      = of fidelity repeats that FAILED without a pipeline error, the fraction
                        where at least one reference-free (live) check fired at CRITICAL
 pass_rate            = repeats passed / repeats applicable, every species (never alone)
+flaky_cases          = the cases whose pass fraction over their applicable repeats is
+                       strictly between 0 and 1, sorted by id (D11, L229)
 ```
 
 `fidelity_caught` is the number the interview sentence (§2) was reaching for: *when the model
@@ -2256,7 +2260,9 @@ got it wrong, would production have seen it?* Recall for the fabrication checks 
 this record at all — it is the injected tier, and it is 100% or CI is red. Every metric is
 `None`, not 1.0, over an empty denominator, `pass_rate` included (L205), and a repeat is
 applicable unless it is `not_applicable`. A case with a pipeline `error` is `failed`: no
-note reached the checks, and that never reads as safe (invariant 12).
+note reached the checks, and that never reads as safe (invariant 12). Its row names no fired
+or errored check and lists every expected flag as missing, since no check result reached it;
+every list of check names in a row is sorted (L228).
 
 `fidelity_caught` counts a live CRITICAL alone (L206). It claims what production would have
 shown, and counting a WARNING would let an incidental one (a degenerate quote) score a catch
@@ -2266,7 +2272,9 @@ on a fidelity failure, which lands exactly on the CI-only gaps the omission tabl
 The severity is the result's, not the check's (L224). A live CRITICAL check can lower a
 finding to WARNING (L38): `diagnosis_in_quote`'s downgrade, `allergy_preserved`'s dropped
 NKDA, `allergy_contraindication`'s cross-class rung. Production showed that finding as a
-WARNING, so the metric reads `CaseResult.fired_critical`, not the names that fired.
+WARNING, so the metric reads `CaseResult.fired_critical`, not the names that fired. An
+errored live CRITICAL is not a catch (L230): production turns that note red (invariant 12),
+but for the crash, not for what the model did, and the row records it in `errored_checks`.
 
 **The scorer, with lineage (v1.1; hardened v1.2 and v1.3; at the edge, L188).**
 
@@ -2399,8 +2407,9 @@ field unchanged.
 parameter is sent to narrow them (§3, L181); at n = 24 with one run, a single flaky case
 moves a rate by ~4 points — noise that reads as a regression. `settings.corpus_repeats`
 (default 3; cost × k) runs every model case k times; `CaseResult` rows are per (case,
-repeat); `CorpusMetrics.flaky_cases` names every case whose pass fraction is strictly
-between 0 and 1. The README states n and k beside every number.
+repeat); `CorpusMetrics.flaky_cases` names every case whose pass fraction over its
+applicable repeats is strictly between 0 and 1 (L229). The README states n and k beside
+every number.
 
 **DECISION D5 (v1.2, amended v1.3) — where the lineage lives.** Corpus runs happen locally,
 and `corpus_runs.jsonl` is committed *in the same commit* as the prompt/model change that
@@ -3124,7 +3133,8 @@ notepilot/
 │   │   ├── judge.py        ← the Judge protocol — a domain interface (phase 2a, L111)
 │   │   ├── checks.py       ← the §8.4 roster · contraindication() rungs · their helpers ·
 │   │   │                      the reference labels' readers (§7, §8.4, L214)
-│   │   ├── runner.py       ← run_checks · case_verdict · corpus_metrics · CHECKS_VERSION (pure)
+│   │   ├── runner.py       ← run_checks · case_verdict · case_result · errored_case ·
+│   │   │                      corpus_metrics · CHECKS_VERSION (pure; L231)
 │   │   ├── loader.py       ← YAML → EvalCase; validates expected_flags and reference labels
 │   │   │                      (L219, L221); corpus_version()
 │   │   ├── cases/          ← one YAML per case: model cases AND injected cases (§8.5)

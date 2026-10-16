@@ -1,5 +1,5 @@
-"""Pins the check engine, the per-case verdict, and the checks' lineage (spec §8.7; L38,
-L43–L45, L49, L113–L115).
+"""Pins the check engine, the per-case verdict, the checks' lineage, and a corpus run's rows
+and metrics (spec §8.7; L38, L43–L45, L49, L113–L115, L205, L206, L224, L228–L230).
 """
 
 import asyncio
@@ -11,16 +11,29 @@ import pytest
 
 from backend.evals.judge import Judge
 from backend.evals.registry import Check, Finding, register_check
-from backend.evals.runner import CHECKS_VERSION, case_verdict, checks_version, run_checks
+from backend.evals.runner import (
+    CHECKS_VERSION,
+    case_result,
+    case_verdict,
+    checks_version,
+    corpus_metrics,
+    errored_case,
+    run_checks,
+)
 from backend.schemas import (
+    CaseResult,
     CaseStatus,
     ChecksConfig,
     ClinicalClaim,
     EvalCase,
     EvalReport,
     EvalResult,
+    RunMetadata,
     Severity,
     SOAPNote,
+    SOAPNoteDraft,
+    Species,
+    SummarizationResult,
     TokenUsage,
 )
 from tests.fakes import CHECKS_CONFIG, FakeJudge
@@ -409,3 +422,208 @@ def test_not_applicable_comes_before_any_failure() -> None:
     # L44: an expected check that didn't run excludes the case, whatever else happened
     report = _report([_fired("drug", _C), _errored("dose", _C)], ran={"drug", "dose"})
     assert case_verdict(report, _detection("judge")) == "not_applicable"
+
+
+# --- a corpus run's rows (L224, L228) --------------------------------------------
+
+DRAFT = SOAPNoteDraft.model_validate(
+    {"claims": [{"text": "claim 0", "section": "S", "source_quote": "quote 0"}]}
+)
+USAGE = TokenUsage(input_tokens=11, output_tokens=7)
+
+
+def _summarized() -> SummarizationResult:
+    metadata = RunMetadata(
+        model="model-id-1", prompt_version="prompt-hash-1", usage=USAGE, validation_attempts=2
+    )
+    return SummarizationResult(draft=DRAFT, metadata=metadata)
+
+
+def test_case_result_keeps_the_verdict_the_cost_the_draft_and_the_wall_time() -> None:
+    case = _detection("contra", "drug", "audit")
+    results = [
+        _fired("contra", _C),
+        _clean_result("drug", _C),
+        _clean_result("audit", _W),
+        _fired("quote", _W),
+        _fired("note", _W),
+        _errored("judge", _W),
+        _errored("crash", _W),
+    ]
+    report = _report(results)
+    row = case_result(case, 2, report, _summarized(), summarize_wall_s=3.25)
+    assert (row.case_id, row.repeat, row.species) == ("trap-1", 2, "detection")
+    assert row.status == case_verdict(report, case) == "failed"
+    assert row.fired_checks == ["contra", "note", "quote"]
+    assert row.fired_critical == ["contra"]
+    assert row.missing_expected == ["audit", "drug"]
+    assert row.unexpected_fired == ["note", "quote"]
+    assert row.errored_checks == ["crash", "judge"]
+    assert (row.usage, row.validation_attempts) == (USAGE, 2)
+    assert (row.draft, row.summarize_wall_s, row.error) == (DRAFT, 3.25, None)
+
+
+@pytest.mark.parametrize(
+    ("report", "status"),
+    [
+        (_report([_fired("contra", _C)]), "passed"),
+        (_report([_clean_result("contra", _C)]), "failed"),
+        (_report([], ran=set()), "not_applicable"),
+    ],
+    ids=["passed", "failed", "not-applicable"],
+)
+def test_case_result_takes_its_status_from_case_verdict(
+    report: EvalReport, status: CaseStatus
+) -> None:
+    case = _detection("contra")
+    assert case_result(case, 0, report, _summarized(), summarize_wall_s=1.0).status == status
+
+
+def test_a_lowered_finding_fires_but_not_at_critical() -> None:
+    # L224: diagnosis_in_quote's downgrade is a CRITICAL check's WARNING finding
+    report = _report([_fired("diagnosis", _W)])
+    row = case_result(_fidelity(), 0, report, _summarized(), summarize_wall_s=1.0)
+    assert (row.fired_checks, row.fired_critical) == (["diagnosis"], [])
+
+
+@pytest.mark.parametrize(
+    ("usage", "attempts", "draft"),
+    [(None, None, None), (USAGE, 3, None), (USAGE, 2, DRAFT)],
+    ids=["crash-in-summarize", "orchestrator-error", "crash-after-summarize"],
+)
+def test_errored_case_is_failed_with_its_code_and_every_expected_flag_missing(
+    usage: TokenUsage | None, attempts: int | None, draft: SOAPNoteDraft | None
+) -> None:
+    case = _detection("drug", "contra")
+    row = errored_case(
+        case,
+        1,
+        "code-1",
+        usage=usage,
+        validation_attempts=attempts,
+        draft=draft,
+        summarize_wall_s=0.5,
+    )
+    assert (row.case_id, row.repeat, row.species) == ("trap-1", 1, "detection")
+    assert (row.status, row.error) == ("failed", "code-1")
+    assert row.missing_expected == ["contra", "drug"]
+    assert row.fired_checks == row.fired_critical == row.unexpected_fired == []
+    assert row.errored_checks == []
+    assert (row.usage, row.validation_attempts, row.draft) == (usage, attempts, draft)
+    assert row.summarize_wall_s == 0.5
+
+
+# --- a corpus run's metrics (L3, L205, L206, L224, L229, L230) ---------------------
+
+
+def _row(
+    case_id: str,
+    species: Species,
+    status: CaseStatus,
+    *,
+    repeat: int = 0,
+    fired_critical: tuple[str, ...] = (),
+    error: str | None = None,
+) -> CaseResult:
+    return CaseResult(
+        case_id=case_id,
+        repeat=repeat,
+        species=species,
+        status=status,
+        fired_checks=list(fired_critical),
+        fired_critical=list(fired_critical),
+        missing_expected=[],
+        unexpected_fired=[],
+        usage=USAGE,
+        validation_attempts=1,
+        summarize_wall_s=1.0,
+        draft=DRAFT,
+        error=error,
+    )
+
+
+def test_each_rate_is_passed_over_applicable_repeats_by_species() -> None:
+    rows = [
+        _row("d-1", "detection", "passed"),
+        _row("d-2", "detection", "passed"),
+        _row("d-3", "detection", "failed"),
+        _row("d-4", "detection", "not_applicable"),
+        _row("c-1", "control", "passed"),
+        _row("c-2", "control", "failed", error="APIError"),  # L205: a failure, applicable
+        _row("f-1", "fidelity", "passed"),
+        _row("f-2", "fidelity", "failed"),
+        _row("f-3", "fidelity", "failed"),
+        _row("f-4", "fidelity", "failed"),
+    ]
+    metrics = corpus_metrics(rows)
+    assert metrics.detection_recall == pytest.approx(2 / 3)
+    assert metrics.control_specificity == pytest.approx(1 / 2)
+    assert metrics.model_fidelity == pytest.approx(1 / 4)
+    assert metrics.pass_rate == pytest.approx(4 / 9)
+
+
+def test_every_rate_is_none_when_no_repeat_is_applicable() -> None:
+    # L205: a vacuous rate is not a perfect one
+    rows = [_row(f"{s}-1", s, "not_applicable") for s in ("detection", "control", "fidelity")]
+    metrics = corpus_metrics(rows)
+    rates = (
+        metrics.detection_recall,
+        metrics.control_specificity,
+        metrics.model_fidelity,
+        metrics.fidelity_caught,
+        metrics.pass_rate,
+    )
+    assert rates == (None, None, None, None, None)
+    assert metrics.flaky_cases == []
+
+
+@pytest.fixture
+def live_and_reference(registry: dict[str, Check]) -> dict[str, Check]:
+    register_check(name="live", severity=_C)(_clean)
+    register_check(name="reference", severity=_C, requires_reference=True)(_clean)
+    return registry
+
+
+@pytest.mark.usefixtures("live_and_reference")
+def test_fidelity_caught_counts_a_live_critical_among_failures_without_an_error() -> None:
+    rows = [
+        _row("f-1", "fidelity", "failed", fired_critical=("live",)),
+        _row("f-2", "fidelity", "failed", fired_critical=("reference",)),
+        _row("f-3", "fidelity", "failed", fired_critical=("live", "reference")),
+        _row("f-4", "fidelity", "failed", error="APIError"),  # not in the denominator
+        _row("f-5", "fidelity", "passed"),  # nor is a pass
+        _row("c-1", "control", "failed", fired_critical=("live",)),  # nor another species
+    ]
+    assert corpus_metrics(rows).fidelity_caught == pytest.approx(2 / 3)
+
+
+@pytest.mark.usefixtures("live_and_reference")
+@pytest.mark.parametrize(
+    "live",
+    [_errored("live", _C), _fired("live", _W)],
+    ids=["errored", "lowered"],
+)
+def test_an_errored_or_lowered_live_check_is_not_a_catch(live: EvalResult) -> None:
+    # L224: production showed a lowered finding as a WARNING; L230: a crash is not a catch
+    report = _report([_fired("reference", _C), live])
+    row = case_result(_fidelity(), 0, report, _summarized(), summarize_wall_s=1.0)
+    assert row.status == "failed"
+    assert corpus_metrics([row]).fidelity_caught == 0.0
+
+
+def test_a_case_is_flaky_when_its_applicable_repeats_disagree() -> None:
+    # D11, L229: by case, over its applicable repeats, sorted by id
+    outcomes: dict[str, list[CaseStatus]] = {
+        "case-z": ["passed", "failed"],
+        "case-b": ["passed", "passed"],
+        "case-c": ["failed", "failed"],
+        "case-d": ["passed", "not_applicable"],
+        "case-e": ["not_applicable", "not_applicable"],
+        "case-a": ["failed", "failed", "passed"],
+    }
+    rows = [
+        _row(case_id, "control", status, repeat=repeat)
+        for case_id, statuses in outcomes.items()
+        for repeat, status in enumerate(statuses)
+    ]
+    assert corpus_metrics(rows).flaky_cases == ["case-a", "case-z"]
