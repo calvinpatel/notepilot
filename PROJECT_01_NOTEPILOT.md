@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.6** (patch — the corpus knobs' domains, October 2026). Supersedes
-v1.6.5.
+**Spec version: v1.6.7** (patch — the import boundary refuses edge modules, October 2026).
+Supersedes v1.6.6.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3063,9 +3063,10 @@ in the push workflow — it spends real money.
 - **Omission law (D17)** — for each row of the §8.4 omission table, a test that omits the
   input and asserts the stated behavior.
 - **Frozen spine** — assigning to or appending to a `ClinicalClaim`'s fields raises (L6).
-- **Import boundary (L188)** — an AST walk over `grounding.py`, `evals/`, `schemas.py`, and
-  `tracebacks.py` finds no import of `backend.config`, `anthropic`, or `fastapi`, at module
-  level or inside a function.
+- **Import boundary (L188, L234)** — an AST walk over `grounding.py`, `evals/`,
+  `schemas.py`, and `tracebacks.py` finds no import of `anthropic` or `fastapi`, and none
+  of a `backend` module outside the domain (§0), at module level or inside a function: one
+  rule refuses `backend.config` and every edge module.
 - **The scorer, with a fake client (L211)** — `score_corpus` over canned responses: a case
   whose `summarize` raises an `APIError` is one errored row and the others still score
   (L46); a run where every case fails still writes its record (L46); each row's usage and

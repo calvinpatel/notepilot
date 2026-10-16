@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,25 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.6.7 — the import boundary refuses edge modules (patch)
+
+Theme: 2b's step 5 adds `corpus.py`, an edge module that reads settings and calls the API,
+beside `evals/runner.py`, which keeps its pure parts (L188). Reading §11's import-boundary
+test against invariant 1 before that module lands found that the walk refuses three names,
+not the edge. No invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L234 §11 — the walk refuses every backend module outside the domain.**
+  Conflict: invariant 1 has the domain modules read no settings and know no vendor, with an
+  AST test holding the line (L188), and §11's walk refused `backend.config`, `anthropic`,
+  and `fastapi` by name. An edge module reads settings and imports a vendor, so a domain
+  module importing one reaches both through it. Measured at 2a0a4ae: the walk finds nothing
+  to refuse in `from backend.orchestrator import summarize` inside `evals/`, and importing
+  `backend.orchestrator` loads `backend.config` and `anthropic`. Invariant 1 wins: the walk
+  refuses `anthropic`, `fastapi`, and any `backend` module outside §0's domain (`schemas`,
+  `tracebacks`, `grounding`, `evals`, `clinical`), so one rule covers `backend.config` and
+  every edge module, and a new edge module needs no entry in the test.
 
 ## v1.6.6 — the corpus knobs' domains (patch)
 

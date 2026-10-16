@@ -1,11 +1,13 @@
-"""The domain's import boundary (§0, §11; invariant 1; L187, L188).
+"""The domain's import boundary (§0, §11; invariant 1; L187, L188, L234).
 
-grounding.py, evals/, schemas.py, and tracebacks.py read no settings and know no vendor. An
-AST walk finds every import in them, at module level or inside a function, and resolves
-each to the modules it names: `from backend import config` names backend.config, and so
-does `from .. import config` inside evals/. None may be backend.config, anthropic, or
-fastapi, or inside them. clinical/ has its own, stricter test (invariant 13). A dynamic
-import (importlib, __import__) is outside what an AST walk can see.
+grounding.py, evals/, schemas.py, and tracebacks.py read no settings, know no vendor, and
+import no edge module. An AST walk finds every import in them, at module level or inside a
+function, and resolves each to the modules it names: `from backend import config` names
+backend.config, and so does `from .. import config` inside evals/. None may be anthropic or
+fastapi, or inside them, and none may be a backend module outside the domain: schemas,
+tracebacks, grounding, evals, and clinical. That one rule refuses backend.config and the edge
+modules alike, so an edge module needs no entry here. clinical/ has its own, stricter test
+(invariant 13). A dynamic import (importlib, __import__) is outside what an AST walk can see.
 """
 
 import ast
@@ -22,7 +24,15 @@ _DOMAIN = sorted(
         *(_BACKEND / "evals").rglob("*.py"),
     ]
 )
-_FORBIDDEN = ("backend.config", "anthropic", "fastapi")
+_VENDORS = ("anthropic", "fastapi")
+# §0's domain modules: the walk refuses every other backend module
+_DOMAIN_MODULES = (
+    "backend.schemas",
+    "backend.tracebacks",
+    "backend.grounding",
+    "backend.evals",
+    "backend.clinical",
+)
 
 
 def _module_names(source: str, package: str) -> set[str]:
@@ -44,8 +54,17 @@ def _module_names(source: str, package: str) -> set[str]:
     return names
 
 
+def _under(name: str, roots: tuple[str, ...]) -> bool:
+    """name is one of roots, or a module inside one."""
+    return any(name == root or name.startswith(root + ".") for root in roots)
+
+
 def _forbidden(names: set[str]) -> set[str]:
-    return {n for n in names if any(n == f or n.startswith(f + ".") for f in _FORBIDDEN)}
+    return {
+        n
+        for n in names
+        if _under(n, _VENDORS) or (n.startswith("backend.") and not _under(n, _DOMAIN_MODULES))
+    }
 
 
 def _package(path: Path) -> str:
@@ -53,7 +72,7 @@ def _package(path: Path) -> str:
 
 
 @pytest.mark.parametrize("path", _DOMAIN, ids=lambda p: p.relative_to(_BACKEND).as_posix())
-def test_the_domain_imports_no_settings_and_no_vendor(path: Path) -> None:
+def test_the_domain_imports_only_the_domain_and_no_vendor(path: Path) -> None:
     names = _module_names(path.read_text(encoding="utf-8"), _package(path))
     assert _forbidden(names) == set()
 
@@ -76,6 +95,10 @@ def test_the_domain_list_covers_evals() -> None:
         ("import anthropic", "backend"),
         ("from anthropic.types import Message", "backend"),
         ("import fastapi.responses", "backend"),
+        ("from backend.orchestrator import LLMClient", "backend.evals"),
+        ("from .. import api", "backend.evals"),
+        ("from backend.edge_module import x", "backend"),
+        ("from backend.schemas_v2 import x", "backend"),
     ],
 )
 def test_the_walk_sees_each_form_of_a_forbidden_import(source: str, package: str) -> None:
@@ -88,8 +111,12 @@ def test_the_walk_sees_each_form_of_a_forbidden_import(source: str, package: str
     [
         ("from backend.schemas import SOAPNote", "backend"),
         ("from . import schemas", "backend.evals"),
+        ("from backend import schemas", "backend.evals"),
+        ("from backend.clinical.extract import Dose", "backend.evals"),
+        ("from backend.grounding import ground", "backend.evals"),
+        ("from .registry import Finding", "backend.evals"),
         ("import configparser", "backend"),
-        ("from backend.configs import x", "backend"),
+        ("import fastapi_utils", "backend"),
     ],
 )
 def test_the_walk_passes_an_allowed_import(source: str, package: str) -> None:
