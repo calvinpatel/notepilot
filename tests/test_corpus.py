@@ -33,7 +33,7 @@ from backend.evals.judge import Judge
 from backend.evals.loader import corpus_version
 from backend.evals.runner import CHECKS_VERSION
 from backend.evals.runner import case_result as real_case_result
-from backend.orchestrator import PROMPT_VERSION
+from backend.orchestrator import PROMPT_VERSION, LLMClient
 from backend.schemas import (
     CaseResult,
     CorpusRunRecord,
@@ -98,13 +98,18 @@ def _upstream() -> APIConnectionError:
 def run_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..., Settings]:
     """Installs a Settings for backend.corpus to read, every knob it reads stated here.
 
-    Non-default counts and cutoff, so a run that read the defaults instead fails (§11's wiring
-    rule). An exported CORPUS_REPEATS can't reach a test: each knob is passed explicitly.
-    model_validate, not the constructor: pyright reads every field as a required parameter.
+    Non-default counts, retries, and cutoff, so a run that read the defaults instead fails
+    (§11's wiring rule). An exported CORPUS_REPEATS can't reach a test: each knob is passed
+    explicitly. model_validate, not the constructor: pyright reads every field as a required
+    parameter.
     """
 
     def install(
-        *, corpus_repeats: int = 2, corpus_concurrency: int = 1, runs_path: Path | None = None
+        *,
+        corpus_repeats: int = 2,
+        corpus_concurrency: int = 1,
+        max_validation_retries: int = 1,
+        runs_path: Path | None = None,
     ) -> Settings:
         installed = Settings.model_validate(
             {
@@ -114,6 +119,7 @@ def run_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..
                 "min_quote_content_tokens": 2,
                 "corpus_repeats": corpus_repeats,
                 "corpus_concurrency": corpus_concurrency,
+                "max_validation_retries": max_validation_retries,
                 "runs_path": runs_path or tmp_path / "runs" / "corpus_runs.jsonl",
             }
         )
@@ -370,6 +376,7 @@ def test_plan_run_makes_the_record_s_directory_but_never_the_record(
     lineage(KeyedFakeLLMClient({}))
     plan = plan_run([_case("b"), _case("a")])
     assert [c.id for c in plan.model_cases] == ["a", "b"]
+    assert plan.corpus_version == corpus_version([_case("a"), _case("b")])
     assert (plan.git_sha, plan.git_dirty) == (SHA, True)
     assert installed.runs_path.parent.is_dir()
     # an empty untracked file shows in git status: the run would dirty its own lineage
@@ -572,3 +579,111 @@ def test_current_git_sha_raises_outside_a_checkout(
     with pytest.raises(subprocess.CalledProcessError) as raised:
         current_git_sha()
     assert raised.value.returncode == 128
+
+
+# --- the command line (L210, L240-L242) ----------------------------------------------
+
+
+def _write_cases(directory: Path, model: list[str], injected: list[str]) -> Path:
+    """Case files for main to load: |- keeps raw_text free of a trailing newline."""
+    directory.mkdir()
+    for case_id in model + injected:
+        text = f"id: {case_id}\nspecies: control\nraw_text: |-\n  {_raw(case_id)}\ntrap: null\n"
+        if case_id in injected:
+            text += (
+                "draft:\n  claims:\n    - text: Lungs clear\n      section: O\n"
+                "      source_quote: Lungs clear on exam\n"
+            )
+        (directory / f"{case_id}.yaml").write_text(text, encoding="utf-8")
+    return directory
+
+
+@pytest.fixture
+def no_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dry run that builds a client or calls score_corpus fails the test."""
+
+    def no_client() -> LLMClient:
+        pytest.fail("the dry run built a client")
+
+    def no_score(*args: object, **kwargs: object) -> object:
+        pytest.fail("the dry run called score_corpus")
+
+    monkeypatch.setattr(corpus, "get_client", no_client)
+    monkeypatch.setattr(corpus, "score_corpus", no_score)
+
+
+@pytest.mark.usefixtures("no_spend")
+def test_the_dry_run_prints_the_plan_and_spends_nothing(
+    run_settings: Callable[..., Settings],
+    lineage: Callable[[KeyedFakeLLMClient], list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    installed = run_settings(corpus_repeats=2, max_validation_retries=1)
+    cases = _write_cases(tmp_path / "cases", model=["b", "a", "c"], injected=["injected"])
+    monkeypatch.setattr(corpus, "CASES_DIR", cases)
+    lineage(KeyedFakeLLMClient({}))
+    version = corpus_version([_case(i) for i in "abc"])
+    assert corpus.main([]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "model cases: 3 (1 injected, not run)",
+        "calls: 6 (n=3 x k=2), at most 12 with validation retries",
+        f"git_sha={SHA} git_dirty=True",
+        f"model=model-under-test prompt_version={PROMPT_VERSION}",
+        f"corpus_version={version} checks_version={CHECKS_VERSION}",
+        f"record: {installed.runs_path}",
+        "dry run: nothing spent; --spend makes these calls",
+    ]
+    assert not installed.runs_path.exists()
+
+
+@pytest.mark.parametrize("argv", [[], ["--spend"]], ids=["dry-run", "spend"])
+def test_both_paths_refuse_a_run_with_no_model_case(
+    run_settings: Callable[..., Settings],
+    lineage: Callable[[KeyedFakeLLMClient], list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    argv: list[str],
+) -> None:
+    run_settings()
+    client = KeyedFakeLLMClient({})  # any call fails the test
+    lineage(client)
+    monkeypatch.setattr(corpus, "CASES_DIR", _write_cases(tmp_path / "cases", [], ["injected"]))
+    monkeypatch.setattr(corpus, "get_client", lambda: client)
+    with pytest.raises(ValueError, match="no model cases"):
+        corpus.main(argv)
+    assert client.messages.calls == []
+
+
+def test_the_spend_appends_the_record_the_dry_run_described(
+    run_settings: Callable[..., Settings],
+    lineage: Callable[[KeyedFakeLLMClient], list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    installed = run_settings(corpus_repeats=1)
+    cases = _write_cases(tmp_path / "cases", model=["a", "b"], injected=["injected"])
+    monkeypatch.setattr(corpus, "CASES_DIR", cases)
+    client = KeyedFakeLLMClient({_raw("a"): [_ok(1, 2)], _raw("b"): [_ok(3, 4)]})
+    lineage(client)
+    monkeypatch.setattr(corpus, "get_client", lambda: client)
+    assert corpus.main([]) == 0
+    planned = capsys.readouterr().out.splitlines()
+    assert corpus.main(["--spend"]) == 0
+    spent = capsys.readouterr().out.splitlines()
+    (record,) = _lines(installed.runs_path)
+    assert spent == [
+        f"metrics: {record.metrics.model_dump_json()}",
+        "usage: input_tokens=4 output_tokens=6",
+        f"record appended to {installed.runs_path}",
+    ]
+    assert [r.case_id for r in record.cases] == ["a", "b"]
+    assert record.judge_enabled is False
+    # the lineage the dry run printed is the lineage the record carries
+    assert planned[2:5] == [
+        f"git_sha={record.git_sha} git_dirty={record.git_dirty}",
+        f"model={record.model} prompt_version={record.prompt_version}",
+        f"corpus_version={record.corpus_version} checks_version={record.checks_version}",
+    ]

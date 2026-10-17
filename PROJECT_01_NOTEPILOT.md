@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.8** (patch — the scorer refuses before it spends, October 2026).
-Supersedes v1.6.7.
+**Spec version: v1.6.9** (patch — the dry run proves a corpus run before it spends, October
+2026). Supersedes v1.6.8.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2290,7 +2290,8 @@ def plan_run(cases: list[EvalCase]) -> RunPlan:     # L235: every refusal, befor
         raise ValueError(f"duplicate model case ids {duplicated}: the record counts distinct ids")
     git_sha, git_dirty = current_git_sha(), git_is_dirty()     # L207, L236
     prepare_runs_path(settings.runs_path)                      # its directory, never the file
-    return RunPlan(model_cases=model_cases, git_sha=git_sha, git_dirty=git_dirty)
+    return RunPlan(model_cases=model_cases, git_sha=git_sha, git_dirty=git_dirty,
+                   corpus_version=corpus_version(list(model_cases)))   # L243: once, here
 
 async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
                        judge_factory: Callable[[], Judge] | None) -> CorpusRunRecord:
@@ -2342,7 +2343,7 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
         ran_at=datetime.now(UTC),                                   # L239
         git_sha=plan.git_sha, git_dirty=plan.git_dirty,             # L45, L207
         model=settings.model, prompt_version=PROMPT_VERSION,        # L46: known without a
-        corpus_version=corpus_version(list(plan.model_cases)),      #   successful call, so
+        corpus_version=plan.corpus_version,                         #   successful call, so
         checks_version=CHECKS_VERSION,                              #   an all-failed run is
         checks_config=config,                                       #   still recorded: the
         judge_enabled=judge_factory is not None,                    #   one most need to see
@@ -2398,10 +2399,13 @@ sit far below the full output budget. `concurrency` is on the record because con
 lands in those times (429 retries and their backoff) and in the failure count. `draft` makes
 a run replayable: grounding and the checks are pure functions of the draft, the raw text,
 the config, and the code at the run's commit (D5), so reading a run, or a check change
-against it, costs no API call. A run starts from `python -m backend.corpus`, which loads the
-cases, prints the planned calls (n × k, and the ceiling with validation retries), and exits;
-`--spend` runs it with `get_client()` (§5.2) and prints the record's metrics and where it
-was written.
+against it, costs no API call. A run starts from `python -m backend.corpus` (L210). Without
+`--spend` it is a dry run (L240): it loads the cases, runs `plan_run` as `score_corpus`
+does, and prints the model and injected case counts, the planned calls (n × k, and the
+ceiling with validation retries), the lineage the record would carry, and `runs_path`; it
+builds no client. A refusal from `plan_run` raises and exits 1 on either path: the command
+is the boundary. `--spend` runs `score_corpus` with `get_client()` (§5.2) and prints the
+record's metrics, its token usage, and where it was written (L242).
 
 `CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`,
 `grounding.py`, and `schemas.py` (L189), computed at import — derived like every other
@@ -3092,6 +3096,12 @@ in the push workflow — it spends real money.
   `runs_path` as one line (L238). The fake suspends once per call: one that never suspends
   hides the semaphore and the clock. No network, and no git of the real tree: the git reads
   run on a repository under `tmp_path` (L236).
+- **The command line (L241)** — `main` over case files under `tmp_path`: the dry run prints
+  its plan, builds no client, and never calls `score_corpus`, its counts and ceiling read
+  from non-default settings; both paths refuse a run with no model case before any call;
+  `--spend` appends one record and prints its metrics, usage, and path, and the lineage the
+  dry run printed is the record's. The `__main__` line stays untested: run as a process, the
+  command reads the real tree's git once model cases exist.
 - **Judge plumbing (phase 2c)** — a fake `Judge` that times out yields an errored WARNING,
   the note is returned, and `all_critical_passed` is unchanged.
 - **The sink actually sinks (phase 3)** — the integration test asserts a `notes` row with the

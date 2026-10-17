@@ -10,9 +10,11 @@ becomes one errored row (L46, L208), and a run where every case failed still wri
 record.
 """
 
+import argparse
 import asyncio
 import logging
 import subprocess
+import sys
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -24,7 +26,7 @@ from pydantic import BaseModel
 
 from backend.config import settings
 from backend.evals.judge import Judge
-from backend.evals.loader import corpus_version
+from backend.evals.loader import CASES_DIR, corpus_version, load_cases
 from backend.evals.runner import (
     CHECKS_VERSION,
     case_result,
@@ -33,7 +35,13 @@ from backend.evals.runner import (
     run_checks,
 )
 from backend.grounding import ground
-from backend.orchestrator import PROMPT_VERSION, LLMClient, OrchestratorError, summarize
+from backend.orchestrator import (
+    PROMPT_VERSION,
+    LLMClient,
+    OrchestratorError,
+    get_client,
+    summarize,
+)
 from backend.schemas import (
     CaseResult,
     CorpusRunRecord,
@@ -92,6 +100,7 @@ class RunPlan:
     """What plan_run settled before any spend: the cases to run and the tree they ran on."""
 
     model_cases: tuple[EvalCase, ...]
+    corpus_version: str  # L243: once, here, so the dry run prints what the record carries
     git_sha: str
     git_dirty: bool
 
@@ -111,7 +120,12 @@ def plan_run(cases: list[EvalCase]) -> RunPlan:
         raise ValueError(f"duplicate model case ids {duplicated}: the record counts distinct ids")
     git_sha, git_dirty = current_git_sha(), git_is_dirty()
     prepare_runs_path(settings.runs_path)
-    return RunPlan(model_cases=model_cases, git_sha=git_sha, git_dirty=git_dirty)
+    return RunPlan(
+        model_cases=model_cases,
+        corpus_version=corpus_version(list(model_cases)),
+        git_sha=git_sha,
+        git_dirty=git_dirty,
+    )
 
 
 async def score_corpus(
@@ -185,7 +199,7 @@ async def score_corpus(
         git_dirty=plan.git_dirty,  # L45, L207
         model=settings.model,
         prompt_version=PROMPT_VERSION,  # L46: known without a successful call,
-        corpus_version=corpus_version(list(plan.model_cases)),  # so an all-failed run is
+        corpus_version=plan.corpus_version,  # so an all-failed run is
         checks_version=CHECKS_VERSION,  # still recorded: the one most need to see
         checks_config=config,
         judge_enabled=judge_factory is not None,
@@ -199,3 +213,40 @@ async def score_corpus(
     )
     append_jsonl(settings.runs_path, record)
     return record
+
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m backend.corpus: a dry run, or with --spend a real one (L210, L240, L242).
+
+    The dry run runs plan_run, as score_corpus does, prints the lineage the record would
+    carry, and builds no client. A refusal raises: this is the boundary.
+    """
+    parser = argparse.ArgumentParser(
+        prog="python -m backend.corpus",
+        description="Plan a corpus run; with --spend, make its API calls and append the record.",
+    )
+    parser.add_argument("--spend", action="store_true", help="make the API calls (costs money)")
+    args = parser.parse_args(argv)
+    cases = load_cases(CASES_DIR)
+    if not args.spend:
+        plan = plan_run(cases)
+        n, k = len(plan.model_cases), settings.corpus_repeats
+        ceiling = n * k * (settings.max_validation_retries + 1)
+        print(f"model cases: {n} ({len(cases) - n} injected, not run)")
+        print(f"calls: {n * k} (n={n} x k={k}), at most {ceiling} with validation retries")
+        print(f"git_sha={plan.git_sha} git_dirty={plan.git_dirty}")
+        print(f"model={settings.model} prompt_version={PROMPT_VERSION}")
+        print(f"corpus_version={plan.corpus_version} checks_version={CHECKS_VERSION}")
+        print(f"record: {settings.runs_path}")
+        print("dry run: nothing spent; --spend makes these calls")
+        return 0
+    record = asyncio.run(score_corpus(cases, client=get_client(), judge_factory=None))
+    usage = record.usage
+    print(f"metrics: {record.metrics.model_dump_json()}")
+    print(f"usage: input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}")
+    print(f"record appended to {settings.runs_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,43 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.6.9 — the dry run proves a corpus run before it spends (patch)
+
+Theme: 2b's step 5c gives the corpus run its command, `python -m backend.corpus`. L210 said
+what the dry run prints and not what it proves; a dry run that only prints can't predict a
+spend that refuses. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L240 §8.7 — the dry run proves the run before the spend.** Fill: L210 had it print the
+  planned calls and exit, so with no model case it would print 0 calls and exit 0 while
+  `--spend` raised. It now runs `plan_run`, the function `score_corpus` runs before its
+  first call, and prints the model and injected case counts, n × k and the ceiling with
+  validation retries, the lineage the record would carry (`git_sha`, `git_dirty`, `model`,
+  `prompt_version`, `corpus_version`, `checks_version`), and `runs_path`. It builds no
+  client. A refusal raises: measured on e6e27c8's cases, all injected, both
+  `python -m backend.corpus` and its `--spend` exit 1 on `ValueError: no model cases`, with
+  no runs directory made and the tree clean; an unknown flag exits 2. The command imports
+  only from the repo root, since the project isn't installed as a package (measured:
+  `import backend.corpus` from `tests/` fails), so the relative `runs_path` (L232) and the
+  git reads resolve against the checkout.
+- **L241 §11 — the command's tests.** Fill: L211 named only the scorer's. Over case files
+  under `tmp_path`, with both git reads stubbed: the dry run prints its plan with
+  `get_client` and `score_corpus` stubbed to fail, its counts and ceiling read from
+  non-default settings; both paths refuse a run with no model case before any call;
+  `--spend` appends one record and prints its metrics, usage, and path, and the lineage the
+  dry run printed equals the record's. The `__main__` line is untested: a process would read
+  the real tree's git once model cases exist, which §11 forbids.
+
+**INFO**
+- **L242 §8.7 — the spend prints its token usage.** Fill: L210 printed the metrics and the
+  path; the record's usage is the run's cost, and step 8's cost line reads it. The client
+  `get_client()` returns is never closed: measured against a local server standing in for
+  the API, `asyncio.run` over a `summarize` call on that client exits 0 with nothing on
+  stderr under `-W default`.
+- **L243 §8.7 — `RunPlan` carries `corpus_version`.** Fill: the dry run prints the version
+  the record will carry, so it is computed once, in `plan_run`, and `score_corpus` records
+  `plan.corpus_version` rather than computing it again.
 
 ## v1.6.8 — the scorer refuses before it spends (patch)
 
