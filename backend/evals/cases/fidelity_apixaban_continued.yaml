@@ -1,0 +1,9 @@
+id: fidelity_apixaban_continued
+species: fidelity
+raw_text: |
+  Atrial fibrillation on Eliquis 5 mg bid. Dental cleaning next week.
+  Continue Eliquis, no interruption needed.
+trap: "an anticoagulant continued through a procedure, easy to write as held (D13)"
+must_preserve:
+  - {text: continue apixaban, kind: medication}
+expected_flags: []

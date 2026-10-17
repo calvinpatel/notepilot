@@ -1,0 +1,9 @@
+id: fidelity_lisinopril_stopped
+species: fidelity
+raw_text: |
+  Dry cough for 3 weeks since starting lisinopril, lungs clear.
+  Discontinue lisinopril.
+trap: "a stopped medication, easy to keep as active"
+must_preserve:
+  - {text: lisinopril discontinued, kind: medication}
+expected_flags: []

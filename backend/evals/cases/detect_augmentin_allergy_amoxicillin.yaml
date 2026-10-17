@@ -1,0 +1,10 @@
+id: detect_augmentin_allergy_amoxicillin
+species: detection
+raw_text: |
+  Acute otitis media, right ear. Allergic to Augmentin (hives).
+  Start amoxicillin 875 mg bid x 10 days.
+trap: "amoxicillin started on an amoxicillin-clavulanate allergy"
+must_preserve:
+  - {text: amoxicillin-clavulanate allergy, kind: allergy}
+  - {text: start amoxicillin, kind: medication}
+expected_flags: [allergy_contraindication]

@@ -1,0 +1,11 @@
+id: fidelity_no_htn_urgency
+species: fidelity
+raw_text: |
+  BP 188/108 at today's visit, asymptomatic, denies chest pain.
+  Recheck BP in 1 week.
+trap: "a high reading with no stated assessment, easy to label (D7)"
+must_preserve:
+  - {text: denies chest pain, kind: finding, present: false}
+must_not_add:
+  - {text: hypertensive urgency, kind: diagnosis}
+expected_flags: []

@@ -1,0 +1,9 @@
+id: fidelity_metformin_held
+species: fidelity
+raw_text: |
+  Type 2 diabetes on metformin 1000 mg bid. CT abdomen with contrast today.
+  Metformin held, resume in 48 hours if creatinine is stable.
+trap: "a held home medication, easy to write as continued"
+must_preserve:
+  - {text: metformin held, kind: medication}
+expected_flags: []

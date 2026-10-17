@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,59 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.6.10 — the first model corpus (patch)
+
+Theme: 2b's step 6 lands the first model corpus, 24 cases signed off by Calvin Patel, with
+the free tests that check its answer keys before any run pays for them. Drafting it against
+the checks found a model detection trap that couldn't fail and a naming conflict in the
+fixture table. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L244 §8.5 — a model allergy trap labels both halves of its danger.** Fill: §8.5 asks
+  every `origin="source"` check for a model detection trap, to ask whether a real model
+  keeps the danger visible, and the trap couldn't ask it. `allergy_contraindication` reads
+  allergies and new orders from the raw text (D17, L51), so it fires on any note. Measured
+  on 7ea37c2 with `detect_ampicillin_allergy_keflex` unlabeled: a note that drops the Keflex
+  order still fires it, and the trap passes. Each model trap expecting it now labels its
+  allergy and its order for `must_preserve`; measured on all eight, a faithful note passes
+  and a note hiding either half fails. A test holds the pair.
+- **L245 §8.5 — a fidelity trap keeps a fact whose loss is CRITICAL.** Fill: a fidelity trap
+  passes when nothing CRITICAL fires, and a dropped dose, NKDA, or NKA label, or a labeled
+  downgrade, fires at WARNING (L217), so a trap labeling only those could never fail. Each
+  fidelity trap labels an allergy, a medication, a finding, or a diagnosis to keep, and a
+  test holds it. Measured on all eight: dropping the labeled fact fires `must_preserve` at
+  CRITICAL, and most of the mistakes the traps invite are caught live as well: a dropped
+  allergy by `allergy_preserved`, a flipped status by `med_status_consistency`, a flipped
+  negative by `negation_consistency`, and an upgraded or invented diagnosis by
+  `diagnosis_in_quote`.
+- **L246 §11 — the model corpus's answer keys are tested free.** Fill: a model case has no
+  draft, so its answer key was first exercised on a paid run, where a key no note can pass
+  reads as the model failing. A test builds a faithful note, each sentence of the raw text a
+  claim quoting itself, and requires every model case's verdict to be `passed`. Every claim
+  is S: on this corpus the verdicts match those of the same note with its sections guessed
+  sentence by sentence (measured), so the test guesses none.
+
+**INFO**
+- **L247 §8.5, §14 — a model twin takes its injected case's id plus `_model`.** Conflict:
+  §8.5's fixture table listed `control_pcn_allergy_azithro`, `detect_same_drug_allergy`, and
+  `control_hedged_assessment` as "model + injected", and §14 named the first and third as
+  model cases, but an id is its file name (L119), so one id can't be both. The model twins
+  are `control_pcn_allergy_azithro_model`, `detect_same_drug_allergy_model`,
+  `control_hedged_assessment_model`, and `control_continue_and_hold_model`; each keeps its
+  injected case's raw text, and a test holds it.
+- **L248 §8.5, §11 — the model clause and the corpus's size are tested.** Fill: L137 left
+  the model clause to join the coverage test with the first model case; it does, for each
+  `origin="source"` check, with a test that one is registered. §8.5's size, ≥ 24 model cases
+  and ≥ 6 per species, gains a test too, so the scorecard's n can't shrink unnoticed.
+- **L249 §8.5 — the first model corpus.** 24 model cases, 8 per species, each signed off
+  clinically by Calvin Patel (2026-10-16). Every drug and allergy it names is already in the
+  lexicons, so no entry joins (L171). One trap labels a GI bleed charted under "Allergies:
+  NSAIDs" as an NSAID allergy: a GI bleed is an adverse reaction, not an allergy, but a
+  strong adverse reaction is treated at an allergy's level and the drug avoided, the
+  conservative reading (Calvin Patel). `control_pcn_allergy_cephalexin` fires
+  `allergy_contraindication` at WARNING only, an unspecified penicillin allergy against
+  cephalexin (D9, D14), so the control passes.
 
 ## v1.6.9 — the dry run proves a corpus run before it spends (patch)
 

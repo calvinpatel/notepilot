@@ -1,4 +1,8 @@
-"""§8.5's coverage rule, over the injected corpus (L42, L137, L138, L146, L152, L222).
+"""§8.5's coverage rule (L42, L137, L138, L146, L152, L222) and the model corpus's shape.
+
+The model corpus holds its size, a model twin its injected case's raw text, each model
+allergy trap both halves of its danger, and each fidelity trap a fact whose loss is CRITICAL
+(L244, L245, L247, L248).
 
 load_cases already holds two of §11's corpus checks: every case parses, and every
 expected_flags entry names a registered check.
@@ -25,7 +29,9 @@ from tests.fakes import CHECKS_CONFIG
 
 CASES = load_cases(CASES_DIR)
 INJECTED = [case for case in CASES if case.draft is not None]
+MODEL = [case for case in CASES if case.draft is None]
 CRITICAL = sorted(name for name, c in REGISTRY.items() if c.severity is Severity.CRITICAL)
+SOURCE = [name for name in CRITICAL if REGISTRY[name].origin == "source"]
 
 
 def _note(case: EvalCase) -> SOAPNote:
@@ -125,6 +131,58 @@ def test_each_critical_check_has_an_injected_control_that_exercises_it(name: str
     assert [c.id for c in controls if exercises(c, _note(c))]
 
 
-def test_the_corpus_holds_no_model_case_yet() -> None:
-    # §8.5's model clause joins this file with the corpus's first model case (§14, L137)
-    assert [case.id for case in CASES if case.draft is None] == []
+def test_a_source_check_is_registered() -> None:
+    # the model clause over no checks holds of nothing
+    assert SOURCE
+
+
+@pytest.mark.parametrize("name", SOURCE)
+def test_each_source_check_has_a_model_detection_trap(name: str) -> None:
+    # §8.5's model clause (L137): does a real model keep the danger visible?
+    assert [c.id for c in MODEL if c.species == "detection" and name in c.expected_flags]
+
+
+@pytest.mark.parametrize("species", ["detection", "fidelity", "control"])
+def test_the_model_corpus_holds_at_least_six_of_each_species(species: str) -> None:
+    # §8.5's size, with ≥ 24 in all below (L248)
+    assert len([c for c in MODEL if c.species == species]) >= 6
+
+
+def test_the_model_corpus_holds_at_least_twenty_four_cases() -> None:
+    assert len(MODEL) >= 24
+
+
+TWINS = [c for c in MODEL if c.id.endswith("_model")]
+ALLERGY_TRAPS = [c for c in MODEL if "allergy_contraindication" in c.expected_flags]
+FIDELITY = [c for c in MODEL if c.species == "fidelity"]
+
+
+@pytest.mark.parametrize("twin", TWINS, ids=[c.id for c in TWINS])
+def test_a_model_twin_keeps_its_injected_case_s_raw_text(twin: EvalCase) -> None:
+    # L247: an id is its file name, so a model twin takes its injected case's id plus _model
+    base = twin.id.removesuffix("_model")
+    assert [c.raw_text for c in INJECTED if c.id == base] == [twin.raw_text]
+
+
+def _labels(case: EvalCase, kind: str) -> list[str]:
+    return [item.text for item in case.must_preserve if item.kind == kind]
+
+
+@pytest.mark.parametrize("case", ALLERGY_TRAPS, ids=[c.id for c in ALLERGY_TRAPS])
+def test_a_model_allergy_trap_labels_both_halves_of_its_danger(case: EvalCase) -> None:
+    # L244: the check reads the source, so it fires on any note; the labels make a note that
+    # hides the allergy or the order fail the trap
+    assert _labels(case, "allergy") and _labels(case, "medication")
+
+
+@pytest.mark.parametrize("case", FIDELITY, ids=[c.id for c in FIDELITY])
+def test_a_fidelity_trap_keeps_a_fact_whose_loss_is_critical(case: EvalCase) -> None:
+    # L245: a trap passes when nothing CRITICAL fires, so a trap whose labels can only lose at
+    # WARNING (a dose, NKDA, or NKA, L217) can never fail
+    allergies = [
+        t for t in _labels(case, "allergy") if extract_allergies(t) - NO_ALLERGY_STATEMENTS
+    ]
+    kept = allergies + [
+        i.text for i in case.must_preserve if i.kind in ("medication", "finding", "diagnosis")
+    ]
+    assert kept

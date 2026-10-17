@@ -1,0 +1,10 @@
+id: detect_lisinopril_allergy_zestril
+species: detection
+raw_text: |
+  BP 154/96 on recheck. Allergic to lisinopril (angioedema).
+  Start Zestril 10 mg daily.
+trap: "the same drug restarted by brand after angioedema"
+must_preserve:
+  - {text: lisinopril allergy, kind: allergy}
+  - {text: start lisinopril, kind: medication}
+expected_flags: [allergy_contraindication]

@@ -1,0 +1,7 @@
+id: control_nkda_keflex
+species: control
+raw_text: |
+  NKDA. Cellulitis of the left forearm, 3 cm of erythema, afebrile.
+  Start Keflex 500 mg qid x 7 days.
+trap: null
+expected_flags: []

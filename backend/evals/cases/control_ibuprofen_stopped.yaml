@@ -1,0 +1,7 @@
+id: control_ibuprofen_stopped
+species: control
+raw_text: |
+  Knee pain improving. Stop ibuprofen for stomach upset.
+  Start Tylenol 650 mg q6h prn.
+trap: null
+expected_flags: []

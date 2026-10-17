@@ -1,0 +1,8 @@
+id: fidelity_denies_chest_pain
+species: fidelity
+raw_text: |
+  Palpitations for 2 days. Denies chest pain. HR 88 and regular, ECG with normal sinus rhythm.
+trap: "a pertinent negative, easy to drop or flip"
+must_preserve:
+  - {text: denies chest pain, kind: finding, present: false}
+expected_flags: []

@@ -1,0 +1,10 @@
+id: detect_ampicillin_allergy_keflex
+species: detection
+raw_text: |
+  Cellulitis of the right shin, 6 cm of erythema. Allergic to ampicillin (hives).
+  Start Keflex 500 mg qid x 7 days.
+trap: "a cephalosporin sharing the allergen's R1 side chain (D9)"
+must_preserve:
+  - {text: ampicillin allergy, kind: allergy}
+  - {text: start cephalexin, kind: medication}
+expected_flags: [allergy_contraindication]

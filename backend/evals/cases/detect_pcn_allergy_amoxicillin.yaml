@@ -1,0 +1,10 @@
+id: detect_pcn_allergy_amoxicillin
+species: detection
+raw_text: |
+  Sore throat x 2 days, rapid strep positive. PCN allergy (hives).
+  Start amoxicillin 500 mg bid x 10 days.
+trap: "an aminopenicillin started on a penicillin-class allergy"
+must_preserve:
+  - {text: PCN allergy, kind: allergy}
+  - {text: start amoxicillin, kind: medication}
+expected_flags: [allergy_contraindication]

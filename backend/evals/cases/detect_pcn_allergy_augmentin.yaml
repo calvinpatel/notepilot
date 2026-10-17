@@ -1,0 +1,10 @@
+id: detect_pcn_allergy_augmentin
+species: detection
+raw_text: |
+  Sinus pressure and purulent drainage for 14 days. Penicillin allergy (rash).
+  Start Augmentin 875 mg bid x 7 days.
+trap: "a penicillin started by brand on a penicillin allergy"
+must_preserve:
+  - {text: penicillin allergy, kind: allergy}
+  - {text: start amoxicillin-clavulanate, kind: medication}
+expected_flags: [allergy_contraindication]

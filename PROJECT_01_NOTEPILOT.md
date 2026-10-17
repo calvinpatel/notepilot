@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.9** (patch — the dry run proves a corpus run before it spends, October
-2026). Supersedes v1.6.8.
+**Spec version: v1.6.10** (patch — the first model corpus, October 2026). Supersedes v1.6.9.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1989,8 +1988,8 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   (L114). Injected cases are pytest's, so editing one leaves a model run's lineage alone. A
   YAML comment or a key's order doesn't move it, and an edit to a case's content does
   (measured); so does a schema change that adds a defaulted field, which errs safe.
-- **Size:** ≥ 24 **model** cases, ≥ 6 per species; injected cases as many as the coverage
-  rule demands (they're free).
+- **Size:** ≥ 24 **model** cases, ≥ 6 per species (a test holds both, L248); injected cases
+  as many as the coverage rule demands (they're free).
 - **The coverage rule (restated v1.3 for L42), unit-tested free:** for every registered
   CRITICAL check — ≥ 1 injected detection trap with it in `expected_flags`, and ≥ 1 injected
   clean control that exercises its extraction path without a violation. Checks with
@@ -2004,9 +2003,19 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   pair (L152); for `must_preserve` and `must_not_add`, a label of their list, since each
   compares its labels with the note (L222). The test holds one such predicate per CRITICAL
   check, and fails when one is missing or when no CRITICAL check is registered, since a rule
-  over no checks holds of nothing. The model clause joins the test in 2b, with the corpus's
-  first model case (§14, L137); until then the test asserts the corpus holds none, so that
-  case turns it red.
+  over no checks holds of nothing. The model clause joined the test with the corpus's first
+  model cases (§14, L137, L248).
+- **A model allergy trap labels both halves of its danger (L244).**
+  `allergy_contraindication` reads allergies and new orders from the raw text (D17, L51), so
+  it fires on any note, one that hides the danger included. Each model detection trap
+  expecting it labels its allergy and its order for `must_preserve`, so a note that drops
+  either fails the trap; a test holds the pair.
+- **A fidelity trap keeps a fact whose loss is CRITICAL (L245).** It passes when nothing
+  CRITICAL fires, so a trap whose labels could only be lost at WARNING (a dose, NKDA, or
+  NKA; L217) could never fail. Each labels an allergy, a medication, a finding, or a
+  diagnosis to keep; a test holds it.
+- **A model twin takes its injected case's id plus `_model` (L247)**, since an id is its
+  file name, and keeps the injected case's raw text.
 - **DECISION D16 (v1.3, vetoable) — one planted danger per trap.** Expected flags match on
   check *name*, so a trap can pass for the wrong reason: the check fires on an incidental
   claim while missing the planted one. Injected drafts make that nearly impossible — they
@@ -2028,13 +2037,13 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 
 | fixture | kind | species | freezes |
 |---|---|---|---|
-| `control_pcn_allergy_azithro` | model + injected | control | allergy context read as a prescription (v1.2); the injected one labels its allergy for `must_preserve` and its amoxicillin for `must_not_add`, each check's exercising control (L222) |
+| `control_pcn_allergy_azithro` | injected, twin `control_pcn_allergy_azithro_model` (L247) | control | allergy context read as a prescription (v1.2); the injected one labels its allergy for `must_preserve` and its amoxicillin for `must_not_add`, each check's exercising control (L222) |
 | `detect_drug_not_in_quote` | injected | detection | the text-vs-quote gap (v1.2) |
 | `detect_negation_flip` | injected | detection | "denies" → "reports" (v1.2) |
 | `fidelity_dropped_allergy` | model | fidelity | allergy omission (v1.2); its injected twin is `detect_dropped_allergy` |
 | `detect_dropped_allergy` | injected | detection | allergy omission (v1.2) — labels the allergy and expects `[allergy_preserved, must_preserve]` (L145) |
 | `detect_added_medication` | injected | detection | L157 — a stopped drug kept as taken, from a span that cuts off its stop cue; every live check passes, and `must_not_add` fires (L223) |
-| `detect_same_drug_allergy` | model + injected | detection | L30 |
+| `detect_same_drug_allergy` | injected, twin `detect_same_drug_allergy_model` (L247) | detection | L30 |
 | `detect_contra_omitted_rx` | injected | detection | L51 — the draft omits the amoxicillin the raw text starts |
 | `detect_shared_side_chain` | injected | detection | D9 — cephalexin on an ampicillin allergy, an identical R1 side chain v1.2 read as a WARNING (L153) |
 | `detect_paraphrase_drug_swap` | injected | detection | L35 — a Tier 3 quote with a swapped drug |
@@ -2044,7 +2053,7 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 | `detect_premature_exclusion` | injected | detection | L140 — "r/o PE" → "PE ruled out" |
 | `detect_degenerate_quote` | injected | detection | D15 |
 | `detect_empty_note` | injected | detection | L55 |
-| `control_hedged_assessment` | model + injected | control | D7 — a hedged A kept hedged is clean (L23) |
+| `control_hedged_assessment` | injected, twin `control_hedged_assessment_model` (L247) | control | D7 — a hedged A kept hedged is clean (L23) |
 | `control_empty_assessment` | model | control | D7 — no stated A, no A claims, clean (L23) |
 
 (v1.2's `detect_vital_drift` expected no eval check — it tests grounding's numeric guard. It
@@ -3073,7 +3082,10 @@ in the push workflow — it spends real money.
   compare equal across spacing and case (L33); each `contraindication` rung (D9, D14).
 - **Corpus load + coverage** — every fixture parses; every `expected_flags` entry is
   registered; every reference label reads, the raw text keeps each `must_preserve` reading,
-  and adds no `must_not_add` one (L219); the §8.5 coverage rule holds.
+  and adds no `must_not_add` one (L219); the §8.5 coverage rule holds, with the model
+  corpus's size, both labels on each model allergy trap, and a CRITICAL-loss label on each
+  fidelity trap (L244, L245, L248); and a faithful note, each sentence of the raw text a
+  claim quoting itself, passes every model case (L246).
 - **Fail-closed engine** — a raising check yields `errored=True, passed=False` and the others
   still run; a severity-upgrading finding errors its check (L38); an errored expected check
   fails its case (L43); a check absent from `checks_run` makes its case N/A (L44), and so
@@ -3310,7 +3322,8 @@ annotated tag is the record, audited alongside the lines above.
 □ v1.4 implemented before any model case (L194), then one live smoke run on the pinned
   model in L81's form: the new prompt_version, the ceiling (L85), throughput (L185)
 □ ≥ 24 model cases, ≥ 6 per species, explicit species (L9) — incl.
-  control_pcn_allergy_azithro, control_hedged_assessment, control_empty_assessment (L23)
+  control_pcn_allergy_azithro_model, control_hedged_assessment_model,
+  control_empty_assessment (L23, L247)
 □ one planted danger per trap (D16), enforced in review
 □ the coverage rule's model clause, with the corpus's first model case (L137)
 □ typed must_not_add, polarity-aware reference checks (L10, L36) · labels read by their

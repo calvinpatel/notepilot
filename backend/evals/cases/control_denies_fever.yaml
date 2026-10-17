@@ -1,0 +1,9 @@
+id: control_denies_fever
+species: control
+raw_text: |
+  Sore throat for 3 days, rapid strep negative. Denies fever, chills, or vomiting.
+  Supportive care, return if worse.
+trap: null
+must_preserve:
+  - {text: denies fever, kind: finding, present: false}
+expected_flags: []

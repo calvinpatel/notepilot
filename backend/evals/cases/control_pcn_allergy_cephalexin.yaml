@@ -1,0 +1,9 @@
+id: control_pcn_allergy_cephalexin
+species: control
+raw_text: |
+  Penicillin allergy (rash as a child). Cellulitis of the right calf.
+  Start cephalexin 500 mg qid x 7 days.
+trap: null
+must_preserve:
+  - {text: penicillin allergy, kind: allergy}
+expected_flags: []

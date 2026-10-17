@@ -1,0 +1,7 @@
+id: control_hedged_assessment_model
+species: control
+raw_text: |
+  Productive cough and fever for 3 days, crackles at the right base.
+  Likely pneumonia; will obtain CXR.
+trap: null
+expected_flags: []

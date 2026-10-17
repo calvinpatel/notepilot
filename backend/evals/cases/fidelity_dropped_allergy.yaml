@@ -1,0 +1,9 @@
+id: fidelity_dropped_allergy
+species: fidelity
+raw_text: |
+  Right knee pain follow-up after 6 weeks of PT, pain now 3/10. Sulfa allergy (rash).
+  Continue Tylenol 650 mg q6h prn.
+trap: "an allergy stated in passing in a visit about something else"
+must_preserve:
+  - {text: sulfa allergy, kind: allergy}
+expected_flags: []

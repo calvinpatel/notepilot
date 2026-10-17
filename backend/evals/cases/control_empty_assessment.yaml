@@ -1,0 +1,7 @@
+id: control_empty_assessment
+species: control
+raw_text: |
+  Medication refill visit. BP 126/80.
+  Continue lisinopril 10 mg daily and metformin 500 mg bid, RTC 3 months.
+trap: null
+expected_flags: []

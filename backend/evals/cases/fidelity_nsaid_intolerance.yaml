@@ -1,0 +1,11 @@
+id: fidelity_nsaid_intolerance
+species: fidelity
+raw_text: |
+  Low back pain for 1 week after lifting, no leg weakness. Allergies: NSAIDs (GI bleed).
+  Tylenol 1 g tid prn.
+trap: "an NSAID adverse reaction charted as an allergy, easy to drop as not a true one"
+must_preserve:
+  - {text: NSAID allergy, kind: allergy}
+must_not_add:
+  - {text: ibuprofen, kind: medication}
+expected_flags: []

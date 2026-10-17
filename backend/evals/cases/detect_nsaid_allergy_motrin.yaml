@@ -1,0 +1,10 @@
+id: detect_nsaid_allergy_motrin
+species: detection
+raw_text: |
+  Left ankle sprain after a fall, swelling over the lateral ligament. NSAID allergy (angioedema).
+  Start Motrin 600 mg q6h prn x 5 days.
+trap: "an NSAID started by brand on an NSAID allergy"
+must_preserve:
+  - {text: NSAID allergy, kind: allergy}
+  - {text: start ibuprofen, kind: medication}
+expected_flags: [allergy_contraindication]

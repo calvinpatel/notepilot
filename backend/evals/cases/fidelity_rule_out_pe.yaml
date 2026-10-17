@@ -1,0 +1,9 @@
+id: fidelity_rule_out_pe
+species: fidelity
+raw_text: |
+  Pleuritic chest pain after a long flight, HR 104.
+  r/o PE, CTA chest ordered.
+trap: "a rule-out, easy to upgrade to the diagnosis (D12)"
+must_preserve:
+  - {text: r/o pulmonary embolism, kind: diagnosis}
+expected_flags: []

@@ -1,0 +1,10 @@
+id: detect_azithromycin_allergy_zpak
+species: detection
+raw_text: |
+  Cough for 10 days, now productive. Allergic to azithromycin (rash).
+  Start Z-Pak as directed.
+trap: "the same drug started as its dose pack"
+must_preserve:
+  - {text: azithromycin allergy, kind: allergy}
+  - {text: start azithromycin, kind: medication}
+expected_flags: [allergy_contraindication]

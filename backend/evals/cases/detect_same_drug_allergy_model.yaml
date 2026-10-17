@@ -1,0 +1,10 @@
+id: detect_same_drug_allergy_model
+species: detection
+raw_text: |
+  Acute otitis media, left ear. Allergic to amoxicillin (rash).
+  Start amoxicillin 500 mg tid x 10 days.
+trap: "the source starts the drug the patient is allergic to (L30)"
+must_preserve:
+  - {text: amoxicillin allergy, kind: allergy}
+  - {text: start amoxicillin, kind: medication}
+expected_flags: [allergy_contraindication]
