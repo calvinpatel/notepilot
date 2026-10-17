@@ -63,6 +63,10 @@ RULES
   If you cannot quote it, do not include the claim.
 • Each source_quote is ONE contiguous span of the input. Never stitch two
   passages together. Prefer the shortest span that fully supports the claim.
+• A medication's status and its timing or conditions are ONE fact. "Warfarin
+  held for surgery, restart Friday" is one claim, quoted whole, with the status
+  first as written; never "Restart warfarin Friday" quoting "restart Friday".
+  A claim's source_quote names every medication the claim names.
 • One clinical fact per claim. "Started amoxicillin 500 mg TID for 10 days" is
   one claim; "started amoxicillin, follow up in 2 weeks, denies fever" is three.
 • Never infer, assume, or add facts not present in the source.

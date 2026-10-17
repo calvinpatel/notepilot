@@ -7,9 +7,11 @@ get_client's first call (then cached for the process) and summarize — never
 these two constants. Prefer scripting the fake client over patching settings.
 
 No test pins PROMPT_VERSION's value or the prompt's text: a prompt edit is allowed and
-versions itself (invariant 15); spec fidelity is checked at review. One clause is checked
+versions itself (invariant 15); spec fidelity is checked at review. Two clauses are checked
 for content, not text: the never-omit bullet names NKDA and NKA (L191), the absence
-statements §8.4's allergy check reads.
+statements §8.4's allergy check reads, and the status bullet keeps a medication's status
+and plan as one claim naming the medication (L252). No five-word run of a model case's raw
+text appears in the prompt (L252), so a corpus run measures the rules, not memorized cases.
 
 The tool-schema snapshot is never written by a test. Regenerate it, after a reviewed
 change to ClaimDraft or SOAPNoteDraft, with exactly:
@@ -36,6 +38,7 @@ from anthropic.types import Message, MessageParam, StopReason, ToolResultBlockPa
 from pydantic import SecretStr, ValidationError
 
 from backend.config import Settings, settings
+from backend.evals.loader import CASES_DIR, load_cases
 from backend.orchestrator import (
     CALL_CONFIG,
     CORRECTION_TEMPLATE,
@@ -53,7 +56,7 @@ from backend.orchestrator import (
     get_client,
     summarize,
 )
-from backend.schemas import RunMetadata, SOAPNoteDraft, TokenUsage
+from backend.schemas import EvalCase, RunMetadata, SOAPNoteDraft, TokenUsage
 from tests.fakes import FakeLLMClient, RecordedCall, text_message, tool_use_message
 
 _SNAPSHOT = Path(__file__).parent / "snapshots" / "tool_schema.json"
@@ -79,6 +82,32 @@ def test_never_omit_clause_names_nkda_and_nka() -> None:
     (clause,) = [b for b in SYSTEM_PROMPT.split("• ") if b.startswith("When uncertain, OMIT")]
     assert re.search(r"\bNKDA\b", clause)
     assert re.search(r"\bNKA\b", clause)
+
+
+def test_status_bullet_keeps_status_and_plan_in_one_claim_naming_the_medication() -> None:
+    # L252: a medication's status and its timing or conditions are one claim, quoted whole,
+    # and a claim's quote names every medication the claim names. The bullet runs to the
+    # next one.
+    (clause,) = [b for b in SYSTEM_PROMPT.split("• ") if b.startswith("A medication's status")]
+    assert "ONE fact" in clause
+    assert "names every medication the claim names" in " ".join(clause.split())
+
+
+def _five_word_runs(text: str) -> set[tuple[str, ...]]:
+    """Every run of five consecutive words, casefolded, punctuation dropped."""
+    words = re.findall(r"[a-z0-9]+", text.casefold())
+    return {tuple(words[i : i + 5]) for i in range(len(words) - 4)}
+
+
+_PROMPT_RUNS: Final = _five_word_runs(SYSTEM_PROMPT)
+_MODEL_CASES: Final = [case for case in load_cases(CASES_DIR) if case.draft is None]
+
+
+@pytest.mark.parametrize("case", _MODEL_CASES, ids=[case.id for case in _MODEL_CASES])
+def test_no_five_word_run_of_a_model_case_appears_in_the_prompt(case: EvalCase) -> None:
+    # L252: a prompt quoting a case would score memorization on a corpus run, not the rule.
+    # Five words: a shorter run matches generic dosing ("amoxicillin 500 mg tid", measured).
+    assert not _five_word_runs(case.raw_text) & _PROMPT_RUNS
 
 
 def test_call_config_is_exactly_the_spec_dict() -> None:
