@@ -1,4 +1,4 @@
-"""The corpus scorer with a fake client, and its git and runs_path helpers (§8.7, §11; L211, L237).
+"""The corpus scorer, its command, and its git and runs_path helpers (§8.7, §11; L211, L237, L241).
 
 No network: every call goes to a KeyedFakeLLMClient. No git of the real tree: score_corpus's
 tests replace both git reads, and the helpers' tests run git in a repository under tmp_path,

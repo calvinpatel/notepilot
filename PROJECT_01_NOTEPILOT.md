@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.10** (patch — the first model corpus, October 2026). Supersedes v1.6.9.
+**Spec version: v1.6.11** (patch — the 2b close, October 2026). Supersedes v1.6.10.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3284,8 +3284,10 @@ it runs — a smoke run, not a corpus run. Repeat at any later phase close that 
 request shape, and at every change of the pinned model (L185). 2a's close runs one although
 the request shape is unchanged (L179): the response and the page are new, and real model
 output meets `ground()` and `run_checks` for the first time. The tag records what it
-renders; a finding it shows is recorded, not fixed. No automated test, by design: the
-annotated tag is the record, audited alongside the lines above.
+renders; a finding it shows is recorded, not fixed. 2b's close runs none (L250): the request
+shape is unchanged since v1.4's smoke run, and the baseline's 72 calls ran on it. No
+automated test, by design: the annotated tag is the record, audited alongside the lines
+above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
@@ -3336,7 +3338,8 @@ annotated tag is the record, audited alongside the lines above.
   inside the try (L208), + all-failed runs recorded (L46) · k repeats + flaky_cases (D11) ·
   failed-attempt usage counted (L49), per case (L186) · each case's wall time and draft
   (L201, L203) · lineage read before the first call (L207) · python -m backend.corpus
-  behind --spend (L210) · its fake-client tests (L211)
+  behind --spend, a dry run by default (L210, L240, L242) · its fake-client tests (L211,
+  L241)
 □ CorpusRunRecord: git_sha + git_dirty + checks_version (L45) · checks_config (L187) ·
   concurrency (L202) · CorpusMetrics (L3, L205, L206, L224) · its domains (L212,
   L225–L227)

@@ -4,7 +4,7 @@
 
 NotePilot takes free-text from a patient encounter (a transcript, a clinician's dictation, a scribe's notes) and produces a structured SOAP note. Every claim in the note is grounded back to the source text, and a deterministic safety layer checks the output for the classes of error that matter clinically — a dropped allergy, a contraindicated prescription, a severity that got downgraded in summarization.
 
-> **Status:** Phase 1 — MVP spine — is done, tagged `v0.1-spine`: the pipeline runs end-to-end. Phase 2a — the safety layer, proven for free — is done, tagged `v0.2a-safety`: grounding and the deterministic checks run on every note. Phase 2b, the model corpus, is in progress. See [Roadmap](#roadmap).
+> **Status:** Phase 1 — MVP spine — is done, tagged `v0.1-spine`: the pipeline runs end-to-end. Phase 2a — the safety layer, proven for free — is done, tagged `v0.2a-safety`: grounding and the deterministic checks run on every note. Phase 2b — the regression thesis goes live — is done, tagged `v0.2b-corpus`: 24 model cases run against the real model, with the baseline [scorecard](#safety-scorecard) below. See [Roadmap](#roadmap).
 
 ---
 
@@ -78,7 +78,7 @@ The fix chosen changes the prompt: it asks the model to quote every drug a claim
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | MVP spine: paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display | done (`v0.1-spine`) |
-| 2 | Grounding ladder, safety checks, synthetic trap corpus, run lineage | **in progress**: 2a done (`v0.2a-safety`) |
+| 2 | Grounding ladder, safety checks, synthetic trap corpus, run lineage | **in progress**: 2a done (`v0.2a-safety`), 2b done (`v0.2b-corpus`) |
 | 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | planned |
 | 4 | RAG cross-check against drug-interaction and guideline references | planned |
 

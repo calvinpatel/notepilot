@@ -8,6 +8,9 @@ things before the first call (L235): no model cases, a duplicated case id, a tre
 read, and a runs_path that can't take the record. After the calls, one case's exception
 becomes one errored row (L46, L208), and a run where every case failed still writes its
 record.
+
+main is the run's command, python -m backend.corpus: a dry run by default, which runs
+plan_run and builds no client, and the paid run with --spend (L210, L240, L242).
 """
 
 import argparse

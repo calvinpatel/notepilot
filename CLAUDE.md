@@ -104,7 +104,7 @@ staging area for decisions.
 
 Build order is spec §14, phase by phase, strictly sequential.
 
-**Current phase: 2b — the regression thesis goes live.** *(Update this line as phases
+**Current phase: 2c — the semantic backstop.** *(Update this line as phases
 complete.)*
 
 - **Closing a phase** follows §14's preamble; each tag is named in its phase's heading.
