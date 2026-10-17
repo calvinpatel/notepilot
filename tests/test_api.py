@@ -36,6 +36,7 @@ from anthropic import (
     APITimeoutError,
     AuthenticationError,
     BadRequestError,
+    ConflictError,
     InternalServerError,
     OverloadedError,
     RateLimitError,
@@ -705,6 +706,21 @@ _UPSTREAM: Final[dict[str, _UpstreamCase]] = {
         "upstream_error",
         logging.WARNING,
         "upstream_status=399",
+    ),
+    # L255: 408 and 409 are an intermediary's, retried by the SDK as transient
+    "request-timeout-408": _UpstreamCase(
+        lambda: _status_error(APIStatusError, 408),
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "upstream_status=408",
+    ),
+    "conflict-409": _UpstreamCase(
+        lambda: _status_error(ConflictError, 409),
+        502,
+        "upstream_error",
+        logging.WARNING,
+        "upstream_status=409",
     ),
     "bad-request-400": _UpstreamCase(
         lambda: _status_error(BadRequestError, 400),

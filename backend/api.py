@@ -34,13 +34,14 @@ model-emitted text (L53, invariant 19).
 Anthropic SDK failures are attributed by whose fault they are (L54, L71, L99), one handler
 per class, resolved by MRO. RateLimitError is 503 upstream_busy, with upstream's Retry-After
 when it sent one. APIStatusError is decided by its status, never its subclass, and totally:
-429 and 529 are 503 upstream_busy, any other 4xx is 500 internal_error at ERROR (our request
-or config), and any other status is 502 upstream_error. APITimeoutError, our own client's
-timeout, is 504 upstream_timeout; any other APIError, a non-timeout connection failure
-included, is 502 upstream_error. Each logs one upstream_failure line with the code and the
-request id, then upstream_status (the two status-error handlers) or exc_type (the other
-two). None reads the exception's message, its body, or its request, whose content is the
-whole paste; the one header read is RateLimitError's Retry-After.
+429 and 529 are 503 upstream_busy, 408 and 409 are 502 upstream_error at WARNING (an
+intermediary's, after the SDK's retries; L255), any other 4xx is 500 internal_error at ERROR
+(our request or config), and any other status is 502 upstream_error. APITimeoutError, our
+own client's timeout, is 504 upstream_timeout; any other APIError, a non-timeout connection
+failure included, is 502 upstream_error. Each logs one upstream_failure line with the code
+and the request id, then upstream_status (the two status-error handlers) or exc_type (the
+other two). None reads the exception's message, its body, or its request, whose content is
+the whole paste; the one header read is RateLimitError's Retry-After.
 
 request_id is minted per request by RequestIdMiddleware (L73), a pure ASGI middleware, on
 request.state. The root logger is configured once here (§9.8): plain text with timestamp,
@@ -294,6 +295,8 @@ async def handle_rate_limit_error(request: Request, exc: RateLimitError) -> JSON
 
 # L71, L99: overloaded and throttled mean the same thing to our client: upstream is busy.
 _BUSY_STATUSES: Final[frozenset[int]] = frozenset({429, 529})
+# L255: a 4xx the SDK retries as transient, from an intermediary once its retries run out
+_INTERMEDIARY_STATUSES: Final[frozenset[int]] = frozenset({408, 409})
 
 
 @app.exception_handler(APIStatusError)
@@ -301,15 +304,17 @@ async def handle_api_status_error(request: Request, exc: APIStatusError) -> JSON
     """Attributed by the status, never the subclass, and total over every int (§9.4; L71, L99).
 
     RateLimitError's handler claims the SDK's 429s first by MRO, so a 429 here is the base
-    class; the busy check runs first because 429 is also a 4xx. ERROR only on the 500 branch:
-    a 4xx is OUR request or config. It forwards no headers (L99). Of the exception it reads
-    only the status code: never str(exc), exc.message, exc.body, exc.request, the response
-    body, or the cause (invariant 19).
+    class; the busy check runs first because 429 is also a 4xx. ERROR only on the 500
+    branch: a 4xx other than 408 and 409 is OUR request or config (L255). It forwards no
+    headers (L99). Of the exception it reads only the status code: never str(exc),
+    exc.message, exc.body, exc.request, the response body, or the cause (invariant 19).
     """
     rid: str = request.state.request_id
     upstream = exc.status_code
     if upstream in _BUSY_STATUSES:
         status, code, level = 503, "upstream_busy", logging.WARNING
+    elif upstream in _INTERMEDIARY_STATUSES:  # L255
+        status, code, level = 502, "upstream_error", logging.WARNING
     elif 400 <= upstream < 500:
         status, code, level = 500, "internal_error", logging.ERROR
     else:  # 5xx, and any status outside 4xx/5xx (L99)
