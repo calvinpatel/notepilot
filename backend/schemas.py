@@ -292,9 +292,9 @@ class CorpusMetrics(BaseModel):
     detection_recall: float | None = Field(ge=0, le=1)  # L227: a fraction
     control_specificity: float | None = Field(ge=0, le=1)
     model_fidelity: float | None = Field(ge=0, le=1)
-    fidelity_caught: float | None = Field(ge=0, le=1)  # L206, L224
+    fidelity_caught: float | None = Field(ge=0, le=1)  # L206, L224, L253
     pass_rate: float | None = Field(ge=0, le=1)  # every species (L205)
-    flaky_cases: list[str]  # D11
+    flaky_cases: list[str]  # D11, L254
 
 
 class CorpusRunRecord(BaseModel):

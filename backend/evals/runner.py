@@ -229,26 +229,31 @@ def _rate(rows: list[CaseResult]) -> float | None:
 def corpus_metrics(results: list[CaseResult]) -> CorpusMetrics:
     """A corpus run's rates and flaky cases, read from its rows (§8.7; L3, D11).
 
-    fidelity_caught reads each row's fired_critical against the registry: a repeat is caught
-    when a reference-free check fired at CRITICAL (L206, L224). An errored check is not a
-    catch (L230). A case is flaky when its pass fraction over its applicable repeats is
-    strictly between 0 and 1 (L229).
+    fidelity_caught reads each row's fired_critical against the registry. Its denominator is
+    the fidelity repeats where a reference check fired at CRITICAL, so the model lost or added
+    a labeled fact (L253); a repeat among them is caught when a reference-free check fired at
+    CRITICAL too (L206, L224). An errored check is not a catch (L230). A case is flaky when its
+    pass fraction over its applicable repeats without a pipeline error is strictly between 0
+    and 1 (L229, L254).
     """
     by_species = {
         species: [row for row in results if row.species == species]
         for species in ("detection", "control", "fidelity")
     }
-    failed_fidelity = [
-        row for row in by_species["fidelity"] if row.status == "failed" and row.error is None
+    labeled_errors = [
+        row
+        for row in by_species["fidelity"]
+        if any(REGISTRY[check].requires_reference for check in row.fired_critical)
     ]
     caught = [
         row
-        for row in failed_fidelity
+        for row in labeled_errors
         if any(not REGISTRY[check].requires_reference for check in row.fired_critical)
     ]
     by_case: dict[str, list[CaseResult]] = {}
     for row in results:
-        by_case.setdefault(row.case_id, []).append(row)
+        if row.error is None:  # L254: an upstream failure isn't the reply varying
+            by_case.setdefault(row.case_id, []).append(row)
     flaky = [
         case_id
         for case_id, rows in by_case.items()
@@ -258,7 +263,7 @@ def corpus_metrics(results: list[CaseResult]) -> CorpusMetrics:
         detection_recall=_rate(by_species["detection"]),
         control_specificity=_rate(by_species["control"]),
         model_fidelity=_rate(by_species["fidelity"]),
-        fidelity_caught=len(caught) / len(failed_fidelity) if failed_fidelity else None,
+        fidelity_caught=len(caught) / len(labeled_errors) if labeled_errors else None,
         pass_rate=_rate(results),
         flaky_cases=sorted(flaky),
     )

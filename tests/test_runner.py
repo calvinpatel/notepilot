@@ -1,5 +1,6 @@
 """Pins the check engine, the per-case verdict, the checks' lineage, and a corpus run's rows
-and metrics (spec §8.7; L38, L43–L45, L49, L113–L115, L205, L206, L224, L228–L230).
+and metrics (spec §8.7; L38, L43–L45, L49, L113–L115, L205, L206, L224, L228–L230, L253,
+L254).
 """
 
 import asyncio
@@ -25,6 +26,7 @@ from backend.schemas import (
     CaseStatus,
     ChecksConfig,
     ClinicalClaim,
+    CorpusRunRecord,
     EvalCase,
     EvalReport,
     EvalResult,
@@ -585,16 +587,24 @@ def live_and_reference(registry: dict[str, Check]) -> dict[str, Check]:
 
 
 @pytest.mark.usefixtures("live_and_reference")
-def test_fidelity_caught_counts_a_live_critical_among_failures_without_an_error() -> None:
+def test_fidelity_caught_counts_live_catches_among_the_models_labeled_errors() -> None:
+    # L253: the denominator is the fidelity repeats where a reference check fired
     rows = [
-        _row("f-1", "fidelity", "failed", fired_critical=("live",)),
+        _row("f-1", "fidelity", "failed", fired_critical=("live",)),  # no labeled fact lost
         _row("f-2", "fidelity", "failed", fired_critical=("reference",)),
         _row("f-3", "fidelity", "failed", fired_critical=("live", "reference")),
         _row("f-4", "fidelity", "failed", error="APIError"),  # not in the denominator
         _row("f-5", "fidelity", "passed"),  # nor is a pass
-        _row("c-1", "control", "failed", fired_critical=("live",)),  # nor another species
+        _row("c-1", "control", "failed", fired_critical=("live", "reference")),  # nor a control
     ]
-    assert corpus_metrics(rows).fidelity_caught == pytest.approx(2 / 3)
+    assert corpus_metrics(rows).fidelity_caught == pytest.approx(1 / 2)
+
+
+@pytest.mark.usefixtures("live_and_reference")
+def test_a_fidelity_failure_no_reference_check_explains_is_no_catch() -> None:
+    # L253: the baseline's shape, a live check firing on a faithful note, is not a catch
+    rows = [_row("f-1", "fidelity", "failed", repeat=r, fired_critical=("live",)) for r in range(3)]
+    assert corpus_metrics(rows).fidelity_caught is None
 
 
 @pytest.mark.usefixtures("live_and_reference")
@@ -611,19 +621,43 @@ def test_an_errored_or_lowered_live_check_is_not_a_catch(live: EvalResult) -> No
     assert corpus_metrics([row]).fidelity_caught == 0.0
 
 
-def test_a_case_is_flaky_when_its_applicable_repeats_disagree() -> None:
-    # D11, L229: by case, over its applicable repeats, sorted by id
-    outcomes: dict[str, list[CaseStatus]] = {
+def test_a_case_is_flaky_when_its_applicable_repeats_without_an_error_disagree() -> None:
+    # D11, L229, L254: by case, over its applicable repeats without an error, sorted by id;
+    # "errored" is a failure on a pipeline error
+    outcomes: dict[str, list[CaseStatus | Literal["errored"]]] = {
         "case-z": ["passed", "failed"],
         "case-b": ["passed", "passed"],
         "case-c": ["failed", "failed"],
         "case-d": ["passed", "not_applicable"],
         "case-e": ["not_applicable", "not_applicable"],
         "case-a": ["failed", "failed", "passed"],
+        "case-f": ["passed", "passed", "errored"],  # an upstream failure isn't variation
+        "case-g": ["passed", "failed", "errored"],  # the replies still disagree
     }
     rows = [
-        _row(case_id, "control", status, repeat=repeat)
+        _row(case_id, "control", "failed", repeat=repeat, error="APIError")
+        if status == "errored"
+        else _row(case_id, "control", status, repeat=repeat)
         for case_id, statuses in outcomes.items()
         for repeat, status in enumerate(statuses)
     ]
-    assert corpus_metrics(rows).flaky_cases == ["case-a", "case-z"]
+    assert corpus_metrics(rows).flaky_cases == ["case-a", "case-g", "case-z"]
+
+
+_RECORD = Path(__file__).parents[1] / "backend" / "evals" / "runs" / "corpus_runs.jsonl"
+
+
+def test_the_2b_baseline_rescores_under_v1_7s_definitions() -> None:
+    # L253, L254: the scorecard's before, from the committed record's own rows (D5, L203).
+    # No reference check fired on any of its 72 repeats, so fidelity_caught has no
+    # denominator; no repeat errored, so flaky_cases is unchanged.
+    records = [
+        CorpusRunRecord.model_validate_json(line)
+        for line in _RECORD.read_text(encoding="utf-8").splitlines()
+    ]
+    (baseline,) = [r for r in records if r.git_sha.startswith("26a69b0")]
+    rescored = corpus_metrics(baseline.cases)
+    assert baseline.metrics.fidelity_caught == 1.0  # as v1.6 counted it
+    assert rescored.fidelity_caught is None
+    changed = {"fidelity_caught"}
+    assert rescored.model_dump(exclude=changed) == baseline.metrics.model_dump(exclude=changed)
