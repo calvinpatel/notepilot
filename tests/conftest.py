@@ -1,5 +1,5 @@
 """Env setup that must run before any test imports backend, the hypothesis profile, the
-async-backend pin, and the registry fixture.
+async-backend pin, the lexicon-table guard, and the registry fixture.
 
 Settings is built at import time (spec §10).
 """
@@ -40,6 +40,21 @@ settings.load_profile("deterministic")
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def lexicon_tables_unchanged() -> Iterator[None]:
+    """L257: the suite leaves every lexicon table as it found it, checked after the last test.
+
+    The tables stay mutable types (§7's lexicons.py imports nothing), so a test that writes to
+    one would leak into every test after it. Imported here, not at the top, so the env setup
+    above runs before any backend import.
+    """
+    from tests.guards import lexicon_digest
+
+    before = lexicon_digest()
+    yield
+    assert lexicon_digest() == before, "a test wrote to a lexicon table (L257)"
 
 
 @pytest.fixture
