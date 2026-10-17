@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.6.11** (patch — the 2b close, October 2026). Supersedes v1.6.10.
+**Spec version: v1.7** (minor — what the baseline taught, October 2026). Supersedes
+v1.6.11.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -101,7 +102,8 @@ a test suite only a clinician can author. The moat gets the interview; the plumb
 
 (v1.3, L3: v1.2's sentence said "catches X% of CRITICAL safety violations," and no field
 computed it — `pass_rate` blended three species. The four numbers are `CorpusMetrics`,
-§4.2 / §8.7. X counts a live CRITICAL result alone, L206, L224.)
+§4.2 / §8.7. X counts a live CRITICAL result alone, L206, L224, over the repeats where
+the model lost or added a labeled fact, L253.)
 
 That last clause — **evals as regression tests for a stochastic system, with lineage** —
 is the frontier of production AI engineering.
@@ -548,16 +550,17 @@ class CorpusMetrics(BaseModel):             # v1.3 (L3): four numbers, never one
                                                             #   applicable
     model_fidelity: float | None = Field(ge=0, le=1)        # fidelity repeats passed /
                                                             #   applicable
-    fidelity_caught: float | None = Field(ge=0, le=1)       # of fidelity repeats that
-                                                            #   FAILED without a pipeline
-                                                            #   error, the fraction where a
-                                                            #   LIVE (reference-free) check
-                                                            #   fired at CRITICAL (L206,
-                                                            #   L224)
+    fidelity_caught: float | None = Field(ge=0, le=1)       # of fidelity repeats where a
+                                                            #   REFERENCE check fired at
+                                                            #   CRITICAL, the fraction where
+                                                            #   a LIVE (reference-free)
+                                                            #   check fired at CRITICAL too
+                                                            #   (L206, L224, L253)
     pass_rate: float | None = Field(ge=0, le=1)             # kept for continuity; never
                                                             #   quoted alone (L205)
     flaky_cases: list[str]                  # D11: pass fraction over applicable repeats
-                                            #   strictly between 0 and 1, sorted (L229)
+                                            #   without a pipeline error, strictly between
+                                            #   0 and 1, sorted (L229, L254)
     # None, not 1.0, over an empty denominator — a vacuous metric is not a perfect one.
     # A repeat is applicable unless it is not_applicable (L205).
 
@@ -759,6 +762,10 @@ RULES
   If you cannot quote it, do not include the claim.
 • Each source_quote is ONE contiguous span of the input. Never stitch two
   passages together. Prefer the shortest span that fully supports the claim.
+• A medication's status and its timing or conditions are ONE fact. "Warfarin
+  held for surgery, restart Friday" is one claim, quoted whole, with the status
+  first as written; never "Restart warfarin Friday" quoting "restart Friday".
+  A claim's source_quote names every medication the claim names.
 • One clinical fact per claim. "Started amoxicillin 500 mg TID for 10 days" is
   one claim; "started amoxicillin, follow up in 2 weeks, denies fever" is three.
 • Never infer, assume, or add facts not present in the source.
@@ -815,6 +822,18 @@ noise); *one fact per claim* is for extraction and anchoring (a paragraph-sized 
 and *allergies always* are for the checks — the prompt tries to pass the fidelity traps on
 purpose, and the checks exist for when it doesn't. Prompt-level behavior and check-level
 detection are two layers, not one.
+
+**v1.7 (L252): a medication's status and its plan are one claim.** 2b's baseline failed 9 of
+72 repeats on one pattern: *one fact per claim* split "Metformin held for CT with contrast
+today, resume in 48 hours" into two claims, and "Resume metformin in 48 hours" cited "resume
+in 48 hours", a span naming no drug, so `drug_in_quote` fired at CRITICAL on a correct
+claim. Widening the quote alone moves the failure: the whole clause reads the hold, the
+claim the restart, and `med_status_consistency` fires instead. Replaying the baseline's
+drafts with each such sentence kept as one claim, quoted whole, passes all 72 repeats
+(measured). The example names no drug or encounter in the model corpus on purpose (the
+injected cases never reach the model): a prompt that quoted a case would measure
+memorization, not the rule. *Test:* the bullet asks for the one claim and the named
+medication, and no model case's raw text appears in the prompt.
 
 ### 5.4 The boundary: validate, and self-correct
 
@@ -2257,16 +2276,23 @@ worked. `corpus_metrics()` separates them:
 detection_recall     = detection repeats passed / detection repeats applicable
 control_specificity  = control repeats passed   / control repeats applicable
 model_fidelity       = fidelity repeats passed  / fidelity repeats applicable
-fidelity_caught      = of fidelity repeats that FAILED without a pipeline error, the fraction
-                       where at least one reference-free (live) check fired at CRITICAL
+fidelity_caught      = of fidelity repeats where a reference check fired at CRITICAL (the
+                       model lost or added a labeled fact), the fraction where at least one
+                       reference-free (live) check fired at CRITICAL too
 pass_rate            = repeats passed / repeats applicable, every species (never alone)
-flaky_cases          = the cases whose pass fraction over their applicable repeats is
-                       strictly between 0 and 1, sorted by id (D11, L229)
+flaky_cases          = the cases whose pass fraction over their applicable repeats without a
+                       pipeline error is strictly between 0 and 1, sorted by id (D11, L229,
+                       L254)
 ```
 
 `fidelity_caught` is the number the interview sentence (§2) was reaching for: *when the model
 got it wrong, would production have seen it?* Recall for the fabrication checks is not in
-this record at all — it is the injected tier, and it is 100% or CI is red. Every metric is
+this record at all — it is the injected tier, and it is 100% or CI is red. v1.7 (L253) reads
+*got it wrong* from the answer key: a fidelity repeat counts when a reference check fired at
+CRITICAL, so the model lost or added a labeled fact. A failure no reference check explains
+is the safety layer misfiring, or an error no label covers; it is no catch, and the README
+reads those drafts beside the metric. The baseline's 6 fidelity failures were the first kind
+(L252), and v1.6's count scored them as catches. Every metric is
 `None`, not 1.0, over an empty denominator, `pass_rate` included (L205), and a repeat is
 applicable unless it is `not_applicable`. A case with a pipeline `error` is `failed`: no
 note reached the checks, and that never reads as safe (invariant 12). Its row names no fired
@@ -2383,7 +2409,10 @@ reads the tree, and makes `runs_path`'s directory but never the file: an untrack
 would read as a dirty tree. The status read pins `--untracked-files=normal`, so
 `status.showUntrackedFiles` can't hide a case, and `--no-optional-locks`, so it takes no
 index lock (L236). After `gather` nothing is left to refuse: `append_jsonl` appends the
-record as one UTF-8 line (L238).
+record as one UTF-8 line (L238). A run started before its predecessor's record is committed
+reads `git_dirty=True` with the code at HEAD, since the appended record is a tracked change
+(L258). The error is safe (a clean run reads dirty, never the reverse), and D5's discipline
+prevents it: the record is committed with its change before the next run.
 
 **Why `score_corpus` is an edge module (L188).** It reads `settings`, calls the API through
 `summarize`, shells out to git, and writes `runs/`: every side effect the domain refuses.
@@ -2435,7 +2464,9 @@ parameter is sent to narrow them (§3, L181); at n = 24 with one run, a single f
 moves a rate by ~4 points — noise that reads as a regression. `settings.corpus_repeats`
 (default 3; cost × k) runs every model case k times; `CaseResult` rows are per (case,
 repeat); `CorpusMetrics.flaky_cases` names every case whose pass fraction over its
-applicable repeats is strictly between 0 and 1 (L229). The README states n and k beside
+applicable repeats without a pipeline error is strictly between 0 and 1 (L229, L254). An
+upstream failure is not the reply varying: it stays failed in the rates (invariant 12), and
+the README reports errored repeats beside `flaky_cases`. The README states n and k beside
 every number.
 
 **DECISION D5 (v1.2, amended v1.3) — where the lineage lives.** Corpus runs happen locally,
@@ -2656,7 +2687,8 @@ ModelOutputError                       → 502  model_output_invalid   the MODEL
 anthropic.RateLimitError               → 503  upstream_busy          + Retry-After if exposed
 anthropic.APITimeoutError              → 504  upstream_timeout       v1.3 (L54)
 anthropic.APIStatusError 429, 529      → 503  upstream_busy          overloaded = busy (L71, L99)
-anthropic.APIStatusError 4xx (not 429) → 500  internal_error         OUR request or config (L71)
+anthropic.APIStatusError 408, 409      → 502  upstream_error         an intermediary's (L255)
+anthropic.APIStatusError 4xx (other)   → 500  internal_error         OUR request or config (L71)
 anthropic.APIStatusError (any other)   → 502  upstream_error         not my bug (L71, L99)
 anthropic.APIError (other)             → 502  upstream_error         incl. non-timeout connection failures
 unexpected Exception                   → 500  internal_error         logged by structure, never message (L69)
@@ -2709,18 +2741,19 @@ above, and each names its test.
 - **Upstream failures are attributed by status (L71, L99).** A single `APIError` row
   calling every upstream failure "not my bug" contradicted this section's own rule: a 401
   from a bad key is our config, not upstream's bug. One `APIStatusError` handler branches
-  on status — 4xx except 429 → 500, logged with `upstream_status` (our schema, key,
-  access, model id, or size); 5xx except 529 → 502; 529 → 503, the same meaning as
+  on status — 4xx except 408, 409, and 429 → 500, logged with `upstream_status` (our schema,
+  key, access, model id, or size); 408 and 409 → 502 at WARNING, an intermediary's after the
+  SDK's retries (L255); 5xx except 529 → 502; 529 → 503, the same meaning as
   `RateLimitError`, whose own handler wins for 429 by MRO. The handler is total (L99): 429
   and 529 → 503, checked first because 429 is also a 4xx, so a 429 that arrives as the base
-  class still means busy; any status outside 4xx/5xx → 502. It branches on the status,
-  never the subclass: an upstream 503 or 504 → 502, whatever class carries it, and 504
+  class still means busy; any status outside 4xx/5xx → 502. It branches on the status, never
+  the subclass: an upstream 503 or 504 → 502, whatever class carries it, and 504
   `upstream_timeout` is only our own client's timeout (L54). It forwards no headers:
   `Retry-After` stays on `RateLimitError`'s row. A connection failure that is not a timeout
   (`APIConnectionError`, not `APITimeoutError`) takes the residual `APIError` row. *Test:*
   one per mapping, with the fake client raising each status as the class the SDK builds for
-  it, plus a base-class 429, a status on each side of 4xx/5xx, and a 529 carrying
-  `Retry-After`, which the response drops; a `RateLimitError` with and without
+  it, plus a base-class 429, a 408 and a 409, a status on each side of 4xx/5xx, and a 529
+  carrying `Retry-After`, which the response drops; a `RateLimitError` with and without
   `Retry-After`. `APIConnectionError` gets its own test: it reaches 502 through a different
   MRO branch than a 5xx, and `APITimeoutError` subclasses it, so the pair pins the 504
   handler winning.
@@ -3080,6 +3113,10 @@ in the push workflow — it spends real money.
 - **Extraction** — `extract_drugs("allergic to penicillin") == set()`; the four negation
   scope cases (L31); `extract_allergies("PCN allergy") == {"penicillin"}` (L30); parsed doses
   compare equal across spacing and case (L33); each `contraindication` rung (D9, D14).
+- **Lexicon tables (L257)** — the suite leaves every table in `lexicons.py` as it found it:
+  a session-scoped fixture hashes each module-level table before the first test and checks
+  it after the last. The tables stay mutable types (§7's module imports nothing); the
+  fixture catches a test that writes to one.
 - **Corpus load + coverage** — every fixture parses; every `expected_flags` entry is
   registered; every reference label reads, the raw text keeps each `must_preserve` reading,
   and adds no `must_not_add` one (L219); the §8.5 coverage rule holds, with the model
@@ -3350,6 +3387,8 @@ above.
 ### Phase 2c — the semantic backstop · `v0.2c-judge`
 
 ```
+□ before any 2c step: the scope-rule revision (deferred entries 7, 9, 11, 13, 16, and #6's
+  indication entry), then the laterality revision (entry 6), each with its re-baseline (L256)
 □ judge_client.py (edge), implementing 2a's Judge protocol (L111): one batched call (L40),
   its own call config pinned per invariant 3 (L182), judge_timeout_s (L54)
 □ text_entailment_judge (D8): WARNING, needs_judge

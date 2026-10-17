@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,82 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.7 — what the baseline taught (minor)
+
+Theme: what 2b's baseline taught, decided before any 2c step. The input is #9, the deferred
+amendments, with the readings of 2b's baseline (`5825630`) and Cal's rulings on Oct 17,
+2026, posted on #9 as the decision sheet; entry 20's ruling moved from Option A to the
+one-claim rule after a replay of the baseline's drafts showed A alone moves its failures to
+another check. Adopted: entries 20, 21, 18, and 4. Rejected: 19, and 8's freeze, with a test
+in its place. Deferred, each with its deadline, to the next deferred-amendments issue: the
+scope-rule entries 7, 9, 11, 13, and 16, and #6's undrafted indication entry, as entry 22,
+before any 2c step; the laterality entry 6 after them, before any 2c step (L256); 2, 10, and
+15 on a named trigger; 1, 3, 5, and 12 at their phase. #9 and #6 close with this revision.
+#6's indication entry should have been ruled on at 2b's close (§14 audits against the
+patched spec) and wasn't; it is ruled here. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L252 §5.3 — a medication's status and its plan are one claim.** Amendment (#9 entry 20).
+  2b's baseline failed 9 of its 72 repeats on one pattern, and no reference check fired on
+  any of them: the model split a sentence such as "Metformin held for CT with contrast
+  today, resume in 48 hours" into two claims and wrote "Resume metformin in 48 hours" citing
+  "resume in 48 hours", so `drug_in_quote` fired at CRITICAL on a correct claim. Measured by
+  replaying the baseline's drafts on 9f011d6: widening each such quote to name its drug
+  (#9's Option A) leaves 9 failures, now `med_status_consistency`, since the clause reads
+  the hold and the claim the restart; keeping each such sentence as one claim, quoted whole,
+  passes all 72. Six of seven paraphrases of the merged claims stay clean; the seventh leads
+  with the planned restart and fires `med_status_consistency`, so the rule keeps the status
+  first, as written. §5.3's prompt gains a bullet stating the one-claim rule with an example
+  outside the model corpus (warfarin, surgery; injected cases never reach the model), and
+  keeps A's sentence: a quote names every medication its claim names. Two tests: the
+  bullet's content, and that no model case's raw text appears in the prompt, so the
+  re-baseline measures the rule rather than memorized cases. `PROMPT_VERSION` moves, so a
+  smoke run and a re-baseline follow.
+- **L253 §4.2, §8.7 — `fidelity_caught` counts the model's labeled errors.** Amendment (#9
+  entry 21). v1.6's denominator was every fidelity repeat that failed without a pipeline
+  error, so the baseline's 6 failures, `drug_in_quote` firing on correct claims, scored 1.0
+  as catches. The denominator is now the fidelity repeats where a reference check
+  (`must_preserve`, `must_not_add`) fired at CRITICAL, so the model lost or added a labeled
+  fact; the numerator, those where a live check fired at CRITICAL too, as L206 and L224 read
+  it. §2's sentence asks exactly this: when the model drops something, does production see
+  it. A failure no reference check explains is no catch; the README reads its drafts. §2's
+  note on X says so. No schema field changes, so earlier records still parse and rescore
+  from their rows. The baseline rescores to `None`: the model lost no labeled fact.
+
+**INFO**
+- **L254 §4.2, §8.7, D11 — `flaky_cases` reads repeats without a pipeline error.** Amendment
+  (#9 entry 18). D11 asks whether replies vary; a repeat that failed on an upstream error
+  answers another question, and gets likelier as `corpus_concurrency` rises (L202). A case's
+  pass fraction for flakiness is now over its applicable repeats without an `error`; errored
+  repeats stay failed in the rates (invariant 12), and the README reports them beside
+  `flaky_cases`. The baseline had none, so its `flaky_cases` is unchanged. It changes
+  `corpus_metrics` with L253, so `checks_version` moves once.
+- **L255 §9.4 — 408 and 409 are an intermediary's.** Amendment (#9 entry 4). The SDK retries
+  408 and 409 as transient, so when its retries run out they reached the 4xx row as 500
+  `internal_error` at ERROR, but L71's 4xx is our schema, key, access, model id, or size,
+  and neither is. They map to 502 `upstream_error` at WARNING, beside the other upstream
+  failures; `upstream_busy` stays capacity-only (429, 529). §9.4's table and its prose
+  bullet (L71, L99) both say so, and the bullet's test list gains a 408 and a 409.
+- **L256 §14 — 2c opens after the scope and laterality revisions.** Amendment: §14's 2c list
+  gains an opening line, as 2b's opened with v1.4 (L194): the scope-rule revision (deferred
+  entries 7, 9, 11, 13, 16, and #6's indication entry, which the successor issue carries as
+  entry 22), then the laterality revision (entry 6), each with its re-baseline, land before
+  any 2c step. Laterality has been deferred twice, and wrong-site is a never-event class, so
+  it gets a deadline in the build sequence, not only on an issue.
+- **L257 §11 — the suite leaves the lexicon tables as it found them.** #9 entry 8 rejected,
+  with a test in its place. Freezing the tables costs a reformat of 320 signed lines and an
+  import against §7's "imports NOTHING" (measured at v1.4 drafting), and no test writes to
+  one: measured on 9f011d6, all 28 tables, 14 sets and 14 dicts, hash the same before and
+  after the full suite of 1420 tests. A session-scoped fixture hashes each module-level
+  table in `lexicons.py` before the first test and checks it after the last, which catches
+  the harm the freeze guards against.
+- **L258 §8.7 — a run before its predecessor's record is committed reads dirty.** #9 entry
+  19 rejected. `git_is_dirty` counts the appended record, so a second run on a clean HEAD
+  with the first record uncommitted reads `git_dirty=True` (measured). The error is safe (a
+  clean run reads dirty, never the reverse), and D5's discipline prevents it: 2b committed
+  its record (`5825630`) before any further run. Excluding `runs_path` costs a branch for an
+  absolute path outside the repo, where git's exclude pathspec is fatal. §8.7 states it.
 
 ## v1.6.11 — the 2b close (patch)
 
