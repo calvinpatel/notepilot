@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.7.1** (patch — v1.7's smoke run and re-baseline, October 2026).
-Supersedes v1.7.
+**Spec version: v1.8** (minor — the scope-rule revision, October 2026). Supersedes v1.7.1.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -203,9 +202,9 @@ Claude Code's standing instruction where an invariant has one; the statement is 
     Extractors take plain strings and return multi-valued results; the checks run the same
     extractor over `claim.text`, the source span, and `raw_text`, and compare.
 14. **Grounding proves the quote exists; the consistency family proves the text agrees with
-    the SOURCE SPAN** — `raw_text[claim.source_span]`, never the model's `source_quote`
-    (§6.4, L35). At Tier 3 the quote is the model's claim about the source; the span is the
-    source. A Tier 1 exact match is not evidence the text is true.
+    the SOURCE SPAN** — `raw_text[claim.source_span]`, read in its clause (L261), never the
+    model's `source_quote` (§6.4, L35). At Tier 3 the quote is the model's claim about the
+    source; the span is the source. A Tier 1 exact match is not evidence the text is true.
 15. **Lineage is derived, never declared.** `prompt_version` = hash(system prompt + tool
     schema + correction template + call config); `corpus_version` = hash(the model cases a
     run scores, L204);
@@ -835,9 +834,12 @@ injected cases never reach the model): a prompt that quoted a case would measure
 memorization, not the rule. *Test:* the bullet asks for the one claim and the named
 medication, and no model case's raw text appears in the prompt. Measured live, the rule half
 holds (L259, L260): the model now quotes the status claim whole, and still splits the plan
-into a second claim with a short quote, so the baseline's 9 failures stand. That is
-recorded, not fixed; the next revision decides it with a live probe before any wording lands
-(#10).
+into a second claim with a short quote, so the baseline's 9 failures stand. v1.8 probed
+three more wordings live, and none moved the split (L268), so the prompt stays as it is and
+the checks read the split instead: a claim's span is read in its clause (L261), where a
+planned restart sits beside the hold (L262). "Resume metformin in 48 hours" citing "resume
+in 48 hours" passes, and a claim continuing the held drug still fires. The probe's 27 drafts
+and both records' 144 repeats all pass (measured).
 
 ### 5.4 The boundary: validate, and self-correct
 
@@ -1255,11 +1257,13 @@ model corpus can retune it.
   long quote with one swapped drug name or one flipped "denies" can clear the fuzzy cutoff
   with its digits intact. So every eval that asks "does the text agree with the source?"
   compares `claim.text` against `raw_text[claim.source_span]`, never against the quote.
+  v1.8 reads the span in its clause, so a cue the quote cut off still counts (L261).
   Responsibility partitions cleanly:
 
   ```
   source_span is None  → grounding's red badge + hallucinated_medication own it
-  source_span exists   → the consistency family compares text against the SPAN
+  source_span exists   → the consistency family compares text against the SPAN,
+                         read in its clause (L261)
   ```
 
 - **The rule for which layer owns a check:** if it decides whether the quote is real, it's
@@ -1291,7 +1295,8 @@ model corpus can retune it.
   Grounding is right to accept it (it *is* in the source); the finding belongs to evals:
   `quote_informativeness` (§8.4), backed by the entailment judge. A bare lexicon name is as
   degenerate as "the" (L158): it grounds wherever the source names it, and drops the cue
-  beside it, which is how a flip reads green (§8.8, L157).
+  beside it. The consistency family reads the span in its clause, so the cue still counts
+  (L261); the WARNING stays, since the quote itself says nothing.
 
 **Deliberate non-feature (v2):** locality-based duplicate resolution (pick the occurrence
 nearest where sibling claims matched). Real and satisfying; decorative before the pipeline
@@ -1346,9 +1351,10 @@ from typing import Literal, NamedTuple
 class Dose(NamedTuple):
     value: float                     # parsed, so "500mg TID" == "500 mg tid" (L33)
     unit: str                        # "mg", "μg" (folded), "ml" …
-    freq: str | None                 # normalized: "tid", "bid", "daily" …
+    freq: str | None                 # the interval, normalized: "tid", "q6h" … (L267)
+    prn: bool = False                # as needed, beside any interval (L267)
 
-MedStatus = Literal["active", "stopped"]
+MedStatus = Literal["active", "continued", "stopped"]   # continued: no interruption (L262)
 Certainty = Literal["definite", "probable", "possible", "rule_out"]   # strongest first
 
 def extract_drugs(text: str) -> set[str]:
@@ -1356,8 +1362,9 @@ def extract_drugs(text: str) -> set[str]:
     (MED_STOP_CUES, MED_STOP_POST: L125), and allergy-context mentions."""
 
 def extract_med_status(text: str) -> dict[str, set[MedStatus]]:
-    """v1.3 (D13): drug → the statuses asserted for it. "continue apixaban" → {"active"};
-    "discontinue apixaban" → {"stopped"}. Consumed by med_status_consistency."""
+    """v1.3 (D13): drug → the statuses asserted for it. "apixaban 5 mg" → {"active"};
+    "continue apixaban" → {"active", "continued"} (L262); "discontinue apixaban" →
+    {"stopped"}. Consumed by med_status_consistency."""
 
 def new_prescriptions(text: str) -> set[str]:
     """v1.3 (L41): drugs STARTED at this visit — a MED_START_CUES cue within the window
@@ -1372,11 +1379,13 @@ def extract_allergies(text: str) -> set[str]:
     "sulfa", "nsaid"), "nkda", or "nka". Absence is information."""
 
 def extract_doses(text: str) -> dict[str, set[Dose]]:
-    """drug → parsed doses. A set, so a titration keeps both. (D1, L33.)"""
+    """drug → parsed doses. A set, so a titration keeps both. (D1, L33.) "650 mg q6h prn"
+    → Dose(650.0, "mg", "q6h", prn=True) (L267)."""
 
 def extract_findings(text: str) -> dict[str, set[bool]]:
     """finding → polarities asserted. "denies chest pain" → {"chest pain": {False}}.
-    Scoped negation (below). A set, so a mixed statement keeps both (L33)."""
+    Scoped negation (below). A set, so a mixed statement keeps both (L33). An indication
+    ("for fever" after a drug) is no finding (L266)."""
 
 def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
     """v1.3 (D12): diagnosis → certainties asserted. "r/o PE" →
@@ -1401,6 +1410,10 @@ def drug_mentions(note: SOAPNote) -> list[tuple[str, tuple[int, ...]]]:   # (dru
 
 def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:        # v1.3 (L35)
     return None if claim.source_span is None else raw_text[slice(*claim.source_span)]
+
+def clause_text(claim: ClinicalClaim, raw_text: str) -> str | None:      # v1.8 (L261)
+    """The span widened to its clause in raw_text: from the clause start before it to the
+    clause end after it, as L193 opens a clause. None when span_text is."""
 ```
 
 **The negation scope rule (v1.3, L31).** v1.2 had `NEGATION_CUES: set[str]` and no rule for
@@ -1436,7 +1449,9 @@ after the cue. "Immediately before" skips any mark but a comma or a terminator (
 "chest pain: denied" negates chest pain, and "endorses chest pain, denied fever" negates the
 fever. A phrase in both cue classes ("denied") is a post-cue when a finding is immediately
 before it and a pre-cue otherwise, so "pt denied chest pain" and "chest pain denied, fever"
-both read right.
+both read right. A mention of an entity an open pre-cue already governs reads at its own
+cues, so "r/o PE, PE confirmed" reads both certainties, as "r/o PE. PE confirmed" does
+(L265). The rule is the scope engine's, so it holds for every cue class.
 
 **A post-cue reaches a list that opens its clause (L193).** A negation, stop, or start
 post-cue reaches back over the coordinated run before it — mentions joined by commas,
@@ -1465,14 +1480,21 @@ matched whole ahead of the word ("not afebrile" is a fever); one the tables don'
 §8.8's. Each alias and word names a `FINDINGS` entry, which a test holds: a name outside it
 is a polarity no claim can share (L139).
 
+**Indications (L266).** "for" after a drug in its clause opens an indication: what follows
+is why the drug is given, not a finding the note asserts, so "Acetaminophen as needed for
+pain and fever" reads no fever. The indication ends at a terminator, the clause's end, or a
+comma no finding follows, and no finding inside it is read. "Seen for chest pain" names no
+drug and reads as before. An indication isn't extracted as its own field; no check needs
+one.
+
 **Medication cues (L124, L125).** A drug mention sees three cue classes at once: negation
 (the `FINDING_NEG_*` tables, shared with findings), stop, and start. Each cue carries its
 class, and the most recent pre-cue's window governs: a new pre-cue of any class replaces an
 open window, so "stop metformin and start lisinopril" stops one drug and starts the other.
 A post-cue's class labels the mention immediately before it, or the list it ends when the
-list opens its clause (L193). A negated mention is "stopped": `MedStatus` has two values,
-and "not on apixaban" asserts the drug isn't taken, which keeps a flip to "Continue
-apixaban" visible to `med_status_consistency`. `extract_drugs` keeps each drug with an
+list opens its clause (L193). A negated mention is "stopped": "not on apixaban" asserts the
+drug isn't taken, which keeps a flip to "Continue apixaban" visible to
+`med_status_consistency`. `extract_drugs` keeps each drug with an
 active mention; `new_prescriptions` keeps each drug a start cue governs. A stop is most
 often charted after its drug ("lisinopril discontinued"), so `MED_STOP_POST` and
 `MED_START_POST` hold the post-cue forms, as `FINDING_NEG_POST` does for findings.
@@ -1483,8 +1505,23 @@ WARNING. Refused and continued orders ("do not stop", "don't stop", "continue") 
 entries, not a rule (L172). A restart or a resumption is a start (L169), so "resume" is a
 start cue; as a pre-cue it replaces a stop's open window, the job it did as a terminator. A
 refused start, restart, or resumption, written out or contracted ("do not restart", "don't
-resume"), is a stop (L167). A refusal the tables don't spell, and a cue the rule can't
-reach, are §8.8's (L168).
+resume"), is a stop (L167), and so is a start a negation's window reaches ("Not starting
+metformin", L262).
+
+**A restart reaches back, and a continue is a status (L262).** A restart or resumption cue
+that governs no mention reaches the nearest drug before it in its clause that reads
+stopped. Done, it replaces the stop: "restarted", "resumed", "was restarted", and "was
+resumed" read the drug active. Planned, it adds active beside the stop: "Metformin held,
+resume in 48 hours" reads stopped and active. No other cue reaches back. A negation after a
+drug almost always negates a finding ("Lisinopril 10 mg daily, no cough"), and a start may
+name a thing the vocabulary lacks ("start insulin"). `new_prescriptions` reads only a start
+cue that governs a mention, so a planned restart is no start at this visit. A continue cue
+(`MED_CONTINUE_CUES`) asserts "continued" beside active, a third `MedStatus` value: the drug
+is taken without interruption. It governs the drug in its window, or the drug before it
+when it ends its clause ("Zestril 10 mg daily, continue."), and it still closes a finding's
+window (L172). A "continued" claim is contradicted by a stop in its span, and a span
+reading active with no stop supports one (§8.4). "No interruption" is a pseudo-negation, so
+"No interruption of Eliquis needed" reads no stop (L263).
 
 **Allergy context (L128, L129).** Allergy is a fourth cue class a drug mention sees:
 `ALLERGY_CUES` before the allergen and `ALLERGY_POST` after it. A mention it governs is an
@@ -1499,7 +1536,12 @@ back over the list before it, the mentions joined by commas, "and", "or", or a m
 "/", ending at the one adjacent to the cue, and takes each that no other cue governs: "PCN
 and sulfa allergies" names both. Where these fail, they fail loud, since `allergy_preserved`
 fires: a bare medication line under a header reads as an allergen, and a list can reach back
-into a medication ("takes lisinopril, sulfa allergy"). Allergen names follow L126's rule.
+into a medication ("takes lisinopril, sulfa allergy"). An allergy post-cue also governs a
+list right after it, in parentheses, after a dash, or after its colon, when the list names a
+drug: "PCN allergy (amoxicillin)", "PCN allergy - amoxicillin", and "PCN allergy:
+amoxicillin" each read penicillin and amoxicillin as allergens (L264). A list naming no drug
+is a reaction ("PCN allergy (hives)") and reads as before. Allergen names follow L126's
+rule.
 `ALLERGY_ALIASES` holds the classes and D10's statements, a canonical name mapping to
 itself, and drug allergens come through `GENERIC_DRUGS` and `BRAND_TO_GENERIC`. "nkda" and
 "nka" need no cue unless negated, "Allergies: none" is NKA, and a denied allergy ("not
@@ -1512,14 +1554,16 @@ unit and frequency carries its own sign-off. A dose is a number and a unit ("500
 "500mg", "1,000mg") after a listed drug, in that drug's sentence. It belongs to the most
 recent drug before it, whatever that mention's status, and a titration keeps both doses. It
 takes the first frequency charted after its unit, before the next dose, drug, or terminator,
-else none; a prn yields to an interval in that reach, so "q6h prn" and "prn q6h" both read
-q6h. Units are canonical but never converted ("1 g" stays grams). Neither number of a range
+else none. A prn in that reach sets `prn` beside it, so "q6h prn" and "prn q6h" both read
+q6h as needed, and a prn alone reads as needed with no interval (L267). Units are canonical
+but never converted ("1 g" stays grams). Neither number of a range
 is a dose, so a range changed to a fixed dose still differs from its source: a hyphen joins
 a range whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and "to" joins one
 only after a number without a unit ("5 to 10 mg"), since "from 500 mg to 1000 mg" is a
 titration. A dose before its drug ("500 mg of amoxicillin") or in the next sentence reads as
 nothing, the accepted costs. `dose_consistency` reads 1 g as 1000 mg through `DOSE_MASS_UG`,
-and a dose without a frequency as matching one with (§8.4, L141).
+and a dose without a frequency as matching one with (§8.4, L141); a dose that charts one
+matches only at its prn too (L267).
 
 **Diagnoses and certainty (L134, L135, L140).** `diagnosis_in_quote` compares keys, so a
 diagnosis needs every name it is charted by, as a drug does (L126): `DIAGNOSES` holds the
@@ -1562,13 +1606,14 @@ ALLERGY_CUES:      set[str]          # "allergic to", "allergy to", "allergies:"
 ALLERGY_POST:      set[str]          # "allergy", "allergies": after the allergen (L128)
 FINDING_NEG_PRE:   set[str]          # "denies", "no", "without", "negative for"
 FINDING_NEG_POST:  set[str]          # "denied", "absent", "negative"
-PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "not only"
+PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "no interruption" (L263)
 TERMINATORS:       set[str]          # "but", "however", ";", ".", a line break, ... (L147)
 NEGATION_WINDOW:   int               # words a pre-cue governs — linguistic knowledge, so it lives here
 MED_STOP_CUES:     set[str]          # "discontinue", "d/c", "stop", "held", "hold"    (L31: split out)
 MED_STOP_POST:     set[str]          # "discontinued", "held": after the drug (L125)
 MED_START_CUES:    set[str]          # "start", "restart", "resume", "prescribe", "rx" (L41, L169)
 MED_START_POST:    set[str]          # "started", "prescribed": after the drug (L125)
+MED_CONTINUE_CUES: set[str]          # "continue", "continued": no interruption (L262)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
 CERTAINTY_POST:    dict[str, str]    # "likely" -> "probable": after the diagnosis (L135)
 DIFFERENTIAL_CUES: dict[str, str]    # "vs" -> "possible": both its sides (L135)
@@ -1815,10 +1860,10 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `allergy_preserved` | CRITICAL; NKDA, NKA → WARNING (D10, L144) | **no** | allergies(raw) − allergies(note) | **a dropped allergy, live** |
 | `hallucinated_medication` | CRITICAL | no | `UNSUPPORTED` flag + named(text) (L136) | a drug in a claim that grounds nowhere |
 | `drug_in_quote` | CRITICAL | no | named(text) ⊆ named(span) (L136) | a drug the source span doesn't say |
-| `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13) | "continue" ↔ "discontinue" |
+| `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13); "continued" against a stop fires (L262) | "continue" ↔ "discontinue" |
 | `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span), for findings in both (L139) | "denies" → "reports" |
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
-| `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141) | 50 mg → 500 mg |
+| `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141), a charted one at its prn (L267) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
 | `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `config.min_quote_content_tokens`, or NKDA or NKA, or absence words alone (D15, L158, L159, L174) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw names an entity: named(raw) ∪ allergies(raw) ∪ findings(raw) ∪ diagnoses(raw), asserted or excluded (L55, L164) | total omission reading green |
@@ -1826,8 +1871,10 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `must_preserve` | CRITICAL; a dose, NKDA, NKA, downgrade, or reopened exclusion → WARNING (L217) | **yes** | each label's reading vs the note's, by its kind's extractor (L214–L216) | a labeled omission, status flip, or certainty drift |
 | `must_not_add` | CRITICAL | **yes** | each label vs the note's positive readings (L36, L214) | a labeled invention |
 
-`span` is `raw_text[claim.source_span]` (§6.4, L35). The consistency checks skip claims
-whose span is `None` — those belong to grounding's red badge and `hallucinated_medication`.
+`span` is `raw_text[claim.source_span]` read in its clause, `clause_text` (§6.4, L35, L261),
+except in `quote_informativeness`, which counts the span itself (D15). The consistency
+checks skip claims whose span is `None` — those belong to grounding's red badge and
+`hallucinated_medication`.
 `named` is every drug a string names, whatever status it asserts, negated included, and
 never an allergen: `extract_med_status`'s keys, as `named_drugs` in `evals/checks.py`
 (L136). `drugs` is the active ones alone, `extract_drugs`'s set, as
@@ -1851,6 +1898,8 @@ Four things to read off the table:
    v1.2 drug_in_quote: {amox} ⊆ drugs(QUOTE) = {amox}      → passes. A fabricated drug, yellow.
    v1.3 drug_in_quote: {amox} ⊆ drugs(SPAN)  = {azithro}   → FIRES.
    ```
+   v1.8 reads the span in its clause (L261), so "Fever" citing "fever" in "Denies fever."
+   reads the denial, and `negation_consistency` fires.
 3. **Presence and status are partitioned (D13).** `drug_in_quote` owns *is the drug in the
    source?*; `med_status_consistency` owns *active vs stopped, for a drug in both*. The
    dangerous direction — "discontinue apixaban" written for a continued apixaban — is
@@ -2065,7 +2114,7 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 | `detect_negation_flip` | injected | detection | "denies" → "reports" (v1.2) |
 | `fidelity_dropped_allergy` | model | fidelity | allergy omission (v1.2); its injected twin is `detect_dropped_allergy` |
 | `detect_dropped_allergy` | injected | detection | allergy omission (v1.2) — labels the allergy and expects `[allergy_preserved, must_preserve]` (L145) |
-| `detect_added_medication` | injected | detection | L157 — a stopped drug kept as taken, from a span that cuts off its stop cue; every live check passes, and `must_not_add` fires (L223) |
+| `detect_added_medication` | injected | detection | L157 — a stopped drug kept as taken, from a span that cuts off its stop cue; `must_not_add` fires (L223), and since v1.8 reads the span's clause, `med_status_consistency` too (L261) |
 | `detect_same_drug_allergy` | injected, twin `detect_same_drug_allergy_model` (L247) | detection | L30 |
 | `detect_contra_omitted_rx` | injected | detection | L51 — the draft omits the amoxicillin the raw text starts |
 | `detect_shared_side_chain` | injected | detection | D9 — cephalexin on an ampicillin allergy, an identical R1 side chain v1.2 read as a WARNING (L153) |
@@ -2510,12 +2559,6 @@ know, stated plainly (v1.3):
   empty note on it raises no WARNING and renders as non-clinical (§10). The other way, a
   non-clinical paste naming a listed word ("pain") draws the WARNING, whose detail names the
   word.
-- **A drug after an allergy post-cue** (L154). "PCN allergy (amoxicillin)" and "PCN allergy -
-  amoxicillin" read the amoxicillin as an active drug, since a post-cue labels only what comes
-  before it (§7), so a faithful claim copying either fires `allergy_contraindication`. "PCN
-  allergy: amoxicillin" reads "allergy:" as a header and loses the penicillin, so a note
-  writing "PCN allergy" reads as dropping the amoxicillin, which `allergy_preserved` reports.
-  Both fail loud.
 - **Findings both sides name** (L139). `negation_consistency` compares polarity only for a
   finding the claim and its span both name, and `FINDINGS` and its aliases list no other
   names (L173). A flip behind a name it lacks ("denies CP" → "reports chest pain") reads
@@ -2531,29 +2574,25 @@ know, stated plainly (v1.3):
   length, so a short one can fall below it: "Left knee pain after a fall" mid-note scores
   88.9 and is flagged `UNSUPPORTED`, which the clinician sees (all measured, cutoff 90).
   Wrong-site is a never-event class; the check waits for a later minor revision.
-- **A span that cuts off its cue** (L157). The claim-local family reads the span (L35), so a
-  cue outside it is invisible. A bare name grounds at Tier 1 and reads at the defaults
-  (active, present, definite), so a flip away from stopped, denied, or hedged passes every
-  check: "Continue metformin" citing "metformin" in "Hold metformin", "Fever" citing "fever"
-  in "Denies fever", "PE" citing "PE" in "r/o PE" or "PE ruled out" (measured). A flip
-  toward them fires, as does a dose its span lacks. `quote_informativeness` flags a
-  one-token span, a WARNING (L158); a two-token one passes it ("Reports chest pain" citing
-  "chest pain" in "Denies chest pain"), and so does a slash abbreviation, which counts two
-  ("Reports N/V" citing "N/V" in "Denies N/V", measured, L175); and the judge is
-  WARNING-tier (invariant 7). The fix reads a span in its sentence, which changes what L35
-  compares, so it waits for a later minor revision.
-- **A cue the scope rule can't reach** (L168). A mention takes one label, and a post-cue
-  reaches back from the mention directly before it (§7, L122, L193), never past a word, so
-  "Apixaban held, then restarted" reads stopped: a faithful "Continue apixaban" fires
-  `med_status_consistency`, a CRITICAL, and "Hold apixaban", which drops the restart,
-  passes it (measured). A negation before a start form no table spells as a refusal reads
-  as the start ("Not starting metformin"). The fix reads a mention's last status cue in its
-  clause and lets a negation govern a start cue, which changes the scope rule, so it waits
-  for a later minor revision.
+- **A quote that borrows from its clause** (L261). The claim-local family reads a span in
+  its clause, so a quote naming no drug passes `drug_in_quote` when its clause names one:
+  "Resume metformin in 48 hours" citing "resume in 48 hours" in "Metformin held for CT with
+  contrast today, resume in 48 hours". Status is read from the same clause, so a borrowed
+  drug at the wrong status still fires, but the highlighted quote the clinician sees may not
+  name the drug. Highlighting the clause is phase 3's (a patch on #3).
+- **A restart's reach** (L262). A restart or resumption cue that governs no mention reaches
+  the stopped drug before it in its clause, whatever its object: "Metformin held, resume PT"
+  reads metformin stopped and active, so "Resume metformin" passes it (measured). A restart
+  reads as done from its form, not its time, so "resumed tomorrow" reads active now. No
+  other cue reaches back, so a stop after a word still reads nothing: "Apixaban continued,
+  then held" reads active alone (measured).
+- **An indication's list** (L266). After a drug and "for", a finding after a comma joins the
+  indication, so "Ibuprofen for pain, fever since Monday" reads no fever (measured); with a
+  period, the fever reads present.
 - **Labels read through the extractors** (L220). The loader checks a label against the raw
   text through the same extractor the check uses (L219), so a label can't state what the
-  extractor misreads, and a misread label loads: "metformin held, then restarted" reads
-  stopped (L168), as label and as source alike (measured). Case authoring avoids the
+  extractor misreads, and a misread label loads: "apixaban continued, then held" reads
+  active (L262), as label and as source alike (measured). Case authoring avoids the
   phrasings this section lists.
 - **A list after a word** (L193). A negation, stop, or start post-cue reaches back over a
   list only when the list opens its clause (§7), so a list after a word reads
@@ -3391,8 +3430,9 @@ above.
 ### Phase 2c — the semantic backstop · `v0.2c-judge`
 
 ```
-□ before any 2c step: the scope-rule revision (deferred entries 7, 9, 11, 13, 16, and #6's
-  indication entry), then the laterality revision (entry 6), each with its re-baseline (L256)
+□ before any 2c step: the scope-rule revision (v1.8: #10 entries 7, 9, 10, 11, 16, 22, 23,
+  and 24, with 13 rejected; L261–L270), then the laterality revision (entry 6), each with
+  its re-baseline (L256)
 □ judge_client.py (edge), implementing 2a's Judge protocol (L111): one batched call (L40),
   its own call config pinned per invariant 3 (L182), judge_timeout_s (L54)
 □ text_entailment_judge (D8): WARNING, needs_judge

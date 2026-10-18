@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,113 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.8 — the scope-rule revision (minor)
+
+Theme: the checks read the clause, and the prompt stays put. The input is #10, the deferred
+amendments, with Cal's rulings on Oct 17, 2026, posted on #10 as the decision sheet and
+amended the same day for entry 11, after rows the sheet hadn't measured showed its reach
+misreading a negated finding as a stop. A live probe of three prompt wordings left v1.7's
+split in place (L268). Reading each span in its clause, with a restart's reach and the "no
+interruption" pseudo-negation, passes every probe draft and both records' 144 repeats with
+the prompt unchanged, so `PROMPT_VERSION` doesn't move and the re-baseline confirms a
+replay. Adopted: entries 10, 11, 24, 7, 16, 22, 9, and 23, which needs no prompt change.
+Rejected: 13, with a test in its place. Laterality (entry 6) is v1.9, before any 2c step
+(L256); 2 and 15 keep their triggers; 1, 3, and 5 wait on phase 3 planning, and 12 on
+phase 4. #10 closes with this revision. Invariant 14's wording moves; its title doesn't, so
+CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L261 §6.4, §7, §8.4, §8.8, invariant 14 — the consistency family reads the span in its
+  clause.** Amendment (#10 entry 10). The family read `raw_text[source_span]` alone (L35),
+  so a cue the quote cut off didn't exist for it: "Continue metformin" citing "metformin" in
+  "Hold metformin.", "Fever" citing "fever" in "Denies fever.", and "PE" citing "PE" in "r/o
+  PE." or "PE ruled out." fired only `quote_informativeness`, a WARNING, and "Reports chest
+  pain" citing "chest pain" in "Denies chest pain." fired nothing (measured at `5fb422d`).
+  `drug_in_quote`, `med_status_consistency`, `negation_consistency`, `diagnosis_in_quote`,
+  and `dose_consistency` now read `clause_text`, the span widened to its clause as L193
+  opens one; each of those fires at CRITICAL (prototyped), and "Denies chest pain at rest,
+  reports chest pain on exertion" still passes a claim keeping either. The entry's
+  "terminator to terminator" would cut at "continue" and "but", which are terminators, so
+  the clause is L193's. `quote_informativeness` keeps the span, since D15 measures the
+  quote; reading the clause broke `detect_degenerate_quote` (prototyped).
+  `detect_added_medication` gains `med_status_consistency`, L157's trap now caught live.
+  The cost, a quote borrowing its drug from its clause, is §8.8's; highlighting the clause
+  is a patch on #3.
+- **L262 §7, §8.4, §8.8, D13 — a restart reaches back, and a continue is a status.**
+  Amendment (#10 entry 11, as amended on #10). A mention took one label, so "Apixaban held,
+  then restarted" read stopped, and "Metformin held, resume in 48 hours" read the hold
+  alone. Three readings were prototyped. The last cue winning, #10's option, fired on the
+  status claims the model writes correctly and left `fidelity_metformin_held` unloadable,
+  its label no longer the raw text's reading. Every cue adding its status let the case's
+  trap, "Continue metformin", pass. The sheet's third reading let any cue governing no
+  mention reach back, which read "Lisinopril 10 mg daily, no cough" as stopped, a false
+  CRITICAL on "Continue lisinopril", and 7 of 23 rows went wrong. As ruled: only a restart
+  or resumption cue reaches back, to the stopped drug before it in its clause; done
+  ("restarted", "resumed"), it replaces the stop, and planned ("resume"), it adds active
+  beside it. A negation before a start cue in its window negates it ("Not starting
+  metformin"). `MedStatus` gains "continued", asserted by `MED_CONTINUE_CUES` for the drug
+  in the cue's window or the one before a cue that ends its clause; a "continued" claim
+  fires against a stop in its span, and a span reading active with no stop supports one.
+  `new_prescriptions` reads only start cues that govern a mention: a planned restart is no
+  start at this visit. With L261 and L263, 23 of 23 rows read right, entry 11's own example
+  among them (prototyped). The cue entries are drafted with their code, each with Cal's
+  sign-off (L120).
+- **L263 §7 — "no interruption" is a pseudo-negation.** Amendment (#10 entry 24). "No" read
+  as negating the next drug in its window, so "No interruption of Eliquis needed" read
+  apixaban stopped (measured). Once L261 reads that claim's span in its clause, "Continue
+  Eliquis, no interruption needed.", the claim reads stopped and the clause active, and
+  `med_status_consistency` fires on a faithful claim (prototyped). `PSEUDO_NEGATIONS` gains
+  the phrase, its siblings drafted with it.
+- **L264 §7, §8.8 — an allergy post-cue governs the list right after it.** Amendment (#10
+  entry 7). "PCN allergy (amoxicillin)" and "PCN allergy - amoxicillin" read amoxicillin
+  active, a false `allergy_contraindication`, and "PCN allergy: amoxicillin" lost the
+  penicillin (measured). A list in parentheses, after a dash, or after the cue's colon that
+  names a drug now reads as allergens beside the cue's own; a list naming no drug is a
+  reaction ("PCN allergy (hives)"), as every one in the corpus is, and reads as before.
+  §8.8's bullet (L154) goes.
+- **L265 §7 — a repeated mention reads at its own cues.** Amendment (#10 entry 16). A
+  certainty pre-cue's window ran past a comma, so "r/o PE, PE confirmed" read rule-out
+  alone. A mention of an entity an open pre-cue already governs now reads at its own cues,
+  so both certainties read, as with a period (prototyped). Cal's ruling makes it the scope
+  engine's rule for every cue class, not a diagnosis switch, so "Denies fever, chills, fever
+  last week" reads the repeated fever at its own cue, present.
+- **L266 §7, §8.8 — an indication isn't a finding.** Amendment (#10 entry 22). "Denies
+  fever. Acetaminophen as needed for pain and fever." read fever absent and present
+  (measured). "for" after a drug in its clause now opens an indication, which runs to a
+  terminator, the clause's end, or a comma no finding follows, and no finding inside it is
+  read; "Seen for chest pain" names no drug and reads as before. The cost, a finding after a
+  comma joining the indication, is §8.8's.
+
+**WARNING**
+- **L267 §7, §8.4 — `Dose` carries prn beside its interval.** Amendment (#10 entry 9).
+  "650 mg q6h prn" and "650 mg q6h" read the same `Dose`, since a prn yielded to an interval
+  (L133), so a claim dropping or adding the prn passed `dose_consistency`, and "650 mg prn"
+  against "650 mg q6h prn" fired, a false positive (measured). `Dose` gains `prn: bool` and
+  `freq` holds only the interval; a claim charting no frequency still matches any (L141),
+  and one charting a frequency matches only at its prn. Five tests pinning prn in the
+  frequency slot are rewritten.
+- **L268 §5.3 — the prompt stays; the split is read, not prevented.** Entry 23 resolved
+  without a prompt amendment. Probed live on Oct 17, 27 calls on the three failing cases,
+  three repeats each: A, a status-and-plan example in the one-fact rule, passed 3 of 9; B,
+  dropping "Prefer the shortest span", 0 of 9; both, 3 of 9; v1.7's own drafts, 0 of 9
+  (today's checks). The metformin case still quoted its plan as "resume in 48 hours if
+  creatinine is stable" in 12 of 12 draws. Under L261, L262, and L263 every arm passes 9 of
+  9, the control included, and both records replay at 72 of 72, with only their 9 failing
+  rows moving and no WARNING-level change. A and B are rejected; L252's rule stays, since
+  the whole-clause status claims it produces read right under L261.
+
+**INFO**
+- **L269 §7 — a cue's own colon.** #10 entry 13 rejected, with a test in its place.
+  Opening a clause after "allergies:" changes nothing on the entry's example: "Allergies:
+  PCN, sulfa denied" reads penicillin alone before and after (prototyped), since the cue
+  governs penicillin and L193's post-cue reaches only ungoverned mentions. "Meds:
+  lisinopril, metformin held" stops both because "Meds" is no cue. In an allergy list,
+  "sulfa denied" is most plausibly a denied sulfa allergy, today's reading, which a test
+  now pins.
+- **L270 §14 — the 2c gate names v1.8's entries.** §14's opening 2c line listed the
+  scope-rule revision's entries as L256 deferred them; it now names v1.8's (#10 entries 7,
+  9, 10, 11, 16, 22, 23, and 24, with 13 rejected), and laterality stays next.
 
 ## v1.7.1 — v1.7's smoke run and re-baseline (patch)
 
