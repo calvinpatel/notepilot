@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.7** (minor — what the baseline taught, October 2026). Supersedes
-v1.6.11.
+**Spec version: v1.7.1** (patch — v1.7's smoke run and re-baseline, October 2026).
+Supersedes v1.7.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -833,7 +833,11 @@ drafts with each such sentence kept as one claim, quoted whole, passes all 72 re
 (measured). The example names no drug or encounter in the model corpus on purpose (the
 injected cases never reach the model): a prompt that quoted a case would measure
 memorization, not the rule. *Test:* the bullet asks for the one claim and the named
-medication, and no model case's raw text appears in the prompt.
+medication, and no model case's raw text appears in the prompt. Measured live, the rule half
+holds (L259, L260): the model now quotes the status claim whole, and still splits the plan
+into a second claim with a short quote, so the baseline's 9 failures stand. That is
+recorded, not fixed; the next revision decides it with a live probe before any wording lands
+(#10).
 
 ### 5.4 The boundary: validate, and self-correct
 

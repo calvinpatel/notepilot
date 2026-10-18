@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,45 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.7.1 — v1.7's smoke run and re-baseline (patch)
+
+Theme: v1.7's live measurements, recorded as v1.4.1 recorded v1.4's (L197–L199). Both ran on
+`4877d3d`, v1.7's code complete. The smoke run and the re-baseline agree: the one-claim rule
+(L252) is half kept, and the baseline's 9 failures stand. Recorded, not fixed (§14); the fix
+goes to #10 for the next revision. No invariant moves; CLAUDE.md is unchanged.
+
+**WARNING**
+- **L260 §5.3 — v1.7's re-baseline: the one-claim rule is half kept.** Measured: one run on
+  `4877d3d`, `git_dirty` false, `prompt_version` a99d6d205d0e, `checks_version`
+  52f147266aef, `corpus_version` 040ccf7c0d67, 72 repeats. Detection recall 1.0, control
+  specificity 0.875, model fidelity 0.75, `fidelity_caught` None, pass rate 0.875, no flaky
+  case: the baseline's, as rescored under L253. The same 9 repeats fail, on the same three
+  cases, each by `drug_in_quote`, and no reference check fired on any repeat of either run.
+  The drafts show the rule half kept: the status claim now cites its whole sentence
+  ("Metformin held" from "Metformin held, resume in 48 hours if creatinine is stable"), and
+  a second claim still carries the plan with a short quote ("Resume metformin in 48 hours if
+  creatinine is stable" from "resume in 48 hours if creatinine is stable"). 14 of the 24
+  cases gave one draft across their repeats, against 8 at the baseline. §5.3 says so. The
+  likelier conflict is §5.3's "One clinical fact per claim" and its splitting example, more
+  than "Prefer the shortest span"; the next revision decides it, with a few live calls on
+  the failing cases before any wording lands (#10). One other change, below any verdict: at
+  the baseline `quote_informativeness` (WARNING) fired on all three repeats of
+  `fidelity_no_htn_urgency`, whose claim "Asymptomatic" quoted the one word "asymptomatic";
+  under v1.7 it fired on none, the claim citing "asymptomatic, denies chest pain". Longer
+  quotes, consistent with the new bullet.
+
+**INFO**
+- **L259 §14 — v1.7's smoke run.** Fill: §14 runs one at a change of request shape (L81),
+  and v1.7's prompt is one. Preflight on `4877d3d`: `settings.model` is `claude-haiku-5-5`,
+  matching the pin (L199); `PROMPT_VERSION` is a99d6d205d0e and the SDK 1.9.0;
+  `models.retrieve` reports `max_tokens` 128,000, matching `model_max_output_tokens` (L85).
+  One synthetic encounter through `GET /`, outside the model corpus: `validation_attempts`
+  1, 1,648 input and 291 output tokens, 1.71 s end to end. The finding: the model split
+  "Lisinopril held for low blood pressure, restart 5 mg once SBP is above 120." into two
+  claims, the second citing "restart 5 mg once SBP is above 120", and `drug_in_quote` fired
+  at CRITICAL, the failure L252 aims at. A 291-token reply's time is mostly fixed latency,
+  so it measures no throughput; L198's bound stands.
 
 ## v1.7 — what the baseline taught (minor)
 
