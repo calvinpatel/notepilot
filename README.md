@@ -56,22 +56,22 @@ tests/                unit + integration, deterministic, every commit
 
 ## Safety scorecard
 
-Every safety check is proven against 21 injected cases on every commit, for free. Then 24 synthetic encounters, each run 3 times against the real model, measure what the model actually does: it kept every labeled safety-critical fact in all 24 fidelity-trap runs, the pipeline surfaced every planted source danger (24 of 24), and clean notes stayed clean 21 of 24 times. All 9 failing runs, 6 fidelity and 3 control, trace to one strict check firing on correct claims (below); the next prompt revision is measured against this run.
+Every safety check is proven against 21 injected cases on every commit, for free. Then 24 synthetic encounters, each run 3 times against the real model, measure what the model actually does: in both runs below it kept every labeled safety-critical fact in all 24 fidelity-trap runs, the pipeline surfaced every planted source danger (24 of 24), and clean notes stayed clean 21 of 24 times. In each run, all 9 failing runs trace to one pattern (below), which v1.7's prompt change aimed at and did not move.
 
-**Baseline, run 2026-10-17 03:10 UTC.** `claude-haiku-5-5`, `prompt_version` f568c08861a1, at commit `26a69b0` on a clean tree; `corpus_version` 040ccf7c0d67, `checks_version` 9a1ce00b525b. 72 model calls, 91 seconds of model time, 107,763 input and 16,056 output tokens: about two cents at list price. The full record, every run's draft included, is [`backend/evals/runs/corpus_runs.jsonl`](backend/evals/runs/corpus_runs.jsonl).
+**Two corpus runs.** Both on `claude-haiku-5-5` over `corpus_version` 040ccf7c0d67, on a clean tree, 72 model calls each, about two cents each at list price. The 2b baseline ran 2026-10-17 03:10 UTC at commit `26a69b0` (`prompt_version` f568c08861a1, `checks_version` 9a1ce00b525b): 91 seconds of model time, 107,763 input and 16,056 output tokens. The v1.7 run ran 2026-10-17 23:26 UTC at commit `4877d3d` (`prompt_version` a99d6d205d0e, `checks_version` 52f147266aef): 90 seconds of model time, 115,251 input and 15,406 output tokens. Both records, every run's draft included, are in [`backend/evals/runs/corpus_runs.jsonl`](backend/evals/runs/corpus_runs.jsonl). The baseline is scored here under v1.7's definitions, from its own rows; a test holds that rescoring.
 
-| metric | what it measures | n × k | result |
-|---|---|---|---|
-| detection recall | planted source dangers the pipeline surfaces | 8 × 3 | 100% (24/24) |
-| control specificity | clean notes that stay clean | 8 × 3 | 87.5% (21/24) |
-| model fidelity | fidelity traps passed | 8 × 3 | 75% (18/24) |
-| fidelity caught | failed fidelity runs a live check flagged | 6 failed runs | 100%, but see below |
+| metric | what it measures | n × k | 2b baseline | v1.7 |
+|---|---|---|---|---|
+| detection recall | planted source dangers the pipeline surfaces | 8 × 3 | 100% (24/24) | 100% (24/24) |
+| control specificity | clean notes that stay clean | 8 × 3 | 87.5% (21/24) | 87.5% (21/24) |
+| model fidelity | fidelity traps passed | 8 × 3 | 75% (18/24) | 75% (18/24) |
+| fidelity caught | of the runs where the model lost or added a labeled fact, those a live check flagged | 0 such runs | — | — |
 
 24 cases × 3 runs is a regression tripwire, not an accuracy estimate: it shows whether a prompt or model change made things worse on these cases, not how often the model is right in general.
 
-**What the misses were.** All 9 failing runs are one pattern, and none is the model losing a fact. The model split a sentence such as "Metformin held for CT with contrast today, resume in 48 hours." into two claims and wrote "Resume metformin in 48 hours", citing only "resume in 48 hours". The claim is clinically right, but its quote doesn't contain the drug, so the drug-in-quote check, which flags a claim naming a drug its own quote doesn't contain, fires at CRITICAL. No preserved-fact check fired on any of the 72 runs: every labeled allergy, medication status, pertinent negative, and rule-out survived. So the fidelity-caught 100% counts that same false positive, not a caught model error, and measures nothing yet.
+**What the misses were.** In both runs, all 9 failing runs are one pattern, and none is the model losing a fact. The model splits a sentence such as "Metformin held for CT with contrast today, resume in 48 hours." into two claims and writes one like "Resume metformin in 48 hours", citing only "resume in 48 hours". The claim is clinically right, but its quote doesn't contain the drug, so the drug-in-quote check, which flags a claim naming a drug its own quote doesn't contain, fires at CRITICAL. No preserved-fact check fired on any of the 144 model calls: every labeled allergy, medication status, pertinent negative, and rule-out survived. So no run gives fidelity caught a denominator; under its first definition, the baseline scored that same false positive as 100%.
 
-The fix chosen changes the prompt: it asks the model to quote every drug a claim names. It and a fidelity-caught that counts only real model errors are recorded for the next revision, which re-runs this corpus ([#9](https://github.com/calvinpatel/notepilot/issues/9), entries 20 and 21); this table will then show both runs. Verdicts were stable: no case changed verdict across its three runs, though 16 of the 24 varied their wording.
+**What v1.7 tried, and what it measured.** v1.7's prompt asks that a medication's status and its plan be one claim, quoted whole. The re-run shows the model taking half of it: the status claim now cites the whole sentence ("Metformin held" from "Metformin held, resume in 48 hours if creatinine is stable"), and a second claim still carries the plan with a short quote. The rule didn't move the 9 failures. The next revision takes it up, with a small live probe before any wording changes ([#10](https://github.com/calvinpatel/notepilot/issues/10)). Verdicts were stable in both runs: no case changed verdict across its three runs, though 16 of the 24 varied their wording at the baseline and 10 under v1.7.
 
 ## Roadmap
 
