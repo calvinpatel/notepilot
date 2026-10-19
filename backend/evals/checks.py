@@ -121,11 +121,13 @@ def _compare_per_key[V](
     raw_text: str,
     extract: Callable[[str], dict[str, set[V]]],
     describe: Callable[[set[V]], str],
+    supports: Callable[[set[V]], set[V]] = set,
 ) -> list[Finding]:
-    """values(text) ⊆ values(span), per key a claim and its span both name (§8.4).
+    """values(text) ⊆ supports(values(span)), per key a claim and its span both name (§8.4).
 
-    One finding per key whose values in the claim aren't all in the span's, in key order. A
-    key only one side names isn't compared, and a claim with no span is skipped.
+    One finding per key whose values in the claim aren't all among those the span supports,
+    in key order; a span supports what it reads, unless `supports` says more. A key only one
+    side names isn't compared, and a claim with no span is skipped.
     """
     findings: list[Finding] = []
     for claim in note.claims:
@@ -134,7 +136,7 @@ def _compare_per_key[V](
             continue
         in_text, in_span = extract(claim.text), extract(span)
         for key in sorted(in_text.keys() & in_span.keys()):
-            if not in_text[key] <= in_span[key]:
+            if not in_text[key] <= supports(in_span[key]):
                 findings.append(
                     Finding(
                         detail=f"{key}: {describe(in_text[key])} in the claim, "
@@ -146,8 +148,17 @@ def _compare_per_key[V](
 
 
 def _statuses(statuses: set[MedStatus]) -> str:
-    """'active', 'stopped', or 'active and stopped', for a finding's detail."""
+    """'active', 'stopped', 'active and stopped', and so on, for a finding's detail."""
     return " and ".join(sorted(statuses))
+
+
+def supported_statuses(statuses: set[MedStatus]) -> set[MedStatus]:
+    """The statuses a reading supports: its own, and continued where it reads active with no
+    stop, since a drug taken and never stopped is taken without interruption (L262)."""
+    supported = set(statuses)
+    if "active" in statuses and "stopped" not in statuses:
+        supported.add("continued")
+    return supported
 
 
 @register_check(name="med_status_consistency", severity=Severity.CRITICAL)
@@ -157,13 +168,16 @@ def check_med_status_consistency(
     """One finding per drug a claim and its span both name, at a status the span lacks (D13).
 
     status(text) ⊆ status(span), per drug (§8.4): the claim may report part of what the span
-    says, and a negated mention reads as stopped (L124). A drug only one side names is
+    says, and a negated mention reads as stopped (L124). A span reading active with no stop
+    also supports continued, and a stop contradicts it (L262). A drug only one side names is
     drug_in_quote's, so an error has one finding. A claim with no span is skipped (§8.4).
 
     Omission (D17): an omitted claim leaves no drug in both to compare, so the check passes;
     §8.4's omission table assigns that omission elsewhere.
     """
-    return _compare_per_key(note, raw_text, extract_med_status, _statuses)
+    return _compare_per_key(
+        note, raw_text, extract_med_status, _statuses, supports=supported_statuses
+    )
 
 
 def _polarities(polarities: set[bool]) -> str:
@@ -541,6 +555,14 @@ def _one[T](readings: Mapping[str, set[T]]) -> tuple[str, T] | None:
     return (key, next(iter(values))) if len(values) == 1 else None
 
 
+def _label_statuses(readings: dict[str, set[MedStatus]]) -> dict[str, set[MedStatus]]:
+    """A medication label's reading: continued stands for the active it implies (L272)."""
+    return {
+        drug: statuses - {"active"} if "continued" in statuses else statuses
+        for drug, statuses in readings.items()
+    }
+
+
 def _allergen(text: str) -> str | None:
     allergens = extract_allergies(text)
     return next(iter(allergens)) if len(allergens) == 1 else None
@@ -562,7 +584,7 @@ def read_label(item: PreserveItem | NotAddItem) -> tuple[str, LabelValue] | None
             allergen = _allergen(item.text)
             return None if allergen is None else (allergen, None)
         case "medication":
-            return _one(extract_med_status(item.text))
+            return _one(_label_statuses(extract_med_status(item.text)))
         case "dose":
             return _one(extract_doses(item.text))
         case "finding":
@@ -587,7 +609,7 @@ def label_problem(item: PreserveItem | NotAddItem) -> str | None:
         return None
     match item.kind:  # a must_not_add label names what a note would add (L36)
         case "medication":
-            positive = value == "active"
+            positive = value in ("active", "continued")
         case "finding":
             positive = value is True
         case "diagnosis":
@@ -634,8 +656,10 @@ def preserve_miss(item: PreserveItem, texts: Sequence[str]) -> Severity | None:
                 return None
             return Severity.WARNING if allergen in NO_ALLERGY_STATEMENTS else Severity.CRITICAL
         case "medication":
-            drug, status = _one(extract_med_status(item.text)) or _unreadable(item)
-            kept = any(status in extract_med_status(t).get(drug, set()) for t in texts)
+            drug, status = _one(_label_statuses(extract_med_status(item.text))) or _unreadable(item)
+            kept = any(
+                status in supported_statuses(extract_med_status(t).get(drug, set())) for t in texts
+            )
             return None if kept else Severity.CRITICAL
         case "dose":
             drug, dose = _one(extract_doses(item.text)) or _unreadable(item)

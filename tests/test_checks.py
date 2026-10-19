@@ -1,5 +1,5 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
-D9-D17, L35, L55, L136-L174, L214-L219, L263)."""
+D9-D17, L35, L55, L136-L174, L214-L219, L262, L263, L272)."""
 
 import pytest
 
@@ -280,7 +280,7 @@ def test_the_presence_checks_split_a_note_by_whether_each_claim_grounds() -> Non
     ] == [(1,)]
 
 
-# --- med_status_consistency (§8.4, D13, L124, L167, L172, L263) ---------------------------
+# --- med_status_consistency (§8.4, D13, L124, L167, L172, L262, L263) ---------------------
 
 
 def test_med_status_consistency_is_a_reference_free_critical_check() -> None:
@@ -298,7 +298,7 @@ def test_med_status_consistency_fires_on_a_continued_drug_written_as_stopped() -
     note, raw = _note(("Discontinue apixaban", "continue apixaban"))
     findings = check_med_status_consistency(note, raw, config=CHECKS_CONFIG)
     assert [f.detail for f in findings] == [
-        "apixaban: stopped in the claim, active in its source span"
+        "apixaban: stopped in the claim, active and continued in its source span"
     ]
     assert findings[0].claim_ids == (0,)
 
@@ -351,6 +351,62 @@ def test_med_status_consistency_passes_an_uninterrupted_order_against_its_contin
         ("No interruption of Eliquis needed", "Continue Eliquis, no interruption needed.")
     )
     assert check_med_status_consistency(note, raw, config=CHECKS_CONFIG) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "span"),
+    [
+        ("Metformin held", "Metformin held, resume in 48 hours if creatinine is stable"),
+        (
+            "Resume metformin in 48 hours if creatinine is stable",
+            "Metformin held, resume in 48 hours if creatinine is stable",
+        ),
+        ("Continue apixaban", "Apixaban held, then restarted"),
+        ("Continue Eliquis", "Eliquis 5 mg bid"),
+        ("Continue lisinopril", "Lisinopril 10 mg daily, no cough"),
+    ],
+    ids=["status", "planned-restart", "done-restart", "unmarked", "finding-negation"],
+)
+def test_med_status_consistency_passes_a_faithful_status_or_plan(text: str, span: str) -> None:
+    # L262: a planned restart sits beside the hold, a done one replaces it, and a span read
+    # active with no stop supports a continue
+    note, raw = _note((text, span))
+    assert check_med_status_consistency(note, raw, config=CHECKS_CONFIG) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "span", "detail"),
+    [
+        (
+            "Continue metformin",
+            "Metformin held, resume in 48 hours if creatinine is stable",
+            "metformin: active and continued in the claim, active and stopped in its source span",
+        ),
+        (
+            "Hold apixaban",
+            "Apixaban held, then restarted",
+            "apixaban: stopped in the claim, active in its source span",
+        ),
+        (
+            "Hold lisinopril",
+            "Lisinopril 10 mg daily, no cough",
+            "lisinopril: stopped in the claim, active in its source span",
+        ),
+        (
+            "Continue metformin",
+            "Metformin held, continue PT",
+            "metformin: active and continued in the claim, stopped in its source span",
+        ),
+    ],
+    ids=["continue-a-hold", "drop-a-restart", "finding-negation", "continue-past-a-hold"],
+)
+def test_med_status_consistency_fires_on_a_status_its_span_contradicts(
+    text: str, span: str, detail: str
+) -> None:
+    # L262: a continue against a stop, and a stop the span's restart superseded
+    note, raw = _note((text, span))
+    findings = check_med_status_consistency(note, raw, config=CHECKS_CONFIG)
+    assert [f.detail for f in findings] == [detail]
 
 
 def test_med_status_consistency_passes_a_status_both_sides_assert() -> None:
@@ -1344,7 +1400,7 @@ def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> 
     assert finding.detail == "no claims; the source names: " + ", ".join(sorted(vocabulary))
 
 
-# --- reference labels (§8.4 point 4; L214-L219) ------------------------------------------
+# --- reference labels (§8.4 point 4; L214-L219, L272) ------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -1355,6 +1411,7 @@ def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> 
         ("medication", "metformin", ("metformin", "active")),
         ("medication", "metformin held", ("metformin", "stopped")),
         ("medication", "Glucophage", ("metformin", "active")),
+        ("medication", "continue apixaban", ("apixaban", "continued")),  # L272
         ("dose", "metformin 500 mg BID", ("metformin", Dose(500.0, "mg", "bid"))),
         ("finding", "denies chest pain", ("chest pain", False)),
         ("diagnosis", "pulmonary embolism", ("pulmonary embolism", ({"definite"}, False))),
@@ -1452,7 +1509,12 @@ def test_a_not_add_label_reads_as_a_positive_mention(kind: str, text: str) -> No
 
 @pytest.mark.parametrize(
     ("kind", "text"),
-    [("medication", "Eliquis"), ("finding", "chest pain"), ("diagnosis", "r/o pneumonia")],
+    [
+        ("medication", "Eliquis"),
+        ("medication", "continue Eliquis"),  # L272
+        ("finding", "chest pain"),
+        ("diagnosis", "r/o pneumonia"),
+    ],
 )
 def test_a_positive_not_add_label_reads(kind: str, text: str) -> None:
     assert label_problem(NotAddItem.model_validate({"text": text, "kind": kind})) is None
@@ -1472,6 +1534,10 @@ def _miss(text: str, kind: str, note: list[str], present: bool = True) -> Severi
         ("metformin", ["Hold metformin"], Severity.CRITICAL),
         ("metformin", ["Not on metformin"], Severity.CRITICAL),
         ("metformin", ["Allergic to metformin"], Severity.CRITICAL),
+        ("continue apixaban", ["Continue Eliquis"], None),  # L272
+        ("continue apixaban", ["Eliquis 5 mg bid"], None),  # active, no stop: uninterrupted
+        ("continue apixaban", ["Hold Eliquis"], Severity.CRITICAL),
+        ("continue apixaban", ["Eliquis held, resume tomorrow"], Severity.CRITICAL),
         ("metformin held", ["Metformin held for CT"], None),
         ("metformin held", ["Continue metformin"], Severity.CRITICAL),
         # a course across claims keeps both readings

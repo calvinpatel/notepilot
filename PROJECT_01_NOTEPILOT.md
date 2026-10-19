@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8** (minor — the scope-rule revision, October 2026). Supersedes v1.7.1.
+**Spec version: v1.8.1** (patch — L262's reach, made exact, October 2026). Supersedes v1.8.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1505,23 +1505,27 @@ WARNING. Refused and continued orders ("do not stop", "don't stop", "continue") 
 entries, not a rule (L172). A restart or a resumption is a start (L169), so "resume" is a
 start cue; as a pre-cue it replaces a stop's open window, the job it did as a terminator. A
 refused start, restart, or resumption, written out or contracted ("do not restart", "don't
-resume"), is a stop (L167), and so is a start a negation's window reaches ("Not starting
-metformin", L262).
+resume"), is a stop (L167), and so is a start cue a negation directly precedes, across
+function words only ("Not starting metformin", "will not be starting", L262, L271). Past a
+content word or a mark, a start cue replaces the negation's window as any pre-cue does
+(L124), so "No fever or chills, start amoxicillin" starts it.
 
 **A restart reaches back, and a continue is a status (L262).** A restart or resumption cue
-that governs no mention reaches the nearest drug before it in its clause that reads
-stopped. Done, it replaces the stop: "restarted", "resumed", "was restarted", and "was
-resumed" read the drug active. Planned, it adds active beside the stop: "Metformin held,
-resume in 48 hours" reads stopped and active. No other cue reaches back. A negation after a
-drug almost always negates a finding ("Lisinopril 10 mg daily, no cough"), and a start may
-name a thing the vocabulary lacks ("start insulin"). `new_prescriptions` reads only a start
-cue that governs a mention, so a planned restart is no start at this visit. A continue cue
-(`MED_CONTINUE_CUES`) asserts "continued" beside active, a third `MedStatus` value: the drug
-is taken without interruption. It governs the drug in its window, or the drug before it
-when it ends its clause ("Zestril 10 mg daily, continue."), and it still closes a finding's
-window (L172). A "continued" claim is contradicted by a stop in its span, and a span
-reading active with no stop supports one (§8.4). "No interruption" is a pseudo-negation, so
-"No interruption of Eliquis needed" reads no stop (L263).
+(`MED_RESTART_CUES`, L274) that governs no mention reaches the nearest drug before it in its
+clause that reads stopped. Done, it replaces the stop: "restarted", "resumed", "was
+restarted", and "was resumed" read the drug active. Planned, it adds active beside the stop:
+"Metformin held, resume in 48 hours" reads stopped and active. No other cue reaches back. A
+negation after a drug almost always negates a finding ("Lisinopril 10 mg daily, no cough"),
+and a start may name a thing the vocabulary lacks ("start insulin"). `new_prescriptions`
+reads only a start cue that governs a mention, so a planned restart is no start at this
+visit. A continue cue (`MED_CONTINUE_CUES`) asserts "continued" beside active, a third
+`MedStatus` value: the drug is taken without interruption. Directly after a drug, across any
+mark but a comma, it governs that drug, as a post-cue does (L122, L273): "Lisinopril
+continued, metformin held" continues lisinopril alone. Otherwise it governs the drug in its
+window, or the drug before it when it ends its clause ("Zestril 10 mg daily, continue."). It
+still closes a finding's window (L172). A "continued" claim is contradicted by a stop in its
+span, and a span reading active with no stop supports one (§8.4). "No interruption" is a
+pseudo-negation, so "No interruption of Eliquis needed" reads no stop (L263).
 
 **Allergy context (L128, L129).** Allergy is a fourth cue class a drug mention sees:
 `ALLERGY_CUES` before the allergen and `ALLERGY_POST` after it. A mention it governs is an
@@ -1613,6 +1617,7 @@ MED_STOP_CUES:     set[str]          # "discontinue", "d/c", "stop", "held", "ho
 MED_STOP_POST:     set[str]          # "discontinued", "held": after the drug (L125)
 MED_START_CUES:    set[str]          # "start", "restart", "resume", "prescribe", "rx" (L41, L169)
 MED_START_POST:    set[str]          # "started", "prescribed": after the drug (L125)
+MED_RESTART_CUES:  set[str]          # "resume", "restarted": starts that reach back (L274)
 MED_CONTINUE_CUES: set[str]          # "continue", "continued": no interruption (L262)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
 CERTAINTY_POST:    dict[str, str]    # "likely" -> "probable": after the diagnosis (L135)
@@ -1912,17 +1917,19 @@ Four things to read off the table:
    "not on apixaban" is status's finding alone.
 4. **`must_preserve` / `must_not_add` read labels with the live primitives (L214).** A
    label's `text` is read by its kind's extractor and states one reading, which is what the
-   label asserts: `PCN allergy` is penicillin; `metformin` is metformin active and
-   `metformin held` is metformin stopped; `metformin 500 mg BID` is one dose;
+   label asserts: `PCN allergy` is penicillin; `metformin` is metformin active,
+   `metformin held` is metformin stopped, and `continue metformin` is metformin continued,
+   the active it implies set aside (L272); `metformin 500 mg BID` is one dose;
    `denies chest pain` is chest pain absent; `r/o pulmonary embolism` is a rule-out and
    `pulmonary embolism ruled out` an exclusion. The note's reading is every claim's text,
    whatever its section (invariant 5). A `must_preserve` item holds when the note keeps its
-   reading: the allergen; the drug at its status (L215); the dose, as `dose_consistency`
-   matches one (L141); the finding at its polarity (L36); the diagnosis as below (L216). A
-   `must_not_add` item fires on a claim that reads it positively: the drug active, the
-   finding present, the diagnosis asserted at any certainty, an invented differential
-   included (D7). A negated, stopped, or excluded mention adds nothing, so a faithful
-   "denies chest pain" is not an invented chest pain (L36).
+   reading: the allergen; the drug at its status (L215), a continued one kept by a reading
+   of continued or of active with no stop, as a span supports it (L272); the dose, as
+   `dose_consistency` matches one (L141); the finding at its polarity (L36); the diagnosis
+   as below (L216). A `must_not_add` item fires on a claim that reads it positively: the
+   drug active, the finding present, the diagnosis asserted at any certainty, an invented
+   differential included (D7). A negated, stopped, or excluded mention adds nothing, so a
+   faithful "denies chest pain" is not an invented chest pain (L36).
 
 **A labeled diagnosis is compared note-wide (L216).** A note records a course ("r/o PE in
 the ED", "PE confirmed on CTA"), so `must_preserve` reads the whole note's strongest
@@ -2585,15 +2592,17 @@ know, stated plainly (v1.3):
   reads metformin stopped and active, so "Resume metformin" passes it (measured). A restart
   reads as done from its form, not its time, so "resumed tomorrow" reads active now. No
   other cue reaches back, so a stop after a word still reads nothing: "Apixaban continued,
-  then held" reads active alone (measured).
+  then held" reads active and continued, the hold unread (measured). A negation refuses a
+  start only across function words, so "No plan to start metformin" reads active (L271,
+  measured).
 - **An indication's list** (L266). After a drug and "for", a finding after a comma joins the
   indication, so "Ibuprofen for pain, fever since Monday" reads no fever (measured); with a
   period, the fever reads present.
 - **Labels read through the extractors** (L220). The loader checks a label against the raw
   text through the same extractor the check uses (L219), so a label can't state what the
   extractor misreads, and a misread label loads: "apixaban continued, then held" reads
-  active (L262), as label and as source alike (measured). Case authoring avoids the
-  phrasings this section lists.
+  apixaban continued (L262, L272, L273), as label and as source alike (measured). Case
+  authoring avoids the phrasings this section lists.
 - **A list after a word** (L193). A negation, stop, or start post-cue reaches back over a
   list only when the list opens its clause (§7), so a list after a word reads
   adjacent-only: "no fever, but chills, nausea denied" reads the chills present. Reaching

@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L263.
+L193, L262, L263, L271, L273, L274.
 """
 
 import ast
@@ -46,6 +46,8 @@ from backend.clinical.lexicons import (
     FINDINGS,
     FUNCTION_WORDS,
     GENERIC_DRUGS,
+    MED_CONTINUE_CUES,
+    MED_RESTART_CUES,
     MED_START_CUES,
     MED_START_POST,
     MED_STOP_CUES,
@@ -253,16 +255,19 @@ def test_a_stop_post_cue_reaches_a_list_that_opens_its_clause(text: str) -> None
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "lisinopril"),
     [
-        "Continue lisinopril, metformin held",
-        "Plan: continue lisinopril, metformin held for AKI.",
-        "Takes lisinopril, metformin discontinued",
+        ("Continue lisinopril, metformin held", {"active", "continued"}),
+        ("Plan: continue lisinopril, metformin held for AKI.", {"active", "continued"}),
+        ("Takes lisinopril, metformin discontinued", {"active"}),
     ],
 )
-def test_past_a_word_a_stop_post_cue_stops_only_the_drug_before_it(text: str) -> None:
-    # L193: the over-reach the clause condition exists to stop
-    assert extract_med_status(text) == {"lisinopril": {"active"}, "metformin": {"stopped"}}
+def test_past_a_word_a_stop_post_cue_stops_only_the_drug_before_it(
+    text: str, lisinopril: set[str]
+) -> None:
+    # L193: the over-reach the clause condition exists to stop; a continue cue adds its own
+    # status (L262)
+    assert extract_med_status(text) == {"lisinopril": lisinopril, "metformin": {"stopped"}}
 
 
 def test_a_start_post_cue_starts_every_drug_a_bare_list_names() -> None:
@@ -363,8 +368,8 @@ def test_a_listed_double_negation_wins_over_its_absence_word() -> None:
 
 
 def test_a_drug_no_cue_governs_is_active() -> None:
-    # §7's example: "continue" asserts the default
-    assert extract_med_status("continue apixaban") == {"apixaban": {"active"}}
+    # §7's example: a bare mention asserts the default
+    assert extract_med_status("apixaban 5 mg") == {"apixaban": {"active"}}
 
 
 def test_a_stop_cue_before_a_drug_stops_it() -> None:
@@ -386,7 +391,7 @@ def test_the_latest_pre_cue_governs() -> None:
 def test_each_order_in_a_list_governs_its_own_drug() -> None:
     text = "Continued lisinopril, held metformin, started apixaban"
     assert extract_med_status(text) == {
-        "lisinopril": {"active"},
+        "lisinopril": {"active", "continued"},
         "metformin": {"stopped"},
         "apixaban": {"active"},
     }
@@ -396,8 +401,114 @@ def test_each_order_in_a_list_governs_its_own_drug() -> None:
 def test_a_continued_order_closes_a_stop_window() -> None:
     assert extract_med_status("stop metformin, continue lisinopril") == {
         "metformin": {"stopped"},
-        "lisinopril": {"active"},
+        "lisinopril": {"active", "continued"},
     }
+
+
+# --- a restart's reach, a refused start, and a continue (L262, L271, L273) --------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Metformin held, resume in 48 hours", {"metformin": {"active", "stopped"}}),
+        ("Apixaban held, then restarted", {"apixaban": {"active"}}),
+        (
+            "Lisinopril and metformin held, resume lisinopril tomorrow",
+            {"lisinopril": {"active", "stopped"}, "metformin": {"stopped"}},
+        ),
+        ("Metformin held; resume in 48 hours", {"metformin": {"stopped"}}),
+        (
+            "Metformin held, lisinopril 10 mg daily, resume in 48 hours",
+            {"metformin": {"active", "stopped"}, "lisinopril": {"active"}},
+        ),
+    ],
+    ids=["planned", "done", "governed", "another-clause", "nearest-stopped"],
+)
+def test_a_restart_reaches_the_stopped_drug_before_it(
+    text: str, expected: dict[str, set[str]]
+) -> None:
+    # L262: done replaces the stop, planned adds active beside it; a semicolon ends the reach
+    assert extract_med_status(text) == expected
+
+
+def test_a_planned_restart_is_no_start_at_this_visit() -> None:
+    # L262: new_prescriptions reads only a start cue that governs a mention
+    assert new_prescriptions("Metformin held, resume in 48 hours") == set()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Lisinopril 10 mg daily, no cough", {"lisinopril": {"active"}}),
+        ("Metformin held, start insulin", {"metformin": {"stopped"}}),
+    ],
+    ids=["negation", "start"],
+)
+def test_no_other_cue_reaches_back(text: str, expected: dict[str, set[str]]) -> None:
+    # L262: a negation after a drug negates a finding; a start may name what no table lists
+    assert extract_med_status(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "drug"),
+    [
+        ("Not starting metformin", "metformin"),
+        ("Not restarting lisinopril", "lisinopril"),
+        ("Will not be starting metformin", "metformin"),
+    ],
+)
+def test_a_negation_directly_before_a_start_refuses_it(text: str, drug: str) -> None:
+    # L271: across function words only, the refusal L167's tables spell
+    assert extract_med_status(text) == {drug: {"stopped"}}
+    assert new_prescriptions(text) == set()
+
+
+@pytest.mark.parametrize(
+    ("text", "drug"),
+    [
+        ("No fever or chills, start amoxicillin 500 mg tid", "amoxicillin"),
+        ("Not hypotensive, restart lisinopril", "lisinopril"),
+        ("Negative for cough, started lisinopril", "lisinopril"),
+        ("No rash after starting amoxicillin", "amoxicillin"),
+    ],
+)
+def test_a_findings_negation_before_a_start_leaves_it_a_start(text: str, drug: str) -> None:
+    # L271: past a content word or a mark, the start replaces the window (L124)
+    assert extract_med_status(text) == {drug: {"active"}}
+    assert new_prescriptions(text) == {drug}
+
+
+def test_every_restart_cue_is_a_start_cue() -> None:
+    # L274: the table names which starts reach back; each still starts its drug (L169)
+    assert MED_RESTART_CUES <= MED_START_CUES | MED_START_POST
+
+
+def test_every_continue_cue_is_a_terminator() -> None:
+    # L262: a continue cue still closes a finding's window, and the split sees it as one
+    assert MED_CONTINUE_CUES <= TERMINATORS
+
+
+@pytest.mark.parametrize("cue", sorted(MED_CONTINUE_CUES))
+def test_every_continue_cue_continues_the_drug_after_it(cue: str) -> None:
+    assert extract_med_status(f"{cue} metformin") == {"metformin": {"active", "continued"}}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Lisinopril continued, metformin held", {"lisinopril"}),
+        ("continued home lisinopril", {"lisinopril"}),
+        ("BP well controlled on Zestril 10 mg daily, continue.", {"lisinopril"}),
+        ("Metformin held, continue PT", set()),
+    ],
+    ids=["adjacent", "window", "ends-clause", "governs-nothing"],
+)
+def test_a_continue_cue_continues_its_drug(text: str, expected: set[str]) -> None:
+    # L262, L273: the drug directly before it, else its window's, else the one before it
+    # when it ends its clause; a cue that reaches none continues nothing
+    continued = {d for d, s in extract_med_status(text).items() if "continued" in s}
+    assert continued == expected
 
 
 def test_a_refused_stop_leaves_the_drug_active() -> None:
@@ -1043,6 +1154,8 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "stop, post": MED_STOP_POST,
         "start": MED_START_CUES,
         "start, post": MED_START_POST,
+        "restart": MED_RESTART_CUES,
+        "continue": MED_CONTINUE_CUES,
         "pseudo": PSEUDO_NEGATIONS,
         "terminator": TERMINATORS,
         "function word": FUNCTION_WORDS,
@@ -1053,6 +1166,9 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         {"start", "start, post"},
         {"allergy", "allergy, post"},
         {"certainty", "certainty, post"},
+        {"restart", "start"},  # L274: a restart is a start (L169)
+        {"restart", "start, post"},
+        {"continue", "terminator"},  # L262: a continue cue still closes a finding's window
     ]
     shared = {
         (a, b, phrase)

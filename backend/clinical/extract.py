@@ -7,17 +7,20 @@ The scope engine is NegEx-shaped (L31), made exact by L121 and L122. Text is cas
 split into tokens: words, punctuation marks, and line breaks. Lexicon phrases are split the
 same way and matched left to right, the longest first. Each cue carries its class as a label
 (L124). A pre-cue governs the mentions that start within NEGATION_WINDOW words after it, and a
-new pre-cue of any class replaces the open window. A post-cue governs the mention immediately
-before it, across any mark but a comma or a terminator. A negation, stop, or start post-cue
-governs the whole list before it when the list opens its clause: at the text's start, or
-after a period, a semicolon, a line break, or a header's colon (L193). A cue in both a pre and
-a post table is a post-cue there and a pre-cue anywhere else. A terminator closes the window.
+new pre-cue of any class replaces the open window, except that a start cue a negation directly
+precedes, across function words only, is refused (L271). A post-cue governs the mention
+immediately before it, across any mark but a comma or a terminator. A negation, stop, or start
+post-cue governs the whole list before it when the list opens its clause: at the text's start,
+or after a period, a semicolon, a line break, or a header's colon (L193). A cue in both a pre
+and a post table is a post-cue there and a pre-cue anywhere else. A terminator closes the
+window.
 
 A finding sees one class of cue, negation. A drug sees four at once: negation, stop, start, and
-allergy (L124, L125, L128). Allergy context reaches further than the others (L128): a header at
-a line's start opens a section, and an allergy post-cue reaches back over any list, not only
-one that opens its clause. A diagnosis
-sees negation and certainty, and a differential cue ("vs") governs both its sides (L135).
+allergy (L124, L125, L128); then a restart that governs no mention reaches back to the stopped
+drug before it, and a continue cue asserts continued (L262, L273). Allergy context reaches
+further than the others (L128): a header at a line's start opens a section, and an allergy
+post-cue reaches back over any list, not only one that opens its clause. A diagnosis sees
+negation and certainty, and a differential cue ("vs") governs both its sides (L135).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
 drug, in the drug's sentence, and the frequency charted after it.
@@ -49,6 +52,8 @@ from backend.clinical.lexicons import (
     FINDINGS,
     FUNCTION_WORDS,
     GENERIC_DRUGS,
+    MED_CONTINUE_CUES,
+    MED_RESTART_CUES,
     MED_START_CUES,
     MED_START_POST,
     MED_STOP_CUES,
@@ -65,7 +70,7 @@ class Dose(NamedTuple):
     freq: str | None  # canonical: "tid", "bid", "daily" ...
 
 
-MedStatus = Literal["active", "stopped"]
+MedStatus = Literal["active", "continued", "stopped"]  # continued: no interruption (L262)
 Certainty = Literal["definite", "probable", "possible", "rule_out"]  # strongest first
 
 # A decimal number whole, so "38.5" ends no sentence; a word; a line break; one mark.
@@ -252,6 +257,14 @@ def _sections(
     return inside
 
 
+class _Scoped(NamedTuple):
+    tokens: list[str]
+    phrases: list[tuple[int, _Phrase]]
+    mentions: list[tuple[str, _Label | None]]
+    starts: list[int]  # each mention's first token
+    governing: set[int]  # the first token of each cue that governs a mention
+
+
 def _scope(
     text: str,
     entities: Mapping[_Phrase, str],
@@ -260,14 +273,29 @@ def _scope(
     differential: _Cues = _NO_CUES,
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
-    None if none does (L31, L121, L122, L124, L128, L135, L193)."""
+    None if none does (L31, L121, L122, L124, L128, L135, L193, L271)."""
+    return _scope_at(text, entities, pre, post, differential).mentions
+
+
+def _scope_at(
+    text: str,
+    entities: Mapping[_Phrase, str],
+    pre: _Cues,
+    post: _Cues,
+    differential: _Cues = _NO_CUES,
+) -> _Scoped:
+    """_scope's reading, with where each mention starts and which cues govern one."""
     tokens = _tokens(text)
     phrases = list(_split(tokens, (_PSEUDO, _TERMINATORS, entities, pre, post, differential)))
     sections = _sections(tokens, phrases, entities, pre)
     at = dict(phrases)
     mentions: list[tuple[str, _Label | None]] = []
+    starts: list[int] = []
+    governing: set[int] = set()
     window = 0  # the words the open pre-cue still governs
     label: _Label | None = None  # the open pre-cue's class
+    opener = 0  # the open pre-cue's first token
+    refusing = False  # a negation pre-cue with only function words since (L271)
     before: int | None = None  # the mention immediately before, past any mark but a comma
     run: list[int] = []  # the mentions a list joins, ending at `before` (L128)
     clause_open = True  # no word yet since the clause opened: a list starting here is bare
@@ -281,7 +309,8 @@ def _scope(
         elif phrase in differential:  # both sides: the mention before, unless governed, and after
             if before is not None and mentions[before][1] is None:
                 mentions[before] = (mentions[before][0], differential[phrase])
-            window, label = NEGATION_WINDOW, differential[phrase]
+                governing.add(i)
+            window, label, opener = NEGATION_WINDOW, differential[phrase], i
         elif phrase in post and before is not None:  # tested ahead of pre, per L121
             cue = post[phrase]
             listed = cue == "allergy" or (cue in _LIST_REACH and run_bare)
@@ -289,11 +318,18 @@ def _scope(
             for m in reach:  # a list's earlier mentions only where no other cue governs
                 if m == before or mentions[m][1] is None:
                     mentions[m] = (mentions[m][0], cue)
+            governing.add(i)
         elif phrase in pre:
-            window, label = NEGATION_WINDOW, pre[phrase]
+            # L271: a start a negation directly precedes is refused ("Not starting metformin");
+            # past a content word or a mark it replaces the window, as any pre-cue does (L124)
+            refused = refusing and pre[phrase] == "started"
+            window, label, opener = NEGATION_WINDOW, "negated" if refused else pre[phrase], i
         elif phrase in entities:
-            governing = label if in_window else "allergy" if i in sections else None
-            mentions.append((entities[phrase], governing))
+            governing_label = label if in_window else "allergy" if i in sections else None
+            if in_window:
+                governing.add(opener)
+            mentions.append((entities[phrase], governing_label))
+            starts.append(i)
         # adjacency: a mention opens it; a word, a terminator, or a comma ends it (L122). A
         # list's run survives a join and a mark, and ends where adjacency ends otherwise.
         if phrase in entities:
@@ -313,7 +349,11 @@ def _scope(
             clause_open = True
         elif words:
             clause_open = False
-    return mentions
+        if phrase in pre and pre[phrase] == "negated":
+            refusing = True
+        elif not (words and all(token in FUNCTION_WORDS for token in phrase)):
+            refusing = False
+    return _Scoped(tokens, phrases, mentions, starts, governing)
 
 
 def _drug_mentions(text: str) -> list[tuple[str, _Label | None]]:
@@ -338,17 +378,118 @@ def extract_drugs(text: str) -> set[str]:
     return {drug for drug, statuses in extract_med_status(text).items() if "active" in statuses}
 
 
+# L262, L274: a restart that is also a start post-cue is done ("restarted", "was resumed");
+# one that is only a start pre-cue is planned ("resume")
+_RESTARTS = set(_phrases(MED_RESTART_CUES))
+_RESTARTS_DONE = _RESTARTS & set(_phrases(MED_START_POST))
+_CONTINUES = _phrases(MED_CONTINUE_CUES)
+
+
+def _clauses(scoped: _Scoped) -> list[int]:
+    """Each token's clause, numbered from 0: L193's clauses, which open after . ; or a line
+    break, or after a header's colon."""
+    at = dict(scoped.phrases)
+    clause, clauses = 0, []
+    for k, token in enumerate(scoped.tokens):
+        clauses.append(clause)
+        if (token,) in _CLAUSE_STARTS or (
+            token == ":" and _header_ends_at(scoped.tokens, k, at, _NAMES)
+        ):
+            clause += 1
+    return clauses
+
+
+def _med_readings(text: str) -> list[tuple[str, set[MedStatus]]]:
+    """Each drug mention in text with the statuses it asserts (D13, L124, L262).
+
+    A mention asserts its governing cue's status. Then a restart or resumption cue that
+    governs no mention reaches the nearest drug before it in its clause that reads stopped:
+    done, it replaces the stop; planned, it adds active beside it. A continue cue asserts
+    continued, beside active, for the drug directly before it (L273), else for the drug in its
+    window, else for the drug before it when the cue ends its clause. A mention in allergy
+    context asserts nothing (L128).
+    """
+    scoped = _scope_at(text, _NAMES, _DRUG_PRE, _DRUG_POST)
+    clauses = _clauses(scoped)
+    readings: list[tuple[str, set[MedStatus]]] = [
+        (drug, {_STATUS[label]} if drug in GENERIC_DRUGS and label in _STATUS else set())
+        for drug, label in scoped.mentions
+    ]
+    drugs = [k for k, (drug, statuses) in enumerate(readings) if statuses]
+
+    def before(i: int) -> list[int]:  # the drug mentions before token i, in its clause
+        return [
+            k for k in drugs if scoped.starts[k] < i and clauses[scoped.starts[k]] == clauses[i]
+        ]
+
+    for n, (i, phrase) in enumerate(scoped.phrases):
+        if phrase in _RESTARTS and i not in scoped.governing:
+            stopped = [k for k in before(i) if "stopped" in readings[k][1]]
+            if stopped:
+                statuses = readings[stopped[-1]][1]
+                if phrase in _RESTARTS_DONE:
+                    statuses.discard("stopped")
+                statuses.add("active")
+        elif phrase in _CONTINUES:
+            # directly after a drug it is that drug's, as any post-cue is (L122, L273); else
+            # it governs its window, or the drug before it when it ends its clause (L262)
+            target = _adjacent(scoped, drugs, n) or _continued(scoped, clauses, drugs, n)
+            if not target and _ends_clause(scoped, clauses, n):
+                target = before(i)[-1:]
+            for k in target:
+                readings[k][1].update(("active", "continued"))
+    return readings
+
+
+def _adjacent(scoped: _Scoped, drugs: list[int], n: int) -> list[int]:
+    """The drug mention immediately before the cue at phrases[n], across any mark but a
+    comma (L122), as a list of at most one."""
+    for j, phrase in reversed(scoped.phrases[:n]):
+        if phrase in _NAMES:
+            return [k for k in drugs if scoped.starts[k] == j]
+        if any(map(_is_word, phrase)) or phrase == (",",) or phrase in _TERMINATORS:
+            return []
+    return []
+
+
+def _continued(scoped: _Scoped, clauses: list[int], drugs: list[int], n: int) -> list[int]:
+    """The drug mention in the window of the continue cue at phrases[n], as a list of at most
+    one: within NEGATION_WINDOW words, in the cue's clause, before a terminator or a pre-cue."""
+    i = scoped.phrases[n][0]
+    words = 0
+    for j, phrase in scoped.phrases[n + 1 :]:
+        if clauses[j] != clauses[i] or phrase in _TERMINATORS or phrase in _DRUG_PRE:
+            return []
+        if phrase in _NAMES:
+            return [k for k in drugs if scoped.starts[k] == j]
+        words += sum(map(_is_word, phrase))
+        if words >= NEGATION_WINDOW:
+            return []
+    return []
+
+
+def _ends_clause(scoped: _Scoped, clauses: list[int], n: int) -> bool:
+    """Whether no word follows the cue at phrases[n] in its clause."""
+    i = scoped.phrases[n][0]
+    return not any(
+        _is_word(token)
+        for j, token in enumerate(scoped.tokens)
+        if j > i and clauses[j] == clauses[i]
+    )
+
+
 def extract_med_status(text: str) -> dict[str, set[MedStatus]]:
     """drug -> the statuses asserted for it (D13).
 
-    "continue apixaban" -> {"active"}; "discontinue apixaban" -> {"stopped"}. A negated
-    mention is stopped: "not on apixaban" asserts the drug isn't taken (L124). A mention in
-    allergy context asserts no status (L128).
+    "apixaban 5 mg" -> {"active"}; "continue apixaban" -> {"active", "continued"} (L262);
+    "discontinue apixaban" -> {"stopped"}. A negated mention is stopped: "not on apixaban"
+    asserts the drug isn't taken (L124). A mention in allergy context asserts no status
+    (L128).
     """
     statuses: dict[str, set[MedStatus]] = {}
-    for drug, label in _drug_mentions(text):
-        if drug in GENERIC_DRUGS and label in _STATUS:
-            statuses.setdefault(drug, set()).add(_STATUS[label])
+    for drug, asserted in _med_readings(text):
+        if asserted:
+            statuses.setdefault(drug, set()).update(asserted)
     return statuses
 
 

@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,55 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.8.1 — L262's reach, made exact (patch)
+
+Theme: entry 11's rules, built, read past what the decision sheet measured. Building L262
+ran adversarial rows the sheet hadn't, and two of its statements conflicted with older ones;
+a third gap blocked the corpus from loading, and a fourth left a cue's class to code. Cal
+approved all four resolutions on Oct 19 before the code that depends on them, which lands
+with them in one commit, as patches do. Both records replay unmoved at this commit, since
+the plan claims still quote no drug until L261 reads the clause. The smoke run and the
+re-baseline follow v1.8's remaining code, as v1.8.2.
+
+**CRITICAL**
+- **L271 §7, §8.8 — a negation refuses a start only directly before it.** Conflict: L124 has
+  a new pre-cue of any class replace an open window, and L262 made a start a negation's
+  window reaches a stop. L124 wins, except where the negation directly precedes the start
+  cue across function words only, the shape L167's spelled refusals take. Why: under L262's
+  wording, a finding's negation reached across a comma to the drug, and ordinary charting
+  read stopped: "No fever or chills, start amoxicillin 500 mg tid", "Not hypotensive,
+  restart lisinopril", "Negative for cough, started lisinopril", and "No rash after starting
+  amoxicillin" (each prototyped at `3a381b6`), each a false `med_status_consistency` on a
+  faithful start and a pass on "Hold". The narrowed rule reads all four active and still
+  refuses "Not starting metformin", "Not restarting lisinopril", and "Will not be starting
+  metformin". The cost, "No plan to start metformin" reading active as it did before v1.8,
+  is §8.8's.
+- **L272 §8.4 — a continued label is one reading.** Fill. L214 has a label state one
+  reading, and L262 made "continue apixaban" read active and continued, so
+  `fidelity_apixaban_continued`'s label no longer read, and the corpus didn't load
+  (prototyped). A medication label's continued stands for the active it implies, so it reads
+  continued; a note keeps it with a reading of continued, or of active with no stop, as
+  `med_status_consistency` lets a span support one, and a `must_not_add` medication label
+  may read continued. "Hold Eliquis" misses a continued label, CRITICAL, and "Eliquis 5 mg
+  bid" keeps it.
+- **L273 §7, §8.8 — a continue cue directly after a drug is that drug's.** Conflict: L262
+  has a continue cue govern the drug in its window first, and L122 has a cue directly after
+  a mention govern that mention, the reading every post-cue takes. L122 wins: across any
+  mark but a comma, a continue cue directly after a drug governs it, and otherwise L262's
+  window and clause-end readings stand. Why: under L262's order, "Lisinopril continued,
+  metformin held, resume in 48 hours" read metformin continued as well as stopped, and
+  lisinopril without its continue (prototyped). §8.8's "apixaban continued, then held" now
+  reads apixaban continued, the hold still unread.
+
+**INFO**
+- **L274 §7 — the restarts that reach back are a signed table.** Fill. L262 names "a restart
+  or resumption cue" without saying where the class lives, and the first build picked those
+  cues by stem in `extract.py`, so code, not a signed table, decided a cue's class, against
+  invariant 10 (found in review). `MED_RESTART_CUES` holds the eight restart and resumption
+  forms, each a start cue (L169); one that is also a start post-cue ("restarted", "was
+  resumed") reads as done. The reading is unchanged (prototyped), and a test holds every
+  restart cue to a start cue and every continue cue to a terminator.
 
 ## v1.8 — the scope-rule revision (minor)
 

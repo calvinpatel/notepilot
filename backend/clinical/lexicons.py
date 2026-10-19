@@ -356,6 +356,34 @@ MED_START_POST: set[str] = {
     "was resumed",
 }
 
+# Clinical sign-off: Calvin Patel, 2026-10-19.
+MED_RESTART_CUES: set[str] = {
+    # "Metformin held, resume in 48 hours": a resumption planned, which reaches back (L262).
+    "resume",
+    # The progressive, as "resume" ("resuming apixaban after the procedure").
+    "resuming",
+    # "Apixaban held, then resumed": a resumption done, so the stop it reaches is over.
+    "resumed",
+    # The copula form of "resumed".
+    "was resumed",
+    # "Lisinopril held, restart when SBP is above 120": a restart planned.
+    "restart",
+    # The progressive, as "restart".
+    "restarting",
+    # "Apixaban held, then restarted": a restart done.
+    "restarted",
+    # The copula form of "restarted".
+    "was restarted",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-19.
+MED_CONTINUE_CUES: set[str] = {
+    # "Continue apixaban" orders the drug kept: taken, without interruption (L262).
+    "continue",
+    # The charted past tense ("continued home lisinopril"), as "continue".
+    "continued",
+}
+
 # Clinical sign-off: Calvin Patel, 2026-10-08.
 CERTAINTY_CUES: dict[str, str] = {
     # §7's example: the commonest hedge ("likely pneumonia").
