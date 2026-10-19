@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L262, L263, L271, L273, L274.
+L193, L261-L263, L271, L273-L275.
 """
 
 import ast
@@ -15,6 +15,7 @@ import pytest
 from backend.clinical.extract import (
     Dose,
     _phrases,
+    clause_bounds,
     content_tokens,
     extract_allergies,
     extract_diagnoses,
@@ -1177,6 +1178,37 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         for phrase in _phrases(x).keys() & _phrases(y).keys()
     }
     assert shared == set()
+
+
+# --- clause_bounds: L193's clause in raw offsets (L261, L275) ----------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "clause"),
+    [
+        ("Hold metformin. Continue lisinopril", "lisinopril", " Continue lisinopril"),
+        ("Hold metformin; continue lisinopril", "lisinopril", " continue lisinopril"),
+        ("Temp 38.5, denies fever", "denies fever", "Temp 38.5, denies fever"),
+        ("Plan: start amoxicillin", "amoxicillin", " start amoxicillin"),
+        ("Lisinopril: continue", "continue", "Lisinopril: continue"),
+        ("Hold metformin\rContinue lisinopril", "lisinopril", "Continue lisinopril"),
+        ("Denies fever. Cough.", "Denies fever.", "Denies fever."),
+    ],
+    ids=[
+        "period",
+        "semicolon",
+        "decimal",
+        "header",
+        "entity-colon",
+        "carriage-return",
+        "own-period",
+    ],
+)
+def test_clause_bounds_widen_a_span_to_its_clause(text: str, quote: str, clause: str) -> None:
+    # a decimal's point and an entity's colon open no clause; the span is never cut
+    start = text.index(quote)
+    first, last = clause_bounds(text, start, start + len(quote))
+    assert text[first:last] == clause
 
 
 # --- the module boundary (invariant 13) and the sign-off's form (L120) ------------

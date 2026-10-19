@@ -21,6 +21,7 @@ from backend.clinical.extract import (
     Certainty,
     Dose,
     MedStatus,
+    clause_bounds,
     content_tokens,
     extract_allergies,
     extract_diagnoses,
@@ -48,6 +49,15 @@ from backend.schemas import (
 def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:
     """The claim's source span in raw_text, or None for a claim that grounds nowhere (L35)."""
     return None if claim.source_span is None else raw_text[slice(*claim.source_span)]
+
+
+def clause_text(claim: ClinicalClaim, raw_text: str) -> str | None:
+    """The claim's source span widened to its clause in raw_text, as L193 opens one, or None
+    for a claim that grounds nowhere (L261). The consistency family reads this, so a cue the
+    quote cut off still counts; quote_informativeness reads span_text (D15)."""
+    if claim.source_span is None:
+        return None
+    return raw_text[slice(*clause_bounds(raw_text, *claim.source_span))]
 
 
 def drug_mentions(note: SOAPNote) -> list[tuple[str, tuple[int, ...]]]:
@@ -83,7 +93,7 @@ def check_drug_in_quote(
     """
     findings: list[Finding] = []
     for claim in note.claims:
-        span = span_text(claim, raw_text)
+        span = clause_text(claim, raw_text)
         if span is None:
             continue
         for drug in sorted(named_drugs(claim.text) - named_drugs(span)):
@@ -131,7 +141,7 @@ def _compare_per_key[V](
     """
     findings: list[Finding] = []
     for claim in note.claims:
-        span = span_text(claim, raw_text)
+        span = clause_text(claim, raw_text)
         if span is None:
             continue
         in_text, in_span = extract(claim.text), extract(span)
@@ -276,7 +286,7 @@ def check_diagnosis_in_quote(
     """
     findings: list[Finding] = []
     for claim in note.claims:
-        span = span_text(claim, raw_text)
+        span = clause_text(claim, raw_text)
         if span is None:
             continue
         in_text, in_span = _diagnosis_readings(claim.text), _diagnosis_readings(span)
@@ -335,7 +345,7 @@ def check_dose_consistency(
     """
     findings: list[Finding] = []
     for claim in note.claims:
-        span = span_text(claim, raw_text)
+        span = clause_text(claim, raw_text)
         if span is None:
             continue
         in_text, in_span = extract_doses(claim.text), extract_doses(span)

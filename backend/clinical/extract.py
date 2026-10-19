@@ -671,6 +671,31 @@ def extract_findings(text: str) -> dict[str, set[bool]]:
     return polarities
 
 
+# every entity a header's first word may not name, across the families (L128, L193)
+_ENTITIES = _NAMES | _FINDINGS | _DIAGNOSES
+
+
+def clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """[start, end) widened to the clauses it touches in text (L193, L261, L275).
+
+    A clause opens at the text's start and after a period, a semicolon, a line break, or a
+    header's colon, as the scope engine reads one; a decimal's point opens none. The bounds
+    leave the opening and closing marks out, but never cut into [start, end).
+    """
+    found = list(_TOKEN.finditer(text.replace("\r", "\n")))  # same length: offsets hold
+    tokens = [match.group().casefold() for match in found]
+    at = dict(_split(tokens, (_PSEUDO, _TERMINATORS, _ENTITIES)))
+    opens = [
+        found[k]
+        for k, token in enumerate(tokens)
+        if (token,) in _CLAUSE_STARTS
+        or (token == ":" and _header_ends_at(tokens, k, at, _ENTITIES))
+    ]
+    first = max((match.end() for match in opens if match.end() <= start), default=0)
+    last = min((match.start() for match in opens if match.end() >= end), default=len(text))
+    return first, max(last, end)
+
+
 def content_tokens(text: str) -> list[str]:
     """text's words, numbers included, less FUNCTION_WORDS, in order (§8.4, D15, L160)."""
     return [token for token in _tokens(text) if _is_word(token) and token not in FUNCTION_WORDS]

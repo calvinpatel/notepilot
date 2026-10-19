@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,37 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.8.2 — the clause's bounds and its cost (patch)
+
+Theme: L261, built. Reading a span in its clause needs the clause's bounds in raw offsets,
+which only extraction can compute, and the adversarial pass for it found a false CRITICAL
+the clause brings back. Cal approved both fills on Oct 19 before the code that depends on
+them, which lands with them in one commit. With this commit both records replay at 72 of 72,
+only their nine failing rows moving and no other check changing, WARNING-level included
+(prototyped). The smoke run and the re-baseline become v1.8.3, not v1.8.1's v1.8.2.
+
+**WARNING**
+- **L276 §8.8 — a window that crosses a comma.** Fill. A pre-cue's window runs across a
+  comma (L121), so "Not on metformin, lisinopril 10 mg daily" reads the lisinopril stopped
+  and "No fever, chills present" reads the chills absent (measured at `926c555`). A quote
+  cut short of the cue used to hide that reach; reading the clause (L261) brings it back, so
+  a faithful "Lisinopril 10 mg daily" citing "lisinopril 10 mg daily" there fires
+  `med_status_consistency`, and "Chills" citing "chills present" fires
+  `negation_consistency` (prototyped). Neither phrasing is in a case or a record draft. The
+  window isn't cut at a comma, since that would unread "no fever, chills, or sweats"; §8.8
+  states the cost, and a fix that closes the window at an affirmation would be a decision,
+  for the deferred-amendments issue.
+
+**INFO**
+- **L275 §7, §8.4 — the clause's bounds live in extraction.** Fill. L261 has the consistency
+  family read `clause_text`, the span widened as L193 opens a clause, but L193's clause is
+  read over extraction's tokens, which `evals/` doesn't see, and `clause_text` takes a
+  `ClinicalClaim`, which `clinical/` can't import (invariant 13).
+  `clause_bounds(text, start, end)` in `extract.py` returns the clause's offsets in the raw
+  text: a decimal's point opens no clause, a header's colon does and an entity's doesn't, a
+  carriage return is a line break, and the span is never cut. §7's API block lists it, and
+  §7's helper paragraph counts three helpers, which it had counted as two since v1.8.
 
 ## v1.8.1 — L262's reach, made exact (patch)
 

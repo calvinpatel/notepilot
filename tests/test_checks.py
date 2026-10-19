@@ -1,5 +1,7 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
-D9-D17, L35, L55, L136-L174, L214-L219, L262, L263, L272)."""
+D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L272)."""
+
+from collections.abc import Callable
 
 import pytest
 
@@ -27,6 +29,7 @@ from backend.evals.checks import (
     check_negation_consistency,
     check_new_prescription_preserved,
     check_quote_informativeness,
+    clause_text,
     contraindication,
     drug_mentions,
     label_problem,
@@ -51,11 +54,12 @@ from tests.fresh import run_fresh
 
 
 def _note(*claims: tuple[str, str | None]) -> tuple[SOAPNote, str]:
-    """A note of (text, span) claims, ids from 0, and a raw text holding every span.
+    """A note of (text, span) claims, ids from 0, and a raw text holding every span, one to a
+    line, so each span is its own clause (L261).
 
     A claim whose span is None grounds nowhere, as Tier 4 leaves it (§6.3).
     """
-    raw = " ".join(span for _, span in claims if span is not None)
+    raw = "\n".join(span for _, span in claims if span is not None)
     built: list[ClinicalClaim] = []
     for i, (text, span) in enumerate(claims):
         if span is None:
@@ -87,7 +91,7 @@ def _named(findings: list[Finding]) -> list[str]:
     return [f.detail.partition(":")[0] for f in findings]
 
 
-# --- span_text and named_drugs ------------------------------------------------------------
+# --- span_text, clause_text, and named_drugs (L35, L261) ----------------------------------
 
 
 def test_span_text_is_the_claims_slice_of_the_raw_text() -> None:
@@ -98,6 +102,96 @@ def test_span_text_is_the_claims_slice_of_the_raw_text() -> None:
 def test_span_text_is_none_for_a_claim_that_grounds_nowhere() -> None:
     note, raw = _note(("Start amoxicillin", None))
     assert span_text(note.claims[0], raw) is None
+
+
+def test_clause_text_widens_the_span_to_its_clause() -> None:
+    raw = "Type 2 diabetes. Stopped metformin last month for GI upset."
+    start = raw.index("metformin last month")
+    claim = ClinicalClaim(
+        id=0,
+        text="Taking metformin",
+        section="S",
+        source_quote="metformin last month",
+        source_span=(start, start + len("metformin last month")),
+    )
+    assert clause_text(claim, raw) == " Stopped metformin last month for GI upset"
+
+
+def test_clause_text_is_none_for_a_claim_that_grounds_nowhere() -> None:
+    note, raw = _note(("Start amoxicillin", None))
+    assert clause_text(note.claims[0], raw) is None
+
+
+def _in_clause(text: str, quote: str, raw: str) -> tuple[SOAPNote, str]:
+    """A one-claim note citing quote where it stands in raw, so the claim's clause is raw's."""
+    start = raw.index(quote)
+    claim = ClinicalClaim(
+        id=0, text=text, section="P", source_quote=quote, source_span=(start, start + len(quote))
+    )
+    return SOAPNote(claims=(claim,)), raw
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "raw", "check"),
+    [
+        ("Continue metformin", "metformin", "Hold metformin.", check_med_status_consistency),
+        ("Fever", "fever", "Denies fever.", check_negation_consistency),
+        ("Reports chest pain", "chest pain", "Denies chest pain.", check_negation_consistency),
+        ("PE", "PE", "r/o PE.", check_diagnosis_in_quote),
+        ("Lisinopril 10 mg", "Lisinopril", "Lisinopril 20 mg daily.", check_dose_consistency),
+        (
+            "Resume lisinopril in 48 hours",
+            "resume in 48 hours",
+            "Metformin held for CT with contrast today, resume in 48 hours.",
+            check_drug_in_quote,
+        ),
+    ],
+    ids=["status", "negation", "two-token", "diagnosis", "dose", "drug"],
+)
+def test_the_consistency_family_reads_the_cue_its_quote_cut_off(
+    text: str, quote: str, raw: str, check: Callable[..., list[Finding]]
+) -> None:
+    # L261: the span is read in its clause, so a cue outside the quote still counts
+    note, raw = _in_clause(text, quote, raw)
+    assert check(note, raw, config=CHECKS_CONFIG) != []
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "raw"),
+    [
+        (
+            "Resume metformin in 48 hours",
+            "resume in 48 hours",
+            "Metformin held for CT with contrast today, resume in 48 hours.",
+        ),
+        (
+            "Chest pain on exertion",
+            "chest pain on exertion",
+            "Denies chest pain at rest, reports chest pain on exertion.",
+        ),
+        ("Lisinopril 20 mg daily", "Lisinopril 20 mg", "Lisinopril 20 mg daily."),
+    ],
+    ids=["borrowed-drug", "both-said", "dose-frequency"],
+)
+def test_the_consistency_family_passes_what_the_clause_supports(
+    text: str, quote: str, raw: str
+) -> None:
+    # L261: a drug borrowed from the clause at its clause's status, a sentence saying both,
+    # and a frequency the quote cut off
+    note, raw = _in_clause(text, quote, raw)
+    for check in (
+        check_drug_in_quote,
+        check_med_status_consistency,
+        check_negation_consistency,
+        check_dose_consistency,
+    ):
+        assert check(note, raw, config=CHECKS_CONFIG) == [], check.__name__
+
+
+def test_quote_informativeness_still_reads_the_quote_alone() -> None:
+    # L261, D15: the clause would hold two content tokens; the quote holds one
+    note, raw = _in_clause("Fever", "fever", "Denies fever.")
+    assert check_quote_informativeness(note, raw, config=CHECKS_CONFIG) != []
 
 
 @pytest.mark.parametrize(

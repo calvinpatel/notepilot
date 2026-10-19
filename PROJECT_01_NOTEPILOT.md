@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8.1** (patch — L262's reach, made exact, October 2026). Supersedes v1.8.
+**Spec version: v1.8.2** (patch — the clause's bounds and its cost, October 2026).
+Supersedes v1.8.1.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1399,9 +1400,13 @@ def extract_excluded_diagnoses(text: str) -> set[str]:
 def content_tokens(text: str) -> list[str]:
     """L160: text's words, numbers included, less FUNCTION_WORDS, in order. "The pain,
     500 mg" → ["pain", "500", "mg"]. What quote_informativeness counts (§8.4)."""
+
+def clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """L275: [start, end) widened to the clauses it touches, as L193 opens one; a
+    decimal's point opens none, and the span is never cut. What clause_text slices."""
 ```
 
-Callers add the claim linkage themselves. These two helpers live in `evals/` — they touch
+Callers add the claim linkage themselves. These three helpers live in `evals/` — they touch
 spine types, and `clinical/` imports nothing from the spine:
 
 ```python
@@ -1413,7 +1418,8 @@ def span_text(claim: ClinicalClaim, raw_text: str) -> str | None:        # v1.3 
 
 def clause_text(claim: ClinicalClaim, raw_text: str) -> str | None:      # v1.8 (L261)
     """The span widened to its clause in raw_text: from the clause start before it to the
-    clause end after it, as L193 opens a clause. None when span_text is."""
+    clause end after it, as L193 opens a clause (clause_bounds, L275). None when span_text
+    is."""
 ```
 
 **The negation scope rule (v1.3, L31).** v1.2 had `NEGATION_CUES: set[str]` and no rule for
@@ -2587,6 +2593,14 @@ know, stated plainly (v1.3):
   contrast today, resume in 48 hours". Status is read from the same clause, so a borrowed
   drug at the wrong status still fires, but the highlighted quote the clinician sees may not
   name the drug. Highlighting the clause is phase 3's (a patch on #3).
+- **A window that crosses a comma** (L121, L261, L276). A pre-cue's window runs
+  `NEGATION_WINDOW` words across a comma, so "Not on metformin, lisinopril 10 mg daily"
+  reads the lisinopril stopped and "No fever, chills present" reads the chills absent
+  (measured). Since v1.8 reads a span in its clause, a faithful "Lisinopril 10 mg daily"
+  citing "lisinopril 10 mg daily" there fires `med_status_consistency`, and "Chills" citing
+  "chills present" fires `negation_consistency`: false CRITICALs a quote cut short of the
+  cue used to hide (prototyped). Closing the window at a comma would unread "no fever,
+  chills, or sweats", which is everyday charting.
 - **A restart's reach** (L262). A restart or resumption cue that governs no mention reaches
   the stopped drug before it in its clause, whatever its object: "Metformin held, resume PT"
   reads metformin stopped and active, so "Resume metformin" passes it (measured). A restart
