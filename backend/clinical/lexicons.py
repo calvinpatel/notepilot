@@ -179,7 +179,7 @@ FINDING_NEG_POST: set[str] = {
     "was ruled out",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-07.
+# Clinical sign-off: Calvin Patel, 2026-10-19.
 PSEUDO_NEGATIONS: set[str] = {
     # "No increase in pain" charts pain that hasn't worsened: the pain is present.
     "no increase",
@@ -193,6 +193,12 @@ PSEUDO_NEGATIONS: set[str] = {
     "no improvement",
     # "Not only fever but also chills" asserts both.
     "not only",
+    # "No interruption of apixaban needed" charts an order kept going: the drug is taken (L263).
+    "no interruption",
+    # The plural, as "no interruption" ("no interruptions in apixaban").
+    "no interruptions",
+    # "Without interrupting apixaban" charts the same order: the drug is taken.
+    "without interrupting",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-10.

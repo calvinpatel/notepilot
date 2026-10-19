@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193.
+L193, L263.
 """
 
 import ast
@@ -359,7 +359,7 @@ def test_a_listed_double_negation_wins_over_its_absence_word() -> None:
     assert extract_findings("not afebrile on arrival") == {"fever": {True}}
 
 
-# --- drugs: status, active mentions, and starts (D13, L41, L124-L126, L167, L169) --
+# --- drugs: status, active mentions, starts (D13, L41, L124-L126, L167, L169, L263)
 
 
 def test_a_drug_no_cue_governs_is_active() -> None:
@@ -409,6 +409,19 @@ def test_a_refused_stop_leaves_the_drug_active() -> None:
 )
 def test_a_contracted_refused_stop_leaves_the_drug_active(text: str) -> None:
     # L172: "don" and "t" are no cue, so the stop verb read as a stop
+    assert extract_med_status(text) == {"apixaban": {"active"}}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "No interruption of Eliquis needed",
+        "no interruptions in apixaban",
+        "without interrupting apixaban",
+    ],
+)
+def test_an_uninterrupted_order_leaves_the_drug_active(text: str) -> None:
+    # L263: the negation is the interruption's, so it governs no drug
     assert extract_med_status(text) == {"apixaban": {"active"}}
 
 

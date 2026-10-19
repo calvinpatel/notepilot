@@ -1,5 +1,5 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
-D9-D17, L35, L55, L136-L174, L214-L219)."""
+D9-D17, L35, L55, L136-L174, L214-L219, L263)."""
 
 import pytest
 
@@ -280,7 +280,7 @@ def test_the_presence_checks_split_a_note_by_whether_each_claim_grounds() -> Non
     ] == [(1,)]
 
 
-# --- med_status_consistency (§8.4, D13, L124, L167, L172) ---------------------------------
+# --- med_status_consistency (§8.4, D13, L124, L167, L172, L263) ---------------------------
 
 
 def test_med_status_consistency_is_a_reference_free_critical_check() -> None:
@@ -343,6 +343,14 @@ def test_med_status_consistency_fires_on_a_contracted_refused_stop_written_as_a_
     assert [f.detail for f in check_med_status_consistency(note, raw, config=CHECKS_CONFIG)] == [
         "apixaban: stopped in the claim, active in its source span"
     ]
+
+
+def test_med_status_consistency_passes_an_uninterrupted_order_against_its_continue() -> None:
+    # L263: "no" is the interruption's, so the claim keeps the drug its span continues
+    note, raw = _note(
+        ("No interruption of Eliquis needed", "Continue Eliquis, no interruption needed.")
+    )
+    assert check_med_status_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_med_status_consistency_passes_a_status_both_sides_assert() -> None:
