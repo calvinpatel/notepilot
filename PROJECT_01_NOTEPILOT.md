@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8.3** (patch — an allergy list's bounds, October 2026). Supersedes
-v1.8.2.
+**Spec version: v1.8.4** (patch — a repeat in a certainty window, October 2026). Supersedes
+v1.8.3.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1455,9 +1455,14 @@ after the cue. "Immediately before" skips any mark but a comma or a terminator (
 "chest pain: denied" negates chest pain, and "endorses chest pain, denied fever" negates the
 fever. A phrase in both cue classes ("denied") is a post-cue when a finding is immediately
 before it and a pre-cue otherwise, so "pt denied chest pain" and "chest pain denied, fever"
-both read right. A mention of an entity an open pre-cue already governs reads at its own
-cues, so "r/o PE, PE confirmed" reads both certainties, as "r/o PE. PE confirmed" does
-(L265). The rule is the scope engine's, so it holds for every cue class.
+both read right. In a certainty pre-cue's window, a diagnosis the window already governs
+reads at its own cues when it's named again, so "r/o PE, PE confirmed" reads both
+certainties, as "r/o PE. PE confirmed" does (L265, L278). Every other window keeps a repeat,
+as L121 has it, since a list repeats its entities: "Denies abdominal pain, back pain" names
+pain twice and reads it absent, a hold governs the metformin it goes on to describe, and in
+"r/o PE vs pneumonia, pneumonia less likely" the differential keeps pneumonia possible. A
+name restating the mention directly before it, across any mark but a comma (L122), is that
+mention, so "r/o pulmonary embolism (PE)" reads rule-out alone (L279).
 
 **A post-cue reaches a list that opens its clause (L193).** A negation, stop, or start
 post-cue reaches back over the coordinated run before it — mentions joined by commas,
@@ -2611,6 +2616,14 @@ know, stated plainly (v1.3):
   "chills present" fires `negation_consistency`: false CRITICALs a quote cut short of the
   cue used to hide (prototyped). Closing the window at a comma would unread "no fever,
   chills, or sweats", which is everyday charting.
+- **A repeat in a certainty window** (L265, L278). A diagnosis named again in a certainty
+  pre-cue's window reads at its own cues whatever its words, so "r/o PE, CTA PE protocol
+  ordered" and "r/o PE, PE less likely" read pulmonary embolism definite beside rule-out,
+  and an upgraded "Pulmonary embolism" citing either passes `diagnosis_in_quote`
+  (measured). A differential's window keeps its repeat, so "PNA vs PE, PE confirmed" reads
+  pulmonary embolism possible alone and a faithful "PE confirmed" fires the check. Telling
+  a workup's answer from another mention needs a confirming cue, which would be a decision,
+  for the deferred-amendments issue.
 - **A restart's reach** (L262). A restart or resumption cue that governs no mention reaches
   the stopped drug before it in its clause, whatever its object: "Metformin held, resume PT"
   reads metformin stopped and active, so "Resume metformin" passes it (measured). A restart

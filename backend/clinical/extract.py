@@ -20,7 +20,9 @@ allergy (L124, L125, L128); then a restart that governs no mention reaches back 
 drug before it, and a continue cue asserts continued (L262, L273). Allergy context reaches
 further than the others (L128): a header at a line's start opens a section, and an allergy
 post-cue reaches back over any list, not only one that opens its clause. A diagnosis sees
-negation and certainty, and a differential cue ("vs") governs both its sides (L135).
+negation and certainty, and a differential cue ("vs") governs both its sides (L135). In a
+certainty pre-cue's window, a diagnosis the window already governs reads at its own cues when
+it's named again, unless the name restates the mention directly before it (L265, L278, L279).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
 drug, in the drug's sentence, and the frequency charted after it.
@@ -156,6 +158,11 @@ _CERTAINTY: Mapping[str, _Label] = {
     "possible": "possible",
     "rule_out": "rule_out",
 }
+# the pre-cue labels whose window a repeated entity reads outside, at its own cues (L265,
+# L278): a certainty's, where a repeat charts the workup's answer ("r/o PE, PE confirmed").
+# A negation, stop, start, or allergy window keeps it, since a list repeats its entities
+# ("denies abdominal pain, back pain"), and so does a differential's.
+_REREAD_WINDOWS: frozenset[_Label] = frozenset(_CERTAINTY.values())
 
 
 def _certainty_cues(table: Mapping[str, str]) -> dict[_Phrase, _Label]:
@@ -275,7 +282,7 @@ def _scope(
     differential: _Cues = _NO_CUES,
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
-    None if none does (L31, L121, L122, L124, L128, L135, L193, L271)."""
+    None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L271, L278, L279)."""
     return _scope_at(text, entities, pre, post, differential).mentions
 
 
@@ -302,6 +309,8 @@ def _scope_at(
     run: list[int] = []  # the mentions a list joins, ending at `before` (L128)
     clause_open = True  # no word yet since the clause opened: a list starting here is bare
     run_bare = False  # the open run began its clause (L193)
+    # the entities the open certainty pre-cue governs; None in any other window (L278)
+    rereads: set[str] | None = None
     for i, phrase in phrases:
         words = sum(map(_is_word, phrase))
         in_window = window > 0
@@ -313,6 +322,7 @@ def _scope_at(
                 mentions[before] = (mentions[before][0], differential[phrase])
                 governing.add(i)
             window, label, opener = NEGATION_WINDOW, differential[phrase], i
+            rereads = None  # a differential keeps its repeats (L278)
         elif phrase in post and before is not None:  # tested ahead of pre, per L121
             cue = post[phrase]
             listed = cue == "allergy" or (cue in _LIST_REACH and run_bare)
@@ -333,11 +343,24 @@ def _scope_at(
             # past a content word or a mark it replaces the window, as any pre-cue does (L124)
             refused = refusing and pre[phrase] == "started"
             window, label, opener = NEGATION_WINDOW, "negated" if refused else pre[phrase], i
+            rereads = set() if label in _REREAD_WINDOWS else None
         elif phrase in entities:
-            governing_label = label if in_window else "allergy" if i in sections else None
-            if in_window:
+            entity = entities[phrase]
+            # L265, L278: named again in a certainty window, an entity reads at its own cues;
+            # a name restating the mention directly before it is that mention (L279)
+            repeat = (
+                in_window
+                and rereads is not None
+                and entity in rereads
+                and (before is None or mentions[before][0] != entity)
+            )
+            windowed = in_window and not repeat
+            governing_label = label if windowed else "allergy" if i in sections else None
+            if windowed:
                 governing.add(opener)
-            mentions.append((entities[phrase], governing_label))
+                if rereads is not None:
+                    rereads.add(entity)
+            mentions.append((entity, governing_label))
             starts.append(i)
         # adjacency: a mention opens it; a word, a terminator, or a comma ends it (L122). A
         # list's run survives a join and a mark, and ends where adjacency ends otherwise.
@@ -362,7 +385,7 @@ def _scope_at(
             refusing = True
         elif not (words and all(token in FUNCTION_WORDS for token in phrase)):
             refusing = False
-    _allergy_lists(phrases, entities, pre, post, mentions, starts)
+    _allergy_lists(phrases, entities, post, mentions, starts)
     return _Scoped(tokens, phrases, mentions, starts, governing)
 
 
@@ -374,7 +397,6 @@ _ALLERGY_LIST_OPENERS = frozenset({("(",), ("-",), ("–",)})
 def _allergy_lists(
     phrases: Sequence[tuple[int, _Phrase]],
     entities: Mapping[_Phrase, str],
-    pre: _Cues,
     post: _Cues,
     mentions: list[tuple[str, _Label | None]],
     starts: Sequence[int],

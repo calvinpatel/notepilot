@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L263, L271, L273-L275.
+L193, L261-L265, L271, L273-L275, L277-L279.
 """
 
 import ast
@@ -941,6 +941,83 @@ def test_an_exam_header_reads_as_pulmonary_embolism() -> None:
     # L134's accepted cost: "PE" also charts the physical exam
     text = "PE: lungs clear, no edema"
     assert extract_diagnoses(text) == {"pulmonary embolism": {"definite"}}
+
+
+# --- a mention named again in its window (L265, L278, L279) ----------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["r/o PE, PE confirmed", "r/o PE, then CTA shows PE", "r/o PE. PE confirmed."],
+    ids=["comma", "then", "period"],
+)
+def test_a_diagnosis_named_again_in_a_certainty_window_reads_at_its_own_cues(text: str) -> None:
+    # L265: the workup and its answer read apart in one sentence, as across a period
+    assert extract_diagnoses(text) == {"pulmonary embolism": {"rule_out", "definite"}}
+
+
+def test_a_certainty_window_rereads_a_diagnosis_named_again_whatever_its_words() -> None:
+    # L278's cost: "protocol" answers no workup, yet the repeat reads definite
+    text = "r/o PE, CTA PE protocol ordered"
+    assert extract_diagnoses(text) == {"pulmonary embolism": {"rule_out", "definite"}}
+
+
+@pytest.mark.parametrize(
+    "text", ["r/o pulmonary embolism (PE)", "r/o PE/pulmonary embolism"], ids=["parens", "slash"]
+)
+def test_a_name_restating_the_mention_before_it_is_that_mention(text: str) -> None:
+    # L279: one diagnosis under two names is one mention, not the workup's answer
+    assert extract_diagnoses(text) == {"pulmonary embolism": {"rule_out"}}
+
+
+def test_a_new_certainty_cue_governs_a_diagnosis_the_last_one_did() -> None:
+    # L278: each certainty pre-cue opens its own window, with nothing yet governed in it
+    text = "Concern for PE, r/o PE"
+    assert extract_diagnoses(text) == {"pulmonary embolism": {"possible", "rule_out"}}
+
+
+def test_a_differential_window_keeps_a_diagnosis_named_again() -> None:
+    # L278: a differential re-weighs its sides, so the repeat stays possible
+    text = "r/o PE vs pneumonia, pneumonia less likely"
+    assert extract_diagnoses(text) == {
+        "pulmonary embolism": {"rule_out"},
+        "pneumonia": {"possible"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("text", "findings"),
+    [
+        ("Denies abdominal pain, back pain, or joint pain", {"pain": {False}}),
+        ("Denies fever, chills, fever last week", {"fever": {False}, "chills": {False}}),
+    ],
+    ids=["review-of-systems", "repeat"],
+)
+def test_a_negation_window_keeps_a_finding_named_again(
+    text: str, findings: dict[str, set[bool]]
+) -> None:
+    # L278: a negated list repeats its entities ("abdominal pain, back pain" is pain twice)
+    assert extract_findings(text) == findings
+
+
+def test_a_stop_window_keeps_a_drug_named_again() -> None:
+    # L278: the hold governs the metformin it goes on to describe
+    text = "Hold metformin and lisinopril, metformin for 48 hours after contrast"
+    assert extract_med_status(text) == {"metformin": {"stopped"}, "lisinopril": {"stopped"}}
+
+
+def test_a_start_window_keeps_a_drug_named_again() -> None:
+    # L278: the start governs the amoxicillin it goes on to dose, in an allergy section too,
+    # where a mention no cue governs reads as an allergen (L128)
+    text = "Allergies: PCN\nStart amoxicillin, amoxicillin 500 mg tid"
+    assert extract_allergies(text) == {"penicillin"}
+
+
+def test_an_allergy_window_keeps_a_drug_named_again() -> None:
+    # L278: a repeat in an allergy window stays an allergen, not an active drug
+    text = "Allergic to amoxicillin and cephalexin, amoxicillin as a child"
+    assert extract_med_status(text) == {}
+    assert extract_allergies(text) == {"amoxicillin", "cephalexin"}
 
 
 # --- content tokens (D15, L160) --------------------------------------------------

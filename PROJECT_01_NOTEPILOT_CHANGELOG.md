@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,44 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.8.4 — a repeat in a certainty window (patch)
+
+Theme: L265, built, read past what the decision sheet measured. Built as written, for every
+cue class, it read a repeat in a negated or held list as ungoverned, and everyday charting
+lost its negation. Cal approved the resolution and the fill on Oct 20 before the code that
+depends on them, which lands with them in one commit; `_allergy_lists` drops the `pre`
+parameter it never read, parked from v1.8.3's review. Both records replay as at v1.8.3, 72
+of 72 (prototyped). The smoke run and the re-baseline become v1.8.5, not v1.8.3's v1.8.4.
+
+**CRITICAL**
+- **L278 §7, §8.8 — a repeat reads at its own cues in a certainty window only.** Conflict:
+  L121 has a pre-cue govern every mention that starts in its window, and L265 has a mention
+  of an entity an open pre-cue already governs read at its own cues, in every cue class.
+  L121 wins, except in a certainty pre-cue's window. Why: under L265's wording a list's
+  repeated entity left its window (each prototyped at `6541087`). "Denies abdominal pain,
+  back pain, or joint pain" read pain present, since "pain" is one entity, and "Denies
+  chest pain at rest or chest pain with exertion" read chest pain present, so "Reports
+  chest pain with exertion" citing it passed `negation_consistency`; "Hold Eliquis
+  (apixaban) 48 hours before the procedure" read apixaban active, so "Apixaban 5 mg bid"
+  passed `med_status_consistency`. Each fires CRITICAL at `6541087`. In a certainty window
+  the repeat still reads at its own cues, so entry 16's rows read both certainties: "r/o
+  PE, PE confirmed", "r/o PE, then CTA shows PE", and "r/o pneumonia, pneumonia on CXR".
+  A differential's window keeps its repeat too: let into the rule, it read "pneumonia vs
+  PE, PE less likely" as definite PE (prototyped). L265's "Denies fever, chills, fever last
+  week" now reads the fever absent alone. The cost the certainty window keeps is §8.8's: a
+  repeat reads at its own cues whatever its words, so "r/o PE, CTA PE protocol ordered" and
+  "r/o PE, PE less likely" read pulmonary embolism definite, and an upgraded "Pulmonary
+  embolism" citing either passes `diagnosis_in_quote`, which fires on it at `6541087`
+  (measured). Telling a workup's answer from another mention needs a confirming cue, a
+  decision, so it goes to the deferred-amendments issue; a test pins the cost.
+- **L279 §7 — a restated name is the mention it restates.** Fill. L265 doesn't say whether
+  a second name for one mention is a repeat. Read as one, "r/o pulmonary embolism (PE)" and
+  "r/o PE/pulmonary embolism" read pulmonary embolism definite beside rule-out, so an
+  upgraded claim citing either passes `diagnosis_in_quote`, from charting that states a
+  rule-out alone (prototyped). A name directly after a mention of the same entity, across
+  any mark but a comma (L122), is that mention again and reads in its window: both read
+  rule-out alone.
 
 ## v1.8.3 — an allergy list's bounds (patch)
 
