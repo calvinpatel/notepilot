@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.clinical.extract as X
 from backend.clinical.extract import (
     Dose,
     _phrases,
@@ -58,6 +59,7 @@ from backend.clinical.lexicons import (
     R1_GROUP,
     TERMINATORS,
 )
+from backend.evals.loader import CASES_DIR, load_cases
 
 _CLINICAL = Path(__file__).resolve().parents[1] / "backend" / "clinical"
 
@@ -1180,6 +1182,78 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
     assert shared == set()
 
 
+# --- an allergy list after "X allergy" (L264, L277) -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "allergens", "statuses"),
+    [
+        ("PCN allergy (amoxicillin)", {"penicillin", "amoxicillin"}, {}),
+        ("PCN allergy - amoxicillin", {"penicillin", "amoxicillin"}, {}),
+        ("PCN allergy – amoxicillin", {"penicillin", "amoxicillin"}, {}),
+        ("PCN allergy: amoxicillin", {"penicillin", "amoxicillin"}, {}),
+        ("Pt has PCN allergy: amoxicillin", {"penicillin", "amoxicillin"}, {}),
+        ("Hx of PCN allergy: anaphylaxis", {"penicillin"}, {}),
+        ("PCN and sulfa allergies: rash", {"penicillin", "sulfa"}, {}),
+        ("PCN/sulfa allergies: rash", {"penicillin", "sulfa"}, {}),
+        ("Stopped lisinopril, sulfa allergy: rash", {"sulfa"}, {"lisinopril": {"stopped"}}),
+        ("PCN allergy (amoxicillin, cephalexin)", {"penicillin", "amoxicillin", "cephalexin"}, {}),
+        (
+            "PCN allergy - amoxicillin\nStart azithromycin",
+            {"penicillin", "amoxicillin"},
+            {"azithromycin": {"active"}},
+        ),
+    ],
+    ids=[
+        "parentheses",
+        "hyphen",
+        "en-dash",
+        "colon",
+        "colon-mid-clause",
+        "colon-reaction",
+        "colon-list",
+        "colon-slash",
+        "colon-governed",
+        "two",
+        "clause-end",
+    ],
+)
+def test_an_allergy_list_reads_as_allergens(
+    text: str, allergens: set[str], statuses: dict[str, set[str]]
+) -> None:
+    # L264: the drug before the cue and the pure list after it are both allergens
+    assert extract_allergies(text) == allergens
+    assert extract_med_status(text) == statuses
+
+
+@pytest.mark.parametrize("text", ["Takes metformin Allergies: PCN", "Takes metformin allergies"])
+def test_an_allergy_cue_run_on_after_a_drug_reads_the_drug_an_allergen(text: str) -> None:
+    # L277, §7: the colon form reads as its post-cue, so a header run on after a drug takes the
+    # drug, as the post-cue alone always has (L122); pinned so a fix shows here
+    assert "metformin" in extract_allergies(text)
+    assert extract_med_status(text) == {}
+
+
+@pytest.mark.parametrize(
+    ("text", "statuses"),
+    [
+        ("Penicillin allergy (rash). Start amoxicillin 500 mg bid", {"amoxicillin": {"active"}}),
+        ("PCN allergy - hives, start amoxicillin", {"amoxicillin": {"active"}}),
+        ("PCN allergy - amoxicillin 500 mg tid", {"amoxicillin": {"active"}}),
+        ("PCN allergy (anaphylaxis to amoxicillin)", {"amoxicillin": {"active"}}),
+        ("Start amoxicillin, PCN allergy: rash", {"amoxicillin": {"active"}}),
+    ],
+    ids=["reaction", "reaction-then-plan", "dose-follows", "word-first", "colon-started"],
+)
+def test_a_list_holding_any_other_word_reads_as_before(
+    text: str, statuses: dict[str, set[str]]
+) -> None:
+    # L277: a reaction, a dose, or any other word leaves the list as it reads, since reading a
+    # planned drug as an allergen would hide it from every drug check
+    assert extract_allergies(text) == {"penicillin"}
+    assert extract_med_status(text) == statuses
+
+
 # --- clause_bounds: L193's clause in raw offsets (L261, L275) ----------------------
 
 
@@ -1191,6 +1265,8 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         ("Temp 38.5, denies fever", "denies fever", "Temp 38.5, denies fever"),
         ("Plan: start amoxicillin", "amoxicillin", " start amoxicillin"),
         ("Lisinopril: continue", "continue", "Lisinopril: continue"),
+        ("Chest pain: resolved", "resolved", "Chest pain: resolved"),
+        ("Pneumonia: start amoxicillin", "amoxicillin", "Pneumonia: start amoxicillin"),
         ("Hold metformin\rContinue lisinopril", "lisinopril", "Continue lisinopril"),
         ("Denies fever. Cough.", "Denies fever.", "Denies fever."),
     ],
@@ -1200,6 +1276,8 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "decimal",
         "header",
         "entity-colon",
+        "multiword-entity-colon",
+        "diagnosis-colon",
         "carriage-return",
         "own-period",
     ],
@@ -1209,6 +1287,31 @@ def test_clause_bounds_widen_a_span_to_its_clause(text: str, quote: str, clause:
     start = text.index(quote)
     first, last = clause_bounds(text, start, start + len(quote))
     assert text[first:last] == clause
+
+
+def test_clause_bounds_open_the_clauses_the_scope_engines_tables_would() -> None:
+    # L275: clause_bounds splits over fewer tables than the scope engine; across the corpus's
+    # raw texts it opens the clauses a split over the drug and diagnosis tables would, so
+    # drift shows here, not in a reading
+    tables = (
+        *(X._PSEUDO, X._TERMINATORS, X._ENTITIES),
+        *(X._DRUG_PRE, X._DRUG_POST, X._DX_PRE, X._DX_POST),
+    )
+    for case in load_cases(CASES_DIR):
+        text = case.raw_text
+        found = list(X._TOKEN.finditer(text.replace("\r", "\n")))
+        tokens = [m.group().casefold() for m in found]
+        at = dict(X._split(tokens, tables))
+        opens = [
+            found[k]
+            for k, token in enumerate(tokens)
+            if (token,) in X._CLAUSE_STARTS
+            or (token == ":" and X._header_ends_at(tokens, k, at, X._ENTITIES))
+        ]
+        for m in found:
+            first = max((o.end() for o in opens if o.end() <= m.start()), default=0)
+            last = min((o.start() for o in opens if o.end() >= m.end()), default=len(text))
+            assert clause_bounds(text, m.start(), m.end()) == (first, max(last, m.end())), case.id
 
 
 # --- the module boundary (invariant 13) and the sign-off's form (L120) ------------

@@ -166,6 +166,8 @@ def _certainty_cues(table: Mapping[str, str]) -> dict[_Phrase, _Label]:
 _DIAGNOSES = _phrases(DIAGNOSES) | {
     tuple(_tokens(name)): diagnosis for name, diagnosis in DIAGNOSIS_ALIASES.items()
 }
+# every entity a header's first word may not name, across the families (L128, L193)
+_ENTITIES = _NAMES | _FINDINGS | _DIAGNOSES
 _DX_PRE = _NEG_PRE | _certainty_cues(CERTAINTY_CUES)
 _DX_POST = _NEG_POST | _certainty_cues(CERTAINTY_POST)
 _DIFFERENTIAL = _certainty_cues(DIFFERENTIAL_CUES)
@@ -320,6 +322,13 @@ def _scope_at(
                     mentions[m] = (mentions[m][0], cue)
             governing.add(i)
         elif phrase in pre:
+            if pre[phrase] == "allergy" and phrase[-1] == ":" and before is not None:
+                # L277: before its colon, "allergy:" reads as the post-cue it ends with,
+                # reaching back over the run where no other cue governs (L128)
+                for m in run:
+                    if m == before or mentions[m][1] is None:
+                        mentions[m] = (mentions[m][0], "allergy")
+                governing.add(i)
             # L271: a start a negation directly precedes is refused ("Not starting metformin");
             # past a content word or a mark it replaces the window, as any pre-cue does (L124)
             refused = refusing and pre[phrase] == "started"
@@ -353,7 +362,50 @@ def _scope_at(
             refusing = True
         elif not (words and all(token in FUNCTION_WORDS for token in phrase)):
             refusing = False
+    _allergy_lists(phrases, entities, pre, post, mentions, starts)
     return _Scoped(tokens, phrases, mentions, starts, governing)
+
+
+# what opens the list an allergy post-cue governs right after it (L264): a parenthesis, a
+# hyphen, or an en dash
+_ALLERGY_LIST_OPENERS = frozenset({("(",), ("-",), ("–",)})
+
+
+def _allergy_lists(
+    phrases: Sequence[tuple[int, _Phrase]],
+    entities: Mapping[_Phrase, str],
+    pre: _Cues,
+    post: _Cues,
+    mentions: list[tuple[str, _Label | None]],
+    starts: Sequence[int],
+) -> None:
+    """L264: "PCN allergy (amoxicillin)" and "PCN allergy - amoxicillin" make both drugs
+    allergens. After a mention an allergy post-cue governs, a list in parentheses, or after a
+    dash to its clause's end, reads as allergens when it holds mentions and joins alone: a
+    reaction ("(hives)"), a dose, or any other word leaves it as it reads, since reading a
+    planned drug as an allergen would hide it from every drug check. The colon form ("PCN
+    allergy: amoxicillin") is the scope engine's (L277). Labels mentions in place."""
+    at = {start: k for k, start in enumerate(starts)}
+    for n, (_, phrase) in enumerate(phrases):
+        before = at.get(phrases[n - 1][0]) if n and phrases[n - 1][1] in entities else None
+        if before is None:
+            continue
+        if post.get(phrase) != "allergy":
+            continue
+        if n + 1 == len(phrases) or phrases[n + 1][1] not in _ALLERGY_LIST_OPENERS:
+            continue
+        close = (")",) if phrases[n + 1][1] == ("(",) else None
+        listed: list[int] = []
+        for i, item in phrases[n + 2 :]:
+            if item == close or item in _CLAUSE_STARTS:
+                break
+            if item in entities:
+                listed.append(at[i])
+            elif item not in _JOINS:
+                listed = []  # not a list of allergens: leave every mention as it reads
+                break
+        for m in listed:
+            mentions[m] = (mentions[m][0], "allergy")
 
 
 def _drug_mentions(text: str) -> list[tuple[str, _Label | None]]:
@@ -671,10 +723,6 @@ def extract_findings(text: str) -> dict[str, set[bool]]:
     return polarities
 
 
-# every entity a header's first word may not name, across the families (L128, L193)
-_ENTITIES = _NAMES | _FINDINGS | _DIAGNOSES
-
-
 def clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     """[start, end) widened to the clauses it touches in text (L193, L261, L275).
 
@@ -682,7 +730,11 @@ def clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     header's colon, as the scope engine reads one; a decimal's point opens none. The bounds
     leave the opening and closing marks out, but never cut into [start, end).
     """
-    found = list(_TOKEN.finditer(text.replace("\r", "\n")))  # same length: offsets hold
+    # not _tokens: casefolding the whole text ("ß" to "ss") or folding "\r\n" to one break
+    # would move offsets. A lone "\r" becomes a break in place, each token is casefolded
+    # after its offsets are taken, and curly apostrophes stay as written, which only a
+    # header's first word could notice.
+    found = list(_TOKEN.finditer(text.replace("\r", "\n")))
     tokens = [match.group().casefold() for match in found]
     at = dict(_split(tokens, (_PSEUDO, _TERMINATORS, _ENTITIES)))
     opens = [

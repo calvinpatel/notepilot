@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,39 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.8.3 — an allergy list's bounds (patch)
+
+Theme: L264, built, with its bounds. Building entry 7 showed L264 never says where a list
+after a dash ends or what it may hold, and the first reading of it, any drug after the cue,
+read "PCN allergy - amoxicillin 500 mg tid" as an allergy and hid a planned drug from
+`allergy_contraindication`. Cal approved the fill on Oct 19 before the code that depends on
+it, which lands with it in one commit; the three items parked from v1.8.2's review ride
+along in `extract.py` and its tests. Both records replay as at v1.8.2, 72 of 72
+(prototyped). The smoke run and the re-baseline become v1.8.4, not v1.8.2's v1.8.3.
+
+**CRITICAL**
+- **L277 §7 — an allergy list holds mentions and joins alone.** Fill. L264 has an allergy
+  post-cue govern "a list right after it" when the list names a drug, without saying where
+  the list ends or what else it may hold. Read as any drug after the cue, "PCN allergy -
+  amoxicillin 500 mg tid" made amoxicillin an allergen, so `allergy_contraindication` stayed
+  silent on a penicillin-allergic patient given amoxicillin (prototyped). After a dash or in
+  parentheses the list now runs to its clause's end or its closing parenthesis and holds
+  mentions and joins alone; a reaction, a dose, or any other word leaves every mention as it
+  reads, so that line reads amoxicillin active and the check fires, while "PCN allergy -
+  amoxicillin" and "PCN allergy (amoxicillin, cephalexin)" read allergens. In the colon form
+  the cue is the pre-cue "allergy:". Before its colon it reads as the post-cue it ends with,
+  in the scope engine: it governs the mention directly before it and each mention of the
+  list it ends that no other cue governs (L122, L128), so "PCN/sulfa allergies: rash" reads
+  both and "Start amoxicillin, PCN allergy: rash" leaves the amoxicillin started; a review
+  build that walked back on its own read that amoxicillin an allergen and stopped at "/"
+  (measured, found in review). A review build limited it to a clause-opening mention to
+  spare a drug a header ran on after ("Takes metformin Allergies: PCN"), but that lost the
+  penicillin of "Pt has PCN allergy: amoxicillin" and of "Hx of PCN allergy: anaphylaxis"
+  and the list of "PCN and sulfa allergies: rash" (measured), while the post-cue alone has
+  always read "Takes metformin allergies" that way; a test pins the cost. Its own window
+  reads on after the colon as L128 has it, so "PCN allergy: amoxicillin 500 mg tid" still
+  reads amoxicillin an allergen (measured); §7 states both.
 
 ## v1.8.2 — the clause's bounds and its cost (patch)
 

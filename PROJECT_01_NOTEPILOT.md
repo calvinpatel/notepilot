@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8.2** (patch — the clause's bounds and its cost, October 2026).
-Supersedes v1.8.1.
+**Spec version: v1.8.3** (patch — an allergy list's bounds, October 2026). Supersedes
+v1.8.2.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1549,13 +1549,23 @@ fires: a bare medication line under a header reads as an allergen, and a list ca
 into a medication ("takes lisinopril, sulfa allergy"). An allergy post-cue also governs a
 list right after it, in parentheses, after a dash, or after its colon, when the list names a
 drug: "PCN allergy (amoxicillin)", "PCN allergy - amoxicillin", and "PCN allergy:
-amoxicillin" each read penicillin and amoxicillin as allergens (L264). A list naming no drug
-is a reaction ("PCN allergy (hives)") and reads as before. Allergen names follow L126's
-rule.
-`ALLERGY_ALIASES` holds the classes and D10's statements, a canonical name mapping to
-itself, and drug allergens come through `GENERIC_DRUGS` and `BRAND_TO_GENERIC`. "nkda" and
-"nka" need no cue unless negated, "Allergies: none" is NKA, and a denied allergy ("not
-allergic to") is a negation cue. A CRLF line break is one token, which sections need.
+amoxicillin" each read penicillin and amoxicillin as allergens (L264). After a dash or in
+parentheses, the list runs to its clause's end or its closing parenthesis and holds mentions
+and joins alone: a reaction ("PCN allergy (hives)"), a dose, or any other word in it leaves
+every mention as it reads, since reading a planned drug as an allergen would hide it from
+every drug check, so "PCN allergy - amoxicillin 500 mg tid" reads amoxicillin active (L277).
+In the colon form the cue is the pre-cue "allergy:", which reads before its colon as the
+post-cue it ends with, governing the mention directly before it and each mention of the list
+it ends that no other cue governs (L122, L128), so "Start amoxicillin, PCN allergy: rash"
+leaves the amoxicillin started: "Hx of PCN allergy: anaphylaxis" keeps the penicillin, and
+"Takes metformin Allergies: PCN", a header run on after a drug, reads the metformin an
+allergen, as "Takes metformin allergies" always has. Its own window reads on after the colon
+(L128), so "PCN allergy: amoxicillin 500 mg tid" reads amoxicillin an allergen. Allergen
+names follow L126's rule. `ALLERGY_ALIASES` holds the classes and D10's statements, a
+canonical name mapping to itself, and drug allergens come through `GENERIC_DRUGS` and
+`BRAND_TO_GENERIC`. "nkda" and "nka" need no cue unless negated, "Allergies: none" is NKA,
+and a denied allergy ("not allergic to") is a negation cue. A CRLF line break is one token,
+which sections need.
 
 **Doses (L131, L133).** `lexicons.py` holds what a dose needs to know as data: `DOSE_UNITS`
 and `DOSE_FREQUENCIES` map each charted form to its canonical one ("mcg" -> "μg", "t.i.d."

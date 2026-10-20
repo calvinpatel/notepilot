@@ -1145,7 +1145,7 @@ def test_contraindication_finds_nothing_between_unrelated_drugs(allergen: str, d
     assert contraindication(allergen, drug) is None
 
 
-# --- drug_mentions and allergy_contraindication (§8.4; D9, D14, L30, L37, L51) ------------
+# --- drug_mentions and allergy_contraindication (§8.4; D9, D14, L30, L37, L51, L264) ------
 
 
 def test_drug_mentions_names_each_active_drug_with_its_claim() -> None:
@@ -1206,6 +1206,23 @@ def test_allergy_contraindication_carries_the_rungs_severity() -> None:
     note, raw = _note(("Start cephalexin", "start cephalexin"))
     (finding,) = check_allergy_contraindication(note, raw + " PCN allergy.", config=CHECKS_CONFIG)
     assert finding.severity is Severity.WARNING
+
+
+@pytest.mark.parametrize(
+    ("raw", "fires"),
+    [
+        ("PCN allergy (amoxicillin)", False),
+        ("PCN allergy - amoxicillin", False),
+        ("PCN allergy: amoxicillin", False),
+        ("PCN allergy - amoxicillin 500 mg tid", True),
+    ],
+    ids=["parentheses", "dash", "colon", "dose-follows"],
+)
+def test_allergy_contraindication_reads_an_allergy_list_as_allergens(raw: str, fires: bool) -> None:
+    # L264, L277: a pure list after "X allergy" names allergens, so a faithful claim copying
+    # it states no prescription; a dose after the drug leaves it a drug, and the check fires
+    note, raw = _note((raw, raw))
+    assert (check_allergy_contraindication(note, raw, config=CHECKS_CONFIG) != []) is fires
 
 
 @pytest.mark.parametrize("text", ["Discontinue amoxicillin", "Not on amoxicillin"])
