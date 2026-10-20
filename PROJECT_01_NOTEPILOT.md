@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8.4** (patch — a repeat in a certainty window, October 2026). Supersedes
-v1.8.3.
+**Spec version: v1.8.5** (patch — an indication's list, October 2026). Supersedes v1.8.4.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1386,7 +1385,7 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
 def extract_findings(text: str) -> dict[str, set[bool]]:
     """finding → polarities asserted. "denies chest pain" → {"chest pain": {False}}.
     Scoped negation (below). A set, so a mixed statement keeps both (L33). An indication
-    ("for fever" after a drug) is no finding (L266)."""
+    ("for fever" after a drug) is no finding (L266, L280)."""
 
 def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
     """v1.3 (D12): diagnosis → certainties asserted. "r/o PE" →
@@ -1491,12 +1490,15 @@ matched whole ahead of the word ("not afebrile" is a fever); one the tables don'
 §8.8's. Each alias and word names a `FINDINGS` entry, which a test holds: a name outside it
 is a polarity no claim can share (L139).
 
-**Indications (L266).** "for" after a drug in its clause opens an indication: what follows
-is why the drug is given, not a finding the note asserts, so "Acetaminophen as needed for
-pain and fever" reads no fever. The indication ends at a terminator, the clause's end, or a
-comma no finding follows, and no finding inside it is read. "Seen for chest pain" names no
-drug and reads as before. An indication isn't extracted as its own field; no check needs
-one.
+**Indications (L266, L280).** An indication cue (`INDICATION_CUES`, "for") after a drug in
+its clause opens an indication: the list right after it is why the drug is given, not a
+finding the note asserts, so "Acetaminophen as needed for pain and fever" reads no fever.
+The list holds findings, joins, and marks, as a run does (L193), so "Tylenol for fever,
+chills, and nausea" and "for pain/fever" read none of them; any other word or a terminator
+ends it, so "Apixaban for afib, chest pain this morning" reads the chest pain (L280). "Seen
+for chest pain" names no drug and reads as before, and a diagnosis in an indication still
+reads ("Amoxicillin for pneumonia"). An indication isn't extracted as its own field; no
+check needs one.
 
 **Medication cues (L124, L125).** A drug mention sees three cue classes at once: negation
 (the `FINDING_NEG_*` tables, shared with findings), stop, and start. Each cue carries its
@@ -1640,6 +1642,7 @@ MED_START_CUES:    set[str]          # "start", "restart", "resume", "prescribe"
 MED_START_POST:    set[str]          # "started", "prescribed": after the drug (L125)
 MED_RESTART_CUES:  set[str]          # "resume", "restarted": starts that reach back (L274)
 MED_CONTINUE_CUES: set[str]          # "continue", "continued": no interruption (L262)
+INDICATION_CUES:   set[str]          # "for": after a drug, opens an indication (L280)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
 CERTAINTY_POST:    dict[str, str]    # "likely" -> "probable": after the diagnosis (L135)
 DIFFERENTIAL_CUES: dict[str, str]    # "vs" -> "possible": both its sides (L135)
@@ -2632,9 +2635,11 @@ know, stated plainly (v1.3):
   then held" reads active and continued, the hold unread (measured). A negation refuses a
   start only across function words, so "No plan to start metformin" reads active (L271,
   measured).
-- **An indication's list** (L266). After a drug and "for", a finding after a comma joins the
-  indication, so "Ibuprofen for pain, fever since Monday" reads no fever (measured); with a
-  period, the fever reads present.
+- **An indication's list** (L266, L280). After a drug and "for", a finding after a comma
+  joins the indication, so "Ibuprofen for pain, fever since Monday" reads no fever
+  (measured); with a period, the fever reads present. A list that opens on any other word
+  reads as before L266: "Tylenol for the pain and fever" reads both findings present, and
+  "Ibuprofen for knee pain" the pain (measured).
 - **Labels read through the extractors** (L220). The loader checks a label against the raw
   text through the same extractor the check uses (L219), so a label can't state what the
   extractor misreads, and a misread label loads: "apixaban continued, then held" reads

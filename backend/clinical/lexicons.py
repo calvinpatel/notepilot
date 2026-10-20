@@ -384,6 +384,13 @@ MED_CONTINUE_CUES: set[str] = {
     "continued",
 }
 
+# Clinical sign-off: Calvin Patel, 2026-10-20.
+INDICATION_CUES: set[str] = {
+    # "Acetaminophen as needed for pain and fever": after a drug, the findings listed right
+    # after it are why the drug is given, not findings the note asserts (L266, L280).
+    "for",
+}
+
 # Clinical sign-off: Calvin Patel, 2026-10-08.
 CERTAINTY_CUES: dict[str, str] = {
     # §7's example: the commonest hedge ("likely pneumonia").

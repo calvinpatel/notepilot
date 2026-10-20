@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L265, L271, L273-L275, L277-L279.
+L193, L261-L266, L271, L273-L275, L277-L280.
 """
 
 import ast
@@ -48,6 +48,7 @@ from backend.clinical.lexicons import (
     FINDINGS,
     FUNCTION_WORDS,
     GENERIC_DRUGS,
+    INDICATION_CUES,
     MED_CONTINUE_CUES,
     MED_RESTART_CUES,
     MED_START_CUES,
@@ -1020,6 +1021,80 @@ def test_an_allergy_window_keeps_a_drug_named_again() -> None:
     assert extract_allergies(text) == {"amoxicillin", "cephalexin"}
 
 
+# --- an indication after a drug (L266, L280) -------------------------------------
+
+
+def test_an_indication_is_no_finding() -> None:
+    # L266's row: a PRN antipyretic's indication read the fever present beside its denial
+    text = "Denies fever. Acetaminophen as needed for pain and fever."
+    assert extract_findings(text) == {"fever": {False}}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Ibuprofen 400 mg q6h prn for pain or fever",
+        "Tylenol for fever, chills, and nausea",
+        "Tylenol/ibuprofen for pain/fever",
+    ],
+    ids=["or", "commas", "slashes"],
+)
+def test_an_indication_is_the_list_right_after_its_cue(text: str) -> None:
+    # L280: findings, joins, and marks, as far as a run reaches (L193)
+    assert extract_findings(text) == {}
+
+
+@pytest.mark.parametrize(
+    ("text", "findings"),
+    [
+        ("Apixaban for afib, chest pain this morning", {"chest pain": {True}}),
+        ("On amoxicillin for strep throat, fever persists", {"fever": {True}}),
+        ("Tylenol for fever and ibuprofen, chills today", {"chills": {True}}),
+        ("Tylenol for pain, no fever", {"fever": {False}}),
+    ],
+    ids=["afib", "strep", "drug", "negation"],
+)
+def test_any_other_word_ends_an_indication(text: str, findings: dict[str, set[bool]]) -> None:
+    # L280: what follows the list is read, as it is with no indication before it
+    assert extract_findings(text) == findings
+
+
+def test_an_indication_holds_a_finding_after_a_comma() -> None:
+    # L266's cost (§8.8): a comma before a finding continues the list; a period doesn't
+    assert extract_findings("Ibuprofen for pain, fever since Monday") == {}
+    assert extract_findings("Ibuprofen for pain. Fever since Monday") == {"fever": {True}}
+
+
+@pytest.mark.parametrize(
+    ("text", "findings"),
+    [
+        ("Tylenol for the pain and fever", {"pain": {True}, "fever": {True}}),
+        ("Ibuprofen for knee pain", {"pain": {True}}),
+    ],
+    ids=["article", "site"],
+)
+def test_an_indication_opening_on_another_word_reads_as_before(
+    text: str, findings: dict[str, set[bool]]
+) -> None:
+    # L280's cost (§8.8): the list opens on a finding or not at all
+    assert extract_findings(text) == findings
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Seen for chest pain", "Tylenol at bedtime. Seen for chest pain"],
+    ids=["no-drug", "drug-in-another-clause"],
+)
+def test_an_indication_cue_with_no_drug_in_its_clause_opens_nothing(text: str) -> None:
+    # L266: "for" after no drug, or after one a clause before, reads as before
+    assert extract_findings(text) == {"chest pain": {True}}
+
+
+def test_an_indication_still_asserts_its_diagnosis() -> None:
+    # L266 reads findings only: "for pneumonia" charts the diagnosis it treats
+    assert extract_diagnoses("Amoxicillin for pneumonia") == {"pneumonia": {"definite"}}
+
+
 # --- content tokens (D15, L160) --------------------------------------------------
 
 
@@ -1206,6 +1281,12 @@ def test_every_post_start_cue_starts_the_drug_before_it(cue: str) -> None:
     assert new_prescriptions(f"metformin {cue}") == {"metformin"}
 
 
+@pytest.mark.parametrize("cue", sorted(INDICATION_CUES))
+def test_every_indication_cue_after_a_drug_opens_an_indication(cue: str) -> None:
+    assert extract_findings(f"acetaminophen {cue} fever") == {}
+    assert extract_findings(f"seen {cue} fever") == {"fever": {True}}
+
+
 @pytest.mark.parametrize("word", sorted(FUNCTION_WORDS))
 def test_every_function_word_is_one_word_and_no_content(word: str) -> None:
     assert list(_phrases([word])) == [(word,)]
@@ -1236,6 +1317,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "start, post": MED_START_POST,
         "restart": MED_RESTART_CUES,
         "continue": MED_CONTINUE_CUES,
+        "indication": INDICATION_CUES,
         "pseudo": PSEUDO_NEGATIONS,
         "terminator": TERMINATORS,
         "function word": FUNCTION_WORDS,
@@ -1249,6 +1331,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         {"restart", "start"},  # L274: a restart is a start (L169)
         {"restart", "start, post"},
         {"continue", "terminator"},  # L262: a continue cue still closes a finding's window
+        {"indication", "function word"},  # L280: "for" after a drug opens one
     ]
     shared = {
         (a, b, phrase)

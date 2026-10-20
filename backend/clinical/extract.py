@@ -15,14 +15,16 @@ or after a period, a semicolon, a line break, or a header's colon (L193). A cue 
 and a post table is a post-cue there and a pre-cue anywhere else. A terminator closes the
 window.
 
-A finding sees one class of cue, negation. A drug sees four at once: negation, stop, start, and
-allergy (L124, L125, L128); then a restart that governs no mention reaches back to the stopped
-drug before it, and a continue cue asserts continued (L262, L273). Allergy context reaches
-further than the others (L128): a header at a line's start opens a section, and an allergy
-post-cue reaches back over any list, not only one that opens its clause. A diagnosis sees
-negation and certainty, and a differential cue ("vs") governs both its sides (L135). In a
-certainty pre-cue's window, a diagnosis the window already governs reads at its own cues when
-it's named again, unless the name restates the mention directly before it (L265, L278, L279).
+A finding sees one class of cue, negation; after a drug in its clause, an indication cue opens
+the list right after it, which reads no finding (L266, L280). A drug sees four at once:
+negation, stop, start, and allergy (L124, L125, L128); then a restart that governs no mention
+reaches back to the stopped drug before it, and a continue cue asserts continued (L262, L273).
+Allergy context reaches further than the others (L128): a header at a line's start opens a
+section, and an allergy post-cue reaches back over any list, not only one that opens its
+clause. A diagnosis sees negation and certainty, and a differential cue ("vs") governs both its
+sides (L135). In a certainty pre-cue's window, a diagnosis the window already governs reads at
+its own cues when it's named again, unless the name restates the mention directly before it
+(L265, L278, L279).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
 drug, in the drug's sentence, and the frequency charted after it.
@@ -54,6 +56,7 @@ from backend.clinical.lexicons import (
     FINDINGS,
     FUNCTION_WORDS,
     GENERIC_DRUGS,
+    INDICATION_CUES,
     MED_CONTINUE_CUES,
     MED_RESTART_CUES,
     MED_START_CUES,
@@ -82,7 +85,7 @@ _APOSTROPHES = str.maketrans({"\u2018": "'", "\u2019": "'"})
 
 type _Phrase = tuple[str, ...]
 type _Label = Literal[
-    "negated", "stopped", "started", "allergy", "probable", "possible", "rule_out"
+    "negated", "stopped", "started", "allergy", "probable", "possible", "rule_out", "indication"
 ]
 type _Cues = Mapping[_Phrase, _Label]
 
@@ -126,6 +129,8 @@ _NEG_POST = _cues("negated", FINDING_NEG_POST)
 _DRUGS = _phrases(GENERIC_DRUGS) | {
     tuple(_tokens(name)): drug for name, drug in BRAND_TO_GENERIC.items()
 }
+# what opens an indication after a drug (L266, L280)
+_INDICATIONS = _phrases(INDICATION_CUES)
 _NAMES = _DRUGS | {tuple(_tokens(name)): key for name, key in ALLERGY_ALIASES.items()}
 _DRUG_PRE = (
     _NEG_PRE
@@ -280,10 +285,12 @@ def _scope(
     pre: _Cues,
     post: _Cues,
     differential: _Cues = _NO_CUES,
+    drugs: Collection[_Phrase] = (),
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
-    None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L271, L278, L279)."""
-    return _scope_at(text, entities, pre, post, differential).mentions
+    None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L266, L271, L278-L280).
+    """
+    return _scope_at(text, entities, pre, post, differential, drugs).mentions
 
 
 def _scope_at(
@@ -292,10 +299,14 @@ def _scope_at(
     pre: _Cues,
     post: _Cues,
     differential: _Cues = _NO_CUES,
+    drugs: Collection[_Phrase] = (),
 ) -> _Scoped:
-    """_scope's reading, with where each mention starts and which cues govern one."""
+    """_scope's reading, with where each mention starts and which cues govern one. Given the
+    drugs' names, an indication cue after one in its clause opens an indication (L266, L280).
+    """
     tokens = _tokens(text)
-    phrases = list(_split(tokens, (_PSEUDO, _TERMINATORS, entities, pre, post, differential)))
+    tables = (_PSEUDO, _TERMINATORS, entities, pre, post, differential, drugs, _INDICATIONS)
+    phrases = list(_split(tokens, tables))
     sections = _sections(tokens, phrases, entities, pre)
     at = dict(phrases)
     mentions: list[tuple[str, _Label | None]] = []
@@ -311,6 +322,8 @@ def _scope_at(
     run_bare = False  # the open run began its clause (L193)
     # the entities the open certainty pre-cue governs; None in any other window (L278)
     rereads: set[str] | None = None
+    drug_named = False  # a drug named since the clause opened (L266)
+    indicating = False  # the list right after an indication cue is open (L280)
     for i, phrase in phrases:
         words = sum(map(_is_word, phrase))
         in_window = window > 0
@@ -356,6 +369,8 @@ def _scope_at(
             )
             windowed = in_window and not repeat
             governing_label = label if windowed else "allergy" if i in sections else None
+            if indicating:  # L266: why the drug is given, not a finding the note asserts
+                governing_label = "indication"
             if windowed:
                 governing.add(opener)
                 if rereads is not None:
@@ -379,8 +394,17 @@ def _scope_at(
             phrase == (":",) and _header_ends_at(tokens, i, at, entities)
         ):
             clause_open = True
+            drug_named = False
         elif words:
             clause_open = False
+        # L280: an indication is the list right after its cue, findings, joins, and marks, as
+        # a run reaches (L193); any other word or a terminator ends it
+        if phrase in drugs:
+            drug_named = True
+        if phrase in _INDICATIONS and drug_named:
+            indicating = True
+        elif phrase not in entities and phrase not in _JOINS and (words or phrase in _TERMINATORS):
+            indicating = False
         if phrase in pre and pre[phrase] == "negated":
             refusing = True
         elif not (words and all(token in FUNCTION_WORDS for token in phrase)):
@@ -733,10 +757,13 @@ def extract_findings(text: str) -> dict[str, set[bool]]:
 
     Scoped negation (L31, L121, L122). A set, so a mixed statement keeps both (L33). An alias
     reads as its findings at its cue's polarity; a word stating its finding absent reads
-    absent under any cue (L173).
+    absent under any cue (L173). An indication ("for fever" after a drug) is no finding
+    (L266, L280).
     """
     polarities: dict[str, set[bool]] = {}
-    for name, label in _scope(text, _FINDINGS, _NEG_PRE, _NEG_POST):
+    for name, label in _scope(text, _FINDINGS, _NEG_PRE, _NEG_POST, drugs=_DRUGS):
+        if label == "indication":
+            continue
         if name in ABSENT_FINDINGS:
             polarities.setdefault(ABSENT_FINDINGS[name], set()).add(False)
             continue
