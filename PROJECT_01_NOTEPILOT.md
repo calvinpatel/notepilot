@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8.6** (patch — a prn alone, and a prn's reach, October 2026). Supersedes
-v1.8.5.
+**Spec version: v1.8.7** (patch — v1.8's re-baseline, October 2026). Supersedes v1.8.6.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -840,7 +839,9 @@ three more wordings live, and none moved the split (L268), so the prompt stays a
 the checks read the split instead: a claim's span is read in its clause (L261), where a
 planned restart sits beside the hold (L262). "Resume metformin in 48 hours" citing "resume
 in 48 hours" passes, and a claim continuing the held drug still fires. The probe's 27 drafts
-and both records' 144 repeats all pass (measured).
+and both records' 144 repeats all pass (measured). Live on v1.8's code, all 72 repeats pass
+(L284): the model still splits the plan off, and replayed under v1.7's checks its drafts
+fail the same 9, so the checks moved the number, not the drafts.
 
 ### 5.4 The boundary: validate, and self-correct
 
