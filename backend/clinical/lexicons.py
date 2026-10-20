@@ -533,7 +533,7 @@ DOSE_MASS_UG: dict[str, int] = {
     "μg": 1,
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-20.
 DOSE_FREQUENCIES: dict[str, str] = {
     # Once a day.
     "daily": "daily",
@@ -583,7 +583,7 @@ DOSE_FREQUENCIES: dict[str, str] = {
     "q8h": "q8h",
     # Spelled out.
     "every 8 hours": "q8h",
-    # As needed: the frequency only when no interval is charted with it (L133).
+    # As needed: sets the dose's prn, not its interval, beside any interval charted (L267).
     "prn": "prn",
     # Spelled out.
     "as needed": "prn",

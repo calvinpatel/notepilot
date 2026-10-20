@@ -1,5 +1,5 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
-D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L272)."""
+D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281)."""
 
 from collections.abc import Callable
 
@@ -879,12 +879,25 @@ def test_dose_consistency_fires_on_a_tenfold_dose() -> None:
         ("Acetaminophen 1.005 g", "acetaminophen 1005 mg"),
         ("Metformin 500 mg", "metformin 500 mg bid"),
         ("Metformin 1000 mg", "metformin 500 mg, then 1000 mg"),
+        ("Acetaminophen 650 mg", "acetaminophen 650 mg q6h prn"),
+        ("Acetaminophen 650 mg q6h prn", "acetaminophen 650 mg prn q6h"),
+        ("Acetaminophen 650 mg prn", "acetaminophen 650 mg q6h prn"),
     ],
-    ids=["same", "grams-as-milligrams", "exact-arithmetic", "no-frequency", "one-of-a-titration"],
+    ids=[
+        "same",
+        "grams-as-milligrams",
+        "exact-arithmetic",
+        "no-frequency",
+        "one-of-a-titration",
+        "no-frequency-or-prn",
+        "prn-either-side",
+        "prn-alone-at-any-interval",
+    ],
 )
 def test_dose_consistency_passes_a_dose_the_span_charts(text: str, span: str) -> None:
     # L141: mass compares in micrograms, exactly (in floats, 1.005 * 1000 is 1004.999...), and
-    # a dose the claim charts without a frequency matches the span's at any
+    # a dose the claim charts without an interval or a prn matches the span's at any; L267: a
+    # prn alone matches any interval at its prn
     note, raw = _note((text, span))
     assert check_dose_consistency(note, raw, config=CHECKS_CONFIG) == []
 
@@ -897,12 +910,32 @@ def test_dose_consistency_passes_a_dose_the_span_charts(text: str, span: str) ->
         ("Metformin 500 mg tid", "metformin 500 mg bid"),
         ("Continue metformin 1000 mg bid", "continue metformin"),
         ("Metformin 500 mg, then 2000 mg", "metformin 500 mg"),
+        ("Acetaminophen 650 mg q6h", "acetaminophen 650 mg q6h prn"),
+        ("Acetaminophen 650 mg q6h prn", "acetaminophen 650 mg q6h"),
+        ("Acetaminophen 650 mg prn", "acetaminophen 650 mg q6h"),
     ],
-    ids=["volume-for-mass", "a-frequency-the-span-lacks", "another-frequency", "no-dose", "beside"],
+    ids=[
+        "volume-for-mass",
+        "a-frequency-the-span-lacks",
+        "another-frequency",
+        "no-dose",
+        "beside",
+        "dropped-prn",
+        "added-prn",
+        "prn-alone-for-a-schedule",
+    ],
 )
 def test_dose_consistency_fires_on_a_dose_the_span_doesnt_chart(text: str, span: str) -> None:
     note, raw = _note((text, span))
     assert len(check_dose_consistency(note, raw, config=CHECKS_CONFIG)) == 1
+
+
+def test_dose_consistency_names_a_prn() -> None:
+    # L267: the detail charts a prn beside its interval
+    note, raw = _note(("Acetaminophen 650 mg q6h", "acetaminophen 650 mg q6h prn"))
+    assert [f.detail for f in check_dose_consistency(note, raw, config=CHECKS_CONFIG)] == [
+        "acetaminophen: 650 mg q6h in the claim, 650 mg q6h prn in its source span"
+    ]
 
 
 def test_dose_consistency_names_a_missing_dose() -> None:
@@ -1708,6 +1741,10 @@ def test_a_diagnosis_label_is_compared_note_wide(
         # a frequency the source never states isn't the label's dose, as in dose_consistency
         ("metformin 500 mg", "dose", True, ["Metformin 500 mg BID"], Severity.WARNING),
         ("metformin 500 mg BID", "dose", True, ["Lisinopril 500 mg BID"], Severity.WARNING),
+        # L267, L281: a dose label's prn is kept as dose_consistency matches one
+        ("ibuprofen 400 mg q6h prn", "dose", True, ["Ibuprofen 400 mg q6h"], Severity.WARNING),
+        ("ibuprofen 400 mg q6h", "dose", True, ["Ibuprofen 400 mg q6h prn"], Severity.WARNING),
+        ("ibuprofen 400 mg q6h prn", "dose", True, ["Ibuprofen 400 mg prn"], None),
     ],
 )
 def test_the_other_kinds_keep_their_readings(

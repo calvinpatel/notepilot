@@ -318,17 +318,24 @@ def _amount(dose: Dose) -> tuple[str, Decimal]:
 
 
 def _matches(claim_dose: Dose, span_dose: Dose) -> bool:
-    """The same amount, at the claim's frequency; a claim's dose without one matches any."""
-    return _amount(claim_dose) == _amount(span_dose) and (
-        claim_dose.freq is None or claim_dose.freq == span_dose.freq
-    )
+    """The same amount. A claim's dose charting no interval and no prn matches the span's at
+    any (L141); one charting either matches at its interval, if any, and at its prn (L267,
+    L281)."""
+    if _amount(claim_dose) != _amount(span_dose):
+        return False
+    if claim_dose.freq is None and not claim_dose.prn:
+        return True
+    at_interval = claim_dose.freq is None or claim_dose.freq == span_dose.freq
+    return at_interval and claim_dose.prn == span_dose.prn
 
 
 def _doses(doses: Iterable[Dose]) -> str:
     """'500 mg bid', '500 mg and 1000 mg', or 'no dose', for a finding's detail."""
     said = [
-        f"{Decimal(str(d.value)).normalize():f} {d.unit}" + (f" {d.freq}" if d.freq else "")
-        for d in sorted(doses, key=lambda d: (d.unit, d.value, d.freq or ""))
+        f"{Decimal(str(d.value)).normalize():f} {d.unit}"
+        + (f" {d.freq}" if d.freq else "")
+        + (" prn" if d.prn else "")
+        for d in sorted(doses, key=lambda d: (d.unit, d.value, d.freq or "", d.prn))
     ]
     return " and ".join(said) or "no dose"
 
@@ -340,8 +347,9 @@ def check_dose_consistency(
     """One finding per drug a claim and its span both name, at a dose the span doesn't chart.
 
     doses(text) ⊆ doses(span), parsed (§8.4, D1): a mass compares in micrograms, exactly, and a
-    dose the claim charts without a frequency matches the span's at any (L141). A drug the span
-    doesn't name is drug_in_quote's. A claim with no span is skipped (§8.4).
+    dose the claim charts without an interval or a prn matches the span's at any (L141); one
+    charting either matches at its interval and its prn (L267, L281). A drug the span doesn't
+    name is drug_in_quote's. A claim with no span is skipped (§8.4).
     """
     findings: list[Finding] = []
     for claim in note.claims:

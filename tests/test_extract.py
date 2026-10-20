@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L266, L271, L273-L275, L277-L280.
+L193, L261-L267, L271, L273-L275, L277-L280, L282.
 """
 
 import ast
@@ -796,14 +796,60 @@ def test_a_micro_sign_reads_as_mu() -> None:
     assert extract_doses("metformin 75 µg daily") == {"metformin": {Dose(75.0, "μg", "daily")}}
 
 
-@pytest.mark.parametrize("text", ["acetaminophen 650 mg q6h prn", "acetaminophen 650 mg prn q6h"])
-def test_prn_yields_to_an_interval_in_either_order(text: str) -> None:
-    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", "q6h")}}
+@pytest.mark.parametrize(
+    "text",
+    [
+        "acetaminophen 650 mg q6h prn",
+        "acetaminophen 650 mg prn q6h",
+        "acetaminophen 650 mg every 6 hours as needed",
+    ],
+    ids=["after", "before", "spelled-out"],
+)
+def test_a_prn_sits_beside_its_interval_in_either_order(text: str) -> None:
+    # L267: the interval and the prn both, where a prn once yielded to the interval (L133)
+    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", "q6h", prn=True)}}
 
 
-def test_prn_is_the_frequency_when_no_interval_is_charted() -> None:
+def test_a_prn_alone_charts_no_interval() -> None:
     text = "acetaminophen 650 mg as needed"
-    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", "prn")}}
+    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", None, prn=True)}}
+
+
+@pytest.mark.parametrize(
+    ("text", "doses"),
+    [
+        (
+            "Tylenol 650 mg q6h prn, ibuprofen 400 mg tid",
+            {
+                "acetaminophen": {Dose(650.0, "mg", "q6h", prn=True)},
+                "ibuprofen": {Dose(400.0, "mg", "tid")},
+            },
+        ),
+        (
+            "Tylenol 650 mg q6h, then 650 mg prn",
+            {"acetaminophen": {Dose(650.0, "mg", "q6h"), Dose(650.0, "mg", None, prn=True)}},
+        ),
+        ("Tylenol 650 mg q6h. Prn for fever", {"acetaminophen": {Dose(650.0, "mg", "q6h")}}),
+    ],
+    ids=["drug", "dose", "terminator"],
+)
+def test_a_prn_reaches_no_further_than_the_next_dose_drug_or_terminator(
+    text: str, doses: dict[str, set[Dose]]
+) -> None:
+    # L267: the dose's reach (L133), and nothing the dose before it charted carries over
+    assert extract_doses(text) == doses
+
+
+def test_a_dose_keeps_the_first_interval_in_its_reach() -> None:
+    # L133: the first interval charted, now that a dose stays open past it for a prn (L267)
+    text = "metformin 500 mg bid, may increase to tid"
+    assert extract_doses(text) == {"metformin": {Dose(500.0, "mg", "bid")}}
+
+
+def test_a_later_orders_prn_in_the_sentence_joins_the_dose() -> None:
+    # L282's cost (§8.8): oxycodone is no listed drug, so its prn is the acetaminophen's
+    text = "Tylenol 650 mg q6h scheduled, oxycodone prn breakthrough"
+    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", "q6h", prn=True)}}
 
 
 @pytest.mark.parametrize(
@@ -1213,8 +1259,10 @@ def test_every_dose_unit_reads_as_its_canonical_unit(name: str, unit: str) -> No
 
 
 @pytest.mark.parametrize(("name", "freq"), sorted(DOSE_FREQUENCIES.items()))
-def test_every_frequency_reads_as_its_canonical_frequency(name: str, freq: str) -> None:
-    assert extract_doses(f"metformin 5 mg {name}") == {"metformin": {Dose(5.0, "mg", freq)}}
+def test_every_frequency_reads_as_its_interval_or_its_prn(name: str, freq: str) -> None:
+    # L267: a prn form sets the prn, and every other form is the interval it names
+    dose = Dose(5.0, "mg", None, prn=True) if freq == "prn" else Dose(5.0, "mg", freq)
+    assert extract_doses(f"metformin 5 mg {name}") == {"metformin": {dose}}
 
 
 @pytest.mark.parametrize("diagnosis", sorted(DIAGNOSES))

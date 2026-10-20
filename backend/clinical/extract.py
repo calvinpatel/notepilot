@@ -72,7 +72,8 @@ from backend.clinical.lexicons import (
 class Dose(NamedTuple):
     value: float  # parsed, so "500mg TID" == "500 mg tid" (L33)
     unit: str  # canonical: "mg", "μg" (folded), "ml" ...
-    freq: str | None  # canonical: "tid", "bid", "daily" ...
+    freq: str | None  # the interval, canonical: "tid", "q6h", "daily" ... (L267)
+    prn: bool = False  # as needed, beside any interval (L267)
 
 
 MedStatus = Literal["active", "continued", "stopped"]  # continued: no interruption (L262)
@@ -675,21 +676,23 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
     """drug -> parsed doses. A set, so a titration keeps both (D1, L33).
 
     A dose belongs to the most recent drug before it in the same sentence, whatever that
-    mention's status, and takes the first frequency charted after its unit before the next
-    dose, drug, or terminator; a prn yields to an interval in that reach (L133).
+    mention's status, and takes the first interval charted after its unit before the next
+    dose, drug, or terminator (L133); a prn in that reach sets its prn, beside any interval
+    (L267).
     """
     phrases = [p for _, p in _split(_tokens(text), (_TERMINATORS, _NAMES, _UNITS, _FREQUENCIES))]
     doses: dict[str, set[Dose]] = {}
     drug: str | None = None  # the most recent drug in this sentence
     pending: tuple[str, float, str] | None = None  # a dose still reaching for its frequency
-    prn = False  # a prn charted in the pending dose's reach
+    freq: str | None = None  # the first interval charted in the pending dose's reach
+    prn = False  # a prn charted in the pending dose's reach (L267)
 
-    def settle(freq: str | None) -> None:
-        nonlocal pending, prn
+    def settle() -> None:
+        nonlocal pending, freq, prn
         if pending is not None:
             name, value, unit = pending
-            doses.setdefault(name, set()).add(Dose(value, unit, freq or ("prn" if prn else None)))
-        pending, prn = None, False
+            doses.setdefault(name, set()).add(Dose(value, unit, freq, prn))
+        pending, freq, prn = None, None, False
 
     i = 0
     while i < len(phrases):
@@ -697,22 +700,22 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
         if phrase in _FREQUENCIES and pending is not None:
             if _FREQUENCIES[phrase] == "prn":
                 prn = True
-            else:
-                settle(_FREQUENCIES[phrase])
+            elif freq is None:
+                freq = _FREQUENCIES[phrase]
         elif phrase in _TERMINATORS:
-            settle(None)
+            settle()
             drug = None
         elif _NAMES.get(phrase) in GENERIC_DRUGS:
-            settle(None)
+            settle()
             drug = _NAMES[phrase]
         elif (dose := _dose_at(phrases, i)) is not None:
-            settle(None)
+            settle()
             value, unit, width = dose
             pending = None if drug is None else (drug, value, unit)
             i += width
             continue
         i += 1
-    settle(None)
+    settle()
     return doses
 
 

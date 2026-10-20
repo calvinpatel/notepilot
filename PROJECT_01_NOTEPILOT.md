@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8.5** (patch — an indication's list, October 2026). Supersedes v1.8.4.
+**Spec version: v1.8.6** (patch — a prn alone, and a prn's reach, October 2026). Supersedes
+v1.8.5.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1580,7 +1581,7 @@ and `DOSE_FREQUENCIES` map each charted form to its canonical one ("mcg" -> "μg
 unit and frequency carries its own sign-off. A dose is a number and a unit ("500 mg",
 "500mg", "1,000mg") after a listed drug, in that drug's sentence. It belongs to the most
 recent drug before it, whatever that mention's status, and a titration keeps both doses. It
-takes the first frequency charted after its unit, before the next dose, drug, or terminator,
+takes the first interval charted after its unit, before the next dose, drug, or terminator,
 else none. A prn in that reach sets `prn` beside it, so "q6h prn" and "prn q6h" both read
 q6h as needed, and a prn alone reads as needed with no interval (L267). Units are canonical
 but never converted ("1 g" stays grams). Neither number of a range
@@ -1589,8 +1590,8 @@ a range whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and "to"
 only after a number without a unit ("5 to 10 mg"), since "from 500 mg to 1000 mg" is a
 titration. A dose before its drug ("500 mg of amoxicillin") or in the next sentence reads as
 nothing, the accepted costs. `dose_consistency` reads 1 g as 1000 mg through `DOSE_MASS_UG`,
-and a dose without a frequency as matching one with (§8.4, L141); a dose that charts one
-matches only at its prn too (L267).
+and a dose charting no interval and no prn as matching any (§8.4, L141); a dose that charts
+either, a prn alone included, matches only at its prn too (L267, L281).
 
 **Diagnoses and certainty (L134, L135, L140).** `diagnosis_in_quote` compares keys, so a
 diagnosis needs every name it is charted by, as a drug does (L126): `DIAGNOSES` holds the
@@ -1892,7 +1893,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13); "continued" against a stop fires (L262) | "continue" ↔ "discontinue" |
 | `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span), for findings in both (L139) | "denies" → "reports" |
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
-| `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, a missing frequency matches any (L141), a charted one at its prn (L267) | 50 mg → 500 mg |
+| `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, one charting no interval and no prn matches any (L141), else at its prn (L267, L281) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
 | `quote_informativeness` | WARNING | no | content_tokens(span) ≥ `config.min_quote_content_tokens`, or NKDA or NKA, or absence words alone (D15, L158, L159, L174) | degenerate quotes |
 | `empty_note_on_clinical_input` | WARNING | no | `claims == ()` while raw names an entity: named(raw) ∪ allergies(raw) ∪ findings(raw) ∪ diagnoses(raw), asserted or excluded (L55, L164) | total omission reading green |
@@ -2640,6 +2641,11 @@ know, stated plainly (v1.3):
   (measured); with a period, the fever reads present. A list that opens on any other word
   reads as before L266: "Tylenol for the pain and fever" reads both findings present, and
   "Ibuprofen for knee pain" the pain (measured).
+- **A prn's reach** (L267, L282). A prn sets the prn of the dose before it as far as the
+  next dose, drug, or terminator, so a later order's prn in the same sentence joins it when
+  that order names no listed drug and no dose: "Tylenol 650 mg q6h scheduled, oxycodone prn
+  breakthrough" reads the acetaminophen as needed. A faithful "Tylenol 650 mg q6h" citing it
+  fires `dose_consistency`, and a claim adding the prn passes it (measured).
 - **Labels read through the extractors** (L220). The loader checks a label against the raw
   text through the same extractor the check uses (L219), so a label can't state what the
   extractor misreads, and a misread label loads: "apixaban continued, then held" reads
