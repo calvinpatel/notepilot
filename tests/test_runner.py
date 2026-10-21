@@ -1,9 +1,10 @@
-"""Pins the check engine, the per-case verdict, the checks' lineage, and a corpus run's rows
-and metrics (spec §8.7; L38, L43–L45, L49, L113–L115, L205, L206, L224, L228–L230, L253,
-L254).
+"""Pins the check engine, the per-case verdict, the checks' lineage, a corpus run's rows and
+metrics, and the committed records' replay (spec §8.7, §11; L38, L43–L45, L49, L113–L115,
+L205, L206, L224, L228–L230, L253, L254, L294).
 """
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Literal
@@ -11,7 +12,8 @@ from typing import Literal
 import pytest
 
 from backend.evals.judge import Judge
-from backend.evals.registry import Check, Finding, register_check
+from backend.evals.loader import CASES_DIR, corpus_version, load_cases
+from backend.evals.registry import REGISTRY, Check, Finding, register_check
 from backend.evals.runner import (
     CHECKS_VERSION,
     case_result,
@@ -21,6 +23,7 @@ from backend.evals.runner import (
     errored_case,
     run_checks,
 )
+from backend.grounding import ground
 from backend.schemas import (
     CaseResult,
     CaseStatus,
@@ -661,3 +664,108 @@ def test_the_2b_baseline_rescores_under_v1_7s_definitions() -> None:
     assert rescored.fidelity_caught is None
     changed = {"fidelity_caught"}
     assert rescored.model_dump(exclude=changed) == baseline.metrics.model_dump(exclude=changed)
+
+
+# --- the committed records replay (§8.7, §11; L203, L294) -------------------------------
+
+_REPLAY_SNAPSHOT = Path(__file__).parent / "snapshots" / "corpus_replay.json"
+
+type _Replayed = list[tuple[str, int, CaseStatus, list[str]]]  # case, repeat, verdict, fired
+
+
+def _records() -> list[tuple[str, CorpusRunRecord]]:
+    """Each committed record, keyed by its line and its run's commit."""
+    lines = _RECORD.read_text(encoding="utf-8").splitlines()
+    records = [CorpusRunRecord.model_validate_json(line) for line in lines]
+    return [(f"{i} {record.git_sha[:7]}", record) for i, record in enumerate(records)]
+
+
+async def _replay(record: CorpusRunRecord) -> _Replayed:
+    """Each repeat's draft grounded and checked as score_corpus does: ci mode, no judge.
+
+    The cases must be the ones the record ran on, read by corpus_version over the record's own
+    case ids (L294). A repeat with no draft keeps its recorded row, having nothing to replay.
+    """
+    cases = {case.id: case for case in load_cases(CASES_DIR)}
+    ids = sorted({row.case_id for row in record.cases})
+    ran_on = [cases[i] for i in ids if i in cases]
+    if len(ran_on) != len(ids) or corpus_version(ran_on) != record.corpus_version:
+        raise ValueError(f"{record.git_sha[:7]}: a case changed since its run")
+    replayed: _Replayed = []
+    for row in record.cases:
+        if row.draft is None:
+            replayed.append((row.case_id, row.repeat, row.status, sorted(row.fired_checks)))
+            continue
+        case = cases[row.case_id]
+        note = ground(row.draft, case.raw_text, config=record.checks_config)
+        report = await run_checks(note, case.raw_text, case, mode="ci", config=record.checks_config)
+        fired = sorted({r.check for r in report.results if not r.passed and not r.errored})
+        replayed.append((row.case_id, row.repeat, case_verdict(report, case), fired))
+    return replayed
+
+
+async def write_replay_snapshot() -> None:
+    """Rewrite the snapshot under today's checks, one repeat to a line, so a diff names each
+    moved repeat. From the repo root, in CLAUDE.md's scratch environment: uv run python -c
+    'import asyncio, tests.test_runner as t; asyncio.run(t.write_replay_snapshot())'
+    """
+    blocks = []
+    for key, record in _records():
+        rows = ",\n".join(f"    {json.dumps(list(row))}" for row in await _replay(record))
+        blocks.append(f"  {json.dumps(key)}: [\n{rows}\n  ]")
+    _REPLAY_SNAPSHOT.write_text("{\n" + ",\n".join(blocks) + "\n}\n", encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_a_record_under_todays_checks_replays_as_it_ran() -> None:
+    # L294: §8.7's claim, tested against a live run. It binds from a re-baseline until the
+    # checks' source next changes, and skips between, when no record ran under them.
+    current = [(k, r) for k, r in _records() if r.checks_version == CHECKS_VERSION]
+    if not current:
+        pytest.skip("no committed record ran under today's checks")
+    for key, record in current:
+        ran = [(r.case_id, r.repeat, r.status, sorted(r.fired_checks)) for r in record.cases]
+        assert await _replay(record) == ran, key
+
+
+@pytest.mark.anyio
+async def test_every_record_replays_as_its_snapshot() -> None:
+    # L294: a change that moves a replayed verdict names each moved repeat here, and its
+    # commit rewrites the snapshot (write_replay_snapshot).
+    snapshot = json.loads(_REPLAY_SNAPSHOT.read_text(encoding="utf-8"))
+    replayed = {key: [list(row) for row in await _replay(r)] for key, r in _records()}
+    assert list(replayed) == list(snapshot)
+    for key, rows in replayed.items():
+        moved = [(was, now) for was, now in zip(snapshot[key], rows, strict=True) if was != now]
+        assert not moved, (key, moved)
+
+
+@pytest.mark.anyio
+async def test_a_record_whose_cases_changed_refuses_to_replay() -> None:
+    _, record = _records()[-1]
+    with pytest.raises(ValueError, match="a case changed since its run"):
+        await _replay(record.model_copy(update={"corpus_version": "0" * 12}))
+
+
+@pytest.mark.anyio
+async def test_a_repeat_with_no_draft_keeps_its_recorded_row() -> None:
+    _, record = _records()[-1]
+    first = record.cases[0].model_copy(
+        update={"draft": None, "status": "failed", "fired_checks": [], "error": "APIError"}
+    )
+    replayed = await _replay(record.model_copy(update={"cases": [first, *record.cases[1:]]}))
+    assert replayed[0] == (first.case_id, first.repeat, "failed", [])
+
+
+@pytest.mark.anyio
+async def test_a_check_that_errors_in_a_replay_has_not_fired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # As case_result counts a row (L43): an errored check didn't fire. Added beside the real
+    # roster, which the cases' expected_flags name.
+    crash = Check(
+        "crash", _C, _crashing, requires_reference=False, needs_judge=False, origin="model"
+    )
+    monkeypatch.setitem(REGISTRY, "crash", crash)
+    _, record = _records()[-1]
+    assert all("crash" not in fired for *_, fired in await _replay(record))
