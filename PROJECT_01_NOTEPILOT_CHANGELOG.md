@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,153 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.9 — the laterality revision (minor)
+
+Theme: a wrong side gets a deterministic guard before 2c's judge, and §7's tables read what
+the charting means. The input is #11, the deferred amendments, with Cal's rulings on Oct 20,
+2026, posted on #11 under a decision sheet in two parts: part one for entries 29, 25, 26,
+27, 28, and 30, probed on `bfc9827`; part two for entry 6, probed on the engine as part
+one's rulings leave it. Each option went through the adversarial pass before its ruling,
+since six of v1.8's seven reading changes needed a patch after theirs: four of #11's options
+as written misread common charting (6, 25, 26, and 27's first half) and were replaced before
+the ruling, and the pass filed three entries (30, 31, 32). Adopted: entries 6, 25, 26, 27,
+28, 29, and 30. 31 and 32 wait on their triggers or the next minor revision; 2 and 15 keep
+theirs; 1, 3, and 5 wait on phase 3 planning, and 12 on phase 4. No option touches the
+prompt or the pinned model, so `PROMPT_VERSION` doesn't move (measured) and §14 calls for no
+smoke run (L283). #11 closes with this revision. No invariant's wording moves, so CLAUDE.md
+is unchanged.
+
+**CRITICAL**
+- **L285 §7, §8.8 — a side binds to its site.** Amendment (#11 entry 6, part two's rows 1 to
+  3). No extractor read a side (L200), so "Right knee pain after a fall" citing "Left knee
+  pain after a fall", verbatim, fired nothing. `extract_laterality` reads site to sides, a
+  site being the words after a side, read at each width in `SITE_WORDS` (two words, then
+  one), from four signed tables: the side cues (the words and the "-sided" forms), the bare
+  letters L, R, LT, and RT, read before a word and not after a number, a side and its site
+  in one token (the quadrants, the limbs, the lung lobes), its site spelled out, and the
+  phrases where "left" or "right" names no side ("left AMA", "right away"). Sides joined by
+  "and" or "or" share the site after them. Bilateral supports left and right, and left with
+  right supports bilateral, as the family's text ⊆ span asks. #11 proposed one set of sides
+  per text; it passed a swap in a clause naming both sides ("Left knee pain" citing "Right
+  knee pain, left knee normal") and fired on "Pt left AMA with right knee pain" against
+  "Signed out AMA, right knee pain" (prototyped). The tokenizer keeps "L4", "LAD", and "RA"
+  whole, and "2 L NC" and "R/O PE" name no side. Claude Code's review of the first draft
+  found an abbreviation's site written short ("RLQ" at "lq"), which no spelled-out charting
+  meets, so a swap between the forms in a clause naming both sides passed; spelled out
+  ("RLQ" at "lower quadrant"), the four forms measured fire, a quadrant each way, a lobe,
+  and a limb (prototyped). Left out, and stated in §8.8: the eye and ear abbreviations (OD
+  is also overdose, AS aortic stenosis), "both", and comparisons ("Edema L>R").
+- **L286 §4.2, §8.4, §8.6 — `laterality_consistency`, CRITICAL, with its omission row.**
+  Amendment (#11 entry 6, rows 1, 4, and 5). The consistency family gains
+  `laterality_consistency`: at each `SITE_WORDS` width, the longer first, a claim's sides at
+  a site its clause names among those the clause supports there; where they share no site at
+  either width, the claim's sides against the clause's. All 30 probe rows read as expected,
+  "Right otitis media" against "Acute otitis media, left ear" among them, firing; it fires
+  on none of the 136 claims in the three committed records that carry a side in their text
+  or clause (prototyped). CRITICAL: wrong-site is a never-event class (L256), and a
+  deterministic check keeps invariant 7 by construction. A claim that drops the side names
+  none, so the check passes. No live check reads a side, so the omission is a CI-only gap,
+  and CI covers it once a label can state a side: `PreserveKind` gains `laterality`, one
+  site at one side read at the shorter width, kept where some claim charts that side at that
+  site. `PreserveKind` is no part of the tool schema, so `PROMPT_VERSION` doesn't move
+  (measured).
+- **L287 §8.5 — three injected laterality cases, and no model trap.** Amendment (#11 entry
+  6, row 6). A CRITICAL check needs an injected detection trap, an injected control that
+  exercises it, an exercise predicate, and an omission row; registered alone, the check
+  failed those four tests (prototyped). `detect_laterality_swap` moves the knee pain to the
+  other side under a verbatim quote of a clause naming both; `detect_laterality_dropped`
+  drops the side, which `must_preserve`'s laterality label catches;
+  `control_laterality_kept` keeps both sides and fires nothing. Injected cases are pytest's,
+  so `corpus_version` doesn't move and v1.9's before and after keep one corpus; a model trap
+  would give that delta a second cause. In the three runs, 73 claims restate a side, and
+  none drops, swaps, or adds one.
+- **L288 §7 — a refused stop is a continue order, as a rule.** Amendment (#11 entry 25, part
+  one's 25B). L172 listed refused stops in `TERMINATORS`, so each phrasing it lacked read
+  the stop: at `bfc9827`, "Do not d/c apixaban", "Denies stopping apixaban", "Without
+  holding apixaban", and "No need to hold apixaban" read stopped, and "Do not continue
+  metformin" read active and continued. L271's guard now runs both ways: a stop cue a
+  negation directly precedes, past function words only, is refused and closes the window,
+  and the refusal reaches a stop cue joined after it; a refused continue reads stopped. "No
+  need to", "no reason to", and "not necessary to" are negation pre-cues; "no break", "no
+  pause", and "without interruption" pseudo-negations; "interrupt", "interrupted",
+  "interrupting", "holding", and "discontinuing" stop cues, with "holding", "interrupted",
+  and "was interrupted" after the drug, so "Holding apixaban for surgery" reads stopped.
+  L172's "not stop", "not hold", and "not discontinue" retire as redundant, and the six
+  contracted orders with them once L289 reads "don't". #11's option as written read "Don't
+  interrupt apixaban" stopped and fixed none of eight other refused or unmade stops
+  (prototyped).
+- **L289 §7 — a contracted negation, or "never", negates.** Amendment (#11 entry 30). The
+  tokenizer splits a contraction at its apostrophe and no negation table held one, so
+  "Doesn't have chest pain" read the pain present and "Doesn't have PNA" pneumonia definite,
+  a claim of either passing its check (measured on one-claim notes at `bfc9827`). The nine
+  contracted negations ("don't", "doesn't", "didn't", "hasn't", "haven't", "hadn't",
+  "isn't", "wasn't", "won't") and "never" join `FINDING_NEG_PRE`, and "can't rule out" joins
+  `CERTAINTY_CUES` as possible: each contracted row reads as its spelled-out form, that
+  form's own misreads included (prototyped).
+- **L290 §7, §8.8 — a denied allergy is neither an allergen nor a status.** Amendment (#11
+  entry 26, part one's 26C). The post-cue form read the allergen ("No PCN allergy", "PCN
+  allergy denied"), and the pre-cue form read a drug stopped ("Not allergic to amoxicillin.
+  Start amoxicillin" read active and stopped). A denied allergy, in either form, now reads
+  no allergen and no status, and the denial ends the negation's window; the denied-allergy
+  pre-cues leave `FINDING_NEG_PRE` for a signed table of their own, and the colon form ("PCN
+  allergy: denied") reads the same. A negation pre-cue denies only where no comma separates
+  it from the allergy cue: #11's option as written read "No fever, PCN allergy" as no
+  allergy at all, deleting a real allergy from both allergy checks, and the suite stayed
+  green (prototyped). The cost is loud: "No PCN, sulfa allergies" still reads a sulfa
+  allergy, so a faithful "No PCN or sulfa allergies" citing it fires `allergy_preserved`
+  (prototyped).
+- **L291 §7, §8.8 — an affirmation takes back a negation window's second mention.**
+  Amendment (#11 entry 27, part one's 27(i)D). L121's window crosses a comma, so "No fever,
+  chills present" read the chills absent (L276). "Present", after the second mention a
+  negation's window reads, across a comma and no "and" or "or", takes that mention out of
+  the window. #11's option ("present" and "noted", after any mention) read "No fever noted"
+  as fever present, the commonest ROS form, with no test failing, and narrower forms flipped
+  "No fever, chills, nausea present" (prototyped). "Denies fever and chills, nausea present"
+  still reads the nausea absent, and "Not on metformin, lisinopril 10 mg daily", with no
+  affirming cue, still reads both stopped: §8.8 keeps L276's cost for both.
+- **L292 §7, §8.8 — a repeat keeps its window unless a confirming cue governs it.**
+  Amendment (#11 entry 27, part one's 27(ii)A). L278 reread a repeat in a certainty window
+  whatever its words, so "r/o PE, PE workup pending" and "r/o PE, PE not confirmed" read
+  definite beside rule-out, and outside any window "PE unlikely" read definite: silent
+  upgrades. A repeat in a certainty or differential window now keeps the window's reading
+  unless a confirming cue governs it ("shows", "showed", "confirms", and "confirmed" before
+  it, in `CONFIRMING_CUES`; "confirmed" and "was confirmed" after it, in `CONFIRMING_POST`),
+  and "unlikely" and "less likely" join `CERTAINTY_POST` as possible, since no certainty
+  sits lower. "PNA vs PE, PE confirmed" reads definite. L278's cost retires; the new one,
+  loud, is §8.8's: "r/o PE, hx of PE", "Likely PNA, PNA treated", and "r/o PE, PE on CTA"
+  lose their definite.
+
+**WARNING**
+- **L293 §7, §8.8 — past its interval, a prn counts across marks and routes only.**
+  Amendment (#11 entry 28, part one's 28B). A prn anywhere in a dose's reach joined it
+  (L267), so "Tylenol 650 mg q6h, Zofran prn nausea" read the acetaminophen as needed
+  (L282). Past its interval, a prn now counts only across marks, commas among them, and
+  route words, a signed `DOSE_ROUTES` table (po, iv, im, sq, sc, sl, pr, subq). #11's
+  option, directly after the interval across no comma, lost a faithful prn in ten rows; this
+  loses it in five ("q6h and prn", "q6h, then prn", "q6h x 3 days then prn", "q6h for pain,
+  prn", "q6h, may take prn"), §8.8's cost now. L282's cost retires.
+
+**INFO**
+- **L294 §8.7, §11 — the committed records replay in CI.** Amendment (#11 entry 29). §8.7
+  states that a run replays free (L203), and no test replayed one; the design room did, by
+  hand. A free-tier test replays every committed record: a record whose `checks_version` is
+  today's replays to its recorded verdicts and fired checks, and every record replays to a
+  committed snapshot, so a change that moves a replayed verdict names it in its diff. Each
+  assertion kills a mutation row the other can't (prototyped): the first, a recorded row
+  that disagrees with its replay; the second, a checks change that moves a recorded verdict,
+  which moves `CHECKS_VERSION` and so leaves the first no record to bind. Its case guard
+  recomputes `corpus_version` over a record's own cases, so an added case leaves an old
+  record replayable and an edited one refuses.
+- **L295 §14 — the 2c gate names v1.9.** Amendment. §14's 2c list names v1.9's entries and
+  ledger beside v1.8's (L270); with each revision's re-baseline, L256's gate is met and 2c
+  opens.
+- **L296 §8.8 — two misreadings the pass found, stated.** Amendment (#11 entries 31 and 32).
+  The adversarial pass measured two misreadings no v1.9 option fixes, filed for the next
+  minor revision; §8.8 states them meanwhile. A diagnosis naming a test, a workup, or a plan
+  reads definite ("PE workup pending."), and an unlisted drug's dose joins the listed drug
+  before it ("Lisinopril 10 mg daily, amlodipine 5 mg daily" reads lisinopril 5 mg daily), a
+  claim of either passing its check (measured on one-claim notes at `bfc9827`).
 
 ## v1.8.7 — v1.8's re-baseline (patch)
 

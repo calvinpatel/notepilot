@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.8.7** (patch — v1.8's re-baseline, October 2026). Supersedes v1.8.6.
+**Spec version: v1.9** (minor — the laterality revision, October 2026). Supersedes v1.8.7.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -424,7 +424,9 @@ class EvalReport(BaseModel):
         # "no CRITICAL check ran" must NEVER render as "safe". An errored CRITICAL has
         # passed=False, so a crash turns the note red (invariant 12).
 
-PreserveKind = Literal["allergy", "medication", "dose", "finding", "diagnosis"]
+PreserveKind = Literal[
+    "allergy", "medication", "dose", "finding", "diagnosis", "laterality"   # L286: a side
+]
 
 class PreserveItem(BaseModel):              # DECISION D4: a typed expectation.
     model_config = ConfigDict(extra="forbid")   # L103, as on EvalCase
@@ -1358,6 +1360,7 @@ class Dose(NamedTuple):
 
 MedStatus = Literal["active", "continued", "stopped"]   # continued: no interruption (L262)
 Certainty = Literal["definite", "probable", "possible", "rule_out"]   # strongest first
+Side = Literal["left", "right", "bilateral"]                          # L285
 
 def extract_drugs(text: str) -> set[str]:
     """Generic names mentioned as ACTIVE. Brand→generic. Excludes negated, stopped
@@ -1397,6 +1400,12 @@ def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
 def extract_excluded_diagnoses(text: str) -> set[str]:
     """v1.3.28 (L140): the diagnoses text excludes, the negated mentions extract_diagnoses
     drops. "PE ruled out" → {"pulmonary embolism"}."""
+
+def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
+    """v1.9 (L285): site → the sides charted for it, a site being the `words` words after a
+    side, or a SIDE_SITES token's spelled-out site cut to `words`. "Left knee pain",
+    words=2 → {"knee pain": {"left"}}; "RLQ", words=2 → {"lower quadrant": {"right"}}.
+    Read at each SITE_WORDS width by laterality_consistency and must_preserve (L286)."""
 
 def content_tokens(text: str) -> list[str]:
     """L160: text's words, numbers included, less FUNCTION_WORDS, in order. "The pain,
@@ -1447,7 +1456,9 @@ digits; a decimal number is one word, so "38.5" ends no sentence), one punctuati
 a line break, read from the casefolded text; a carriage return, alone or before a line feed,
 reads as one line break (L128), and an underscore, like whitespace, only separates words
 (L123). A curly single quote reads as the apostrophe, as §6.2's normalizer reads it (L170),
-so "d/c’d" matches the table's "d/c'd". Lexicon phrases are tokenized the same way, so "d/c"
+so "d/c’d" matches the table's "d/c'd". A contraction splits at its apostrophe ("doesn't" is
+"doesn", "'", "t"), so `FINDING_NEG_PRE` spells each contracted negation, which reads as its
+spelled-out form, and "never" (L289). Lexicon phrases are tokenized the same way, so "d/c"
 matches as three tokens and "SI/HI" is two words. Phrases match left to right, longest
 first: a pseudo-negation, which contains its cue, is matched in the cue's place, and
 "negative for" wins over "negative". The window counts words only: punctuation spends none
@@ -1456,12 +1467,13 @@ after the cue. "Immediately before" skips any mark but a comma or a terminator (
 "chest pain: denied" negates chest pain, and "endorses chest pain, denied fever" negates the
 fever. A phrase in both cue classes ("denied") is a post-cue when a finding is immediately
 before it and a pre-cue otherwise, so "pt denied chest pain" and "chest pain denied, fever"
-both read right. In a certainty pre-cue's window, a diagnosis the window already governs
-reads at its own cues when it's named again, so "r/o PE, PE confirmed" reads both
-certainties, as "r/o PE. PE confirmed" does (L265, L278). Every other window keeps a repeat,
-as L121 has it, since a list repeats its entities: "Denies abdominal pain, back pain" names
-pain twice and reads it absent, a hold governs the metformin it goes on to describe, and in
-"r/o PE vs pneumonia, pneumonia less likely" the differential keeps pneumonia possible. A
+both read right. Every window keeps a repeat, as L121 has it, since a list repeats its
+entities: "Denies abdominal pain, back pain" names pain twice and reads it absent, a hold
+governs the metformin it goes on to describe, and in "r/o PE vs pneumonia, pneumonia less
+likely" the differential keeps pneumonia possible. In a certainty or differential window, a
+confirming cue (`CONFIRMING_CUES` before the diagnosis, `CONFIRMING_POST` after it) reads
+the repeat it governs definite, so "r/o PE, PE confirmed" reads both certainties, as "r/o
+PE. PE confirmed" does, while "r/o PE, PE workup pending" stays at rule-out (L265, L292). A
 name restating the mention directly before it, across any mark but a comma (L122), is that
 mention, so "r/o pulmonary embolism (PE)" reads rule-out alone (L279).
 
@@ -1516,14 +1528,20 @@ often charted after its drug ("lisinopril discontinued"), so `MED_STOP_POST` and
 Narrative past tense ("started", "prescribed") counts as a start: read as nothing, it would
 let a stop's window run on over the next drug ("held metformin, started apixaban"), and the
 cost, an old start ("metformin was started in 2019") in `new_prescriptions`, lands on a
-WARNING. Refused and continued orders ("do not stop", "don't stop", "continue") are lexicon
-entries, not a rule (L172). A restart or a resumption is a start (L169), so "resume" is a
-start cue; as a pre-cue it replaces a stop's open window, the job it did as a terminator. A
-refused start, restart, or resumption, written out or contracted ("do not restart", "don't
-resume"), is a stop (L167), and so is a start cue a negation directly precedes, across
-function words only ("Not starting metformin", "will not be starting", L262, L271). Past a
-content word or a mark, a start cue replaces the negation's window as any pre-cue does
-(L124), so "No fever or chills, start amoxicillin" starts it.
+WARNING. A continued order ("continue") is a lexicon entry (L172), and a refused stop is a
+rule: a stop cue a negation directly precedes, across function words only, is refused and
+closes its window, and the refusal reaches a stop cue joined after it, so "Do not d/c
+apixaban", "Denies stopping apixaban", and "Do not stop or hold apixaban" read the drug as
+charted, as does "No need to hold apixaban", "no need to" being a negation pre-cue. A
+refused continue ("Do not continue metformin") is a stop, and "interrupt" and "holding" are
+stop cues, so "Holding apixaban for surgery" reads stopped (L288). A restart or a resumption
+is a start (L169), so "resume" is a start cue; as a pre-cue it replaces a stop's open
+window, the job it did as a terminator. A refused start, restart, or resumption ("do not
+restart") is a stop (L167), and so is a start cue a negation directly precedes, across
+function words only ("Not starting metformin", "will not be starting", "Don't resume
+apixaban", L262, L271, L289). Past a content word or a mark, a start cue replaces the
+negation's window as any pre-cue does (L124), so "No fever or chills, start amoxicillin"
+starts it.
 
 **A restart reaches back, and a continue is a status (L262).** A restart or resumption cue
 (`MED_RESTART_CUES`, L274) that governs no mention reaches the nearest drug before it in its
@@ -1539,8 +1557,9 @@ mark but a comma, it governs that drug, as a post-cue does (L122, L273): "Lisino
 continued, metformin held" continues lisinopril alone. Otherwise it governs the drug in its
 window, or the drug before it when it ends its clause ("Zestril 10 mg daily, continue."). It
 still closes a finding's window (L172). A "continued" claim is contradicted by a stop in its
-span, and a span reading active with no stop supports one (§8.4). "No interruption" is a
-pseudo-negation, so "No interruption of Eliquis needed" reads no stop (L263).
+span, and a span reading active with no stop supports one (§8.4). "No interruption", "no
+break", "no pause", and "without interruption" are pseudo-negations, so "No interruption of
+Eliquis needed" reads no stop (L263, L288).
 
 **Allergy context (L128, L129).** Allergy is a fourth cue class a drug mention sees:
 `ALLERGY_CUES` before the allergen and `ALLERGY_POST` after it. A mention it governs is an
@@ -1572,9 +1591,14 @@ allergen, as "Takes metformin allergies" always has. Its own window reads on aft
 (L128), so "PCN allergy: amoxicillin 500 mg tid" reads amoxicillin an allergen. Allergen
 names follow L126's rule. `ALLERGY_ALIASES` holds the classes and D10's statements, a
 canonical name mapping to itself, and drug allergens come through `GENERIC_DRUGS` and
-`BRAND_TO_GENERIC`. "nkda" and "nka" need no cue unless negated, "Allergies: none" is NKA,
-and a denied allergy ("not allergic to") is a negation cue. A CRLF line break is one token,
-which sections need.
+`BRAND_TO_GENERIC`. "nkda" and "nka" need no cue unless negated, and "Allergies: none" is
+NKA. A CRLF line break is one token, which sections need. A denied allergy reads no allergen
+and no status (L290). Before its drug, a denied-allergy cue (`DENIED_ALLERGY_CUES`: "not
+allergic to", "no allergy to") reads it so; after it, an allergy cue reads its mentions so
+where a negation pre-cue governs them with no comma between, or where a negation post-cue
+directly follows it ("PCN allergy denied", "PCN allergy: denied"), and the denial ends the
+negation's window. So "No PCN or sulfa allergy" reads neither allergen, and "No fever, PCN
+allergy" keeps the penicillin, which a window across its comma would deny.
 
 **Doses (L131, L133).** `lexicons.py` holds what a dose needs to know as data: `DOSE_UNITS`
 and `DOSE_FREQUENCIES` map each charted form to its canonical one ("mcg" -> "μg", "t.i.d."
@@ -1584,10 +1608,12 @@ unit and frequency carries its own sign-off. A dose is a number and a unit ("500
 recent drug before it, whatever that mention's status, and a titration keeps both doses. It
 takes the first interval charted after its unit, before the next dose, drug, or terminator,
 else none. A prn in that reach sets `prn` beside it, so "q6h prn" and "prn q6h" both read
-q6h as needed, and a prn alone reads as needed with no interval (L267). Units are canonical
-but never converted ("1 g" stays grams). Neither number of a range
-is a dose, so a range changed to a fixed dose still differs from its source: a hyphen joins
-a range whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and "to" joins one
+q6h as needed, and a prn alone reads as needed with no interval (L267). Past its interval, a
+prn counts only across marks and route words (`DOSE_ROUTES`: "po", "iv"), so "q6h, prn" and
+"q6h po prn" read as needed and "Tylenol 650 mg q6h, Zofran prn nausea" doesn't (L293).
+Units are canonical but never converted ("1 g" stays grams). Neither number of a range is a
+dose, so a range changed to a fixed dose still differs from its source: a hyphen joins a
+range whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and "to" joins one
 only after a number without a unit ("5 to 10 mg"), since "from 500 mg to 1000 mg" is a
 titration. A dose before its drug ("500 mg of amoxicillin") or in the next sentence reads as
 nothing, the accepted costs. `dose_consistency` reads 1 g as 1000 mg through `DOSE_MASS_UG`,
@@ -1601,10 +1627,29 @@ embolism"). Certainty is a cue class a diagnosis sees beside negation: `CERTAINT
 before it and `CERTAINTY_POST` after it, each cue naming the `Certainty` it asserts, and a
 diagnosis no cue governs is definite. A negated diagnosis isn't asserted, so "PE ruled out"
 (excluded) and "r/o PE" (to be excluded) read apart; `extract_excluded_diagnoses` reads the
-excluded ones (L140). "Cannot rule out" and "not ruled out" are possible. A differential cue
-("vs") governs both its sides: the diagnosis immediately before it, unless another cue
-governs that one, and the window after it, so "PNA vs PE" reads both as possible. "PE" also
-charts the physical exam, so "PE: lungs clear" reads a pulmonary embolism, an accepted cost.
+excluded ones (L140). "Cannot rule out", "can't rule out" (L289), and "not ruled out" are
+possible, and so are "unlikely" and "less likely" after a diagnosis, since no certainty sits
+lower (L292). A differential cue ("vs") governs both its sides: the diagnosis immediately
+before it, unless another cue governs that one, and the window after it, so "PNA vs PE"
+reads both as possible. "PE" also charts the physical exam, so "PE: lungs clear" reads a
+pulmonary embolism, an accepted cost.
+
+**Laterality (L285).** `extract_laterality` reads site to sides, a site being the words
+after a side, read at each width in `SITE_WORDS` (two words, then one): "Left knee pain
+after a fall" reads the left side at "knee pain" and at "knee". A side is a `SIDE_CUES`
+entry ("left", "right-sided", "bilateral"); a bare letter (`SIDE_LETTERS`: "l", "r", "lt",
+"rt") before a word and not after a number, so "2 L NC" and "R/O PE" name no side; or a
+`SIDE_SITES` token naming a side and its site at once, a quadrant, a limb, or a lung lobe,
+its site spelled out so it meets the charting that spells it: "RLQ" reads the right side at
+"lower quadrant", as "right lower quadrant" does. A `NOT_SIDES` phrase ("left AMA", "right
+away") names none, and the tokenizer keeps "L4", "LAD", and "RA" whole. Sides joined by
+"and" or "or" share the site after them ("left and right knee"). Bilateral supports left and
+right, and left with right supports bilateral. `laterality_consistency` reads a claim and
+its clause at each width, the longer first, comparing sides at a site both name, and where
+they share no site at either width it compares their sides whole (§8.4, L286);
+`must_preserve` reads a laterality label and the note at the shorter width. The reading runs
+on the scope engine's tokens and phrase split, and its joins are `_JOINS`. The eye and ear
+abbreviations, "both", and comparisons ("Edema L>R") read no side (§8.8).
 
 **Classes and side chains (L148, L149, L150).** D9's ladder reads three tables, and
 `contraindication` in `evals/checks.py` walks it. `DRUG_CLASS` classes the vocabulary:
@@ -1633,6 +1678,7 @@ ALLERGY_ALIASES:   dict[str, str]    # "pcn" -> "penicillin", "sulfa drugs" -> "
                                      # "no known drug allergies" -> "nkda", "nka" -> "nka"     (D10)
 ALLERGY_CUES:      set[str]          # "allergic to", "allergy to", "allergies:", "reaction to"
 ALLERGY_POST:      set[str]          # "allergy", "allergies": after the allergen (L128)
+DENIED_ALLERGY_CUES: set[str]        # "not allergic to": no allergen, no status (L290)
 FINDING_NEG_PRE:   set[str]          # "denies", "no", "without", "negative for"
 FINDING_NEG_POST:  set[str]          # "denied", "absent", "negative"
 PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "no interruption" (L263)
@@ -1647,6 +1693,8 @@ MED_CONTINUE_CUES: set[str]          # "continue", "continued": no interruption 
 INDICATION_CUES:   set[str]          # "for": after a drug, opens an indication (L280)
 CERTAINTY_CUES:    dict[str, str]    # "likely" -> "probable", "r/o" -> "rule_out", "possible" -> "possible"
 CERTAINTY_POST:    dict[str, str]    # "likely" -> "probable": after the diagnosis (L135)
+CONFIRMING_CUES:   set[str]          # "shows", "confirms": a repeat reads definite (L292)
+CONFIRMING_POST:   set[str]          # "confirmed": after the diagnosis (L292)
 DIFFERENTIAL_CUES: dict[str, str]    # "vs" -> "possible": both its sides (L135)
 DRUG_CLASS:        dict[str, str]    # "amoxicillin" -> "penicillin", "cephalexin" -> "cephalosporin",
                                      # "ibuprofen" -> "nsaid". v1.3 (L67): ONE direction. v1.2 kept
@@ -1661,12 +1709,18 @@ CROSS_REACTIVITY:  dict[tuple[str, str], str]
                                      # is shared (L150, L155): ("penicillin", "cephalosporin") -> "warning"
 DOSE_UNITS:        dict[str, str]    # "mcg" -> "μg", "milligrams" -> "mg": the canonical unit (L131)
 DOSE_FREQUENCIES:  dict[str, str]    # "t.i.d." -> "tid", "twice daily" -> "bid" (L131)
+DOSE_ROUTES:       set[str]          # "po", "iv": what a prn reaches across (L293)
 DOSE_MASS_UG:      dict[str, int]    # "g" -> 1_000_000: a mass unit's size in μg; ml, units none (L141)
 FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
 FINDING_ALIASES:   dict[str, tuple[str, ...]]  # "n/v" -> ("nausea", "vomiting"): other names (L173)
 ABSENT_FINDINGS:   dict[str, str]    # "afebrile" -> "fever": absent under any cue (L173)
 DIAGNOSES:         set[str]          # D12: corpus-driven, like FINDINGS; canonical names (L134)
 DIAGNOSIS_ALIASES: dict[str, str]    # "pe" -> "pulmonary embolism": every other charted name (L134)
+SIDE_CUES:         dict[str, str]    # "left" -> "left", "bilat" -> "bilateral" (L285)
+SIDE_LETTERS:      dict[str, str]    # "l" -> "left", "rt" -> "right": before a word (L285)
+SIDE_SITES:        dict[str, tuple[str, str]]  # "rlq" -> ("right", "lower quadrant") (L285)
+NOT_SIDES:         set[str]          # "left ama", "right away": no side (L285)
+SITE_WORDS:        tuple[int, ...]   # (2, 1): the words a site spans, longer first (L285)
 FUNCTION_WORDS:    set[str]          # "the", "of", "and", "is": words content_tokens drops (L160)
 ```
 
@@ -1893,6 +1947,7 @@ L51  the model drops "start amoxicillin" from the note (omit-when-uncertain, mis
 | `drug_in_quote` | CRITICAL | no | named(text) ⊆ named(span) (L136) | a drug the source span doesn't say |
 | `med_status_consistency` | CRITICAL | no | status(text) ⊆ status(span), for drugs in both (D13); "continued" against a stop fires (L262) | "continue" ↔ "discontinue" |
 | `negation_consistency` | CRITICAL | no | polarity(text) ⊆ polarity(span), for findings in both (L139) | "denies" → "reports" |
+| `laterality_consistency` | CRITICAL | no | sides(text) ⊆ sides(span) (L286) | wrong side |
 | `diagnosis_in_quote` | CRITICAL; downgrade or reopened exclusion → WARNING | no | diagnoses(text) ⊆ diagnoses(span), certainty never stronger (D12); exclusions too (L140) | an invented, upgraded, or wrongly excluded assessment |
 | `dose_consistency` | WARNING | no | doses(text) ⊆ doses(span), parsed, for drugs both name; mass in μg, one charting no interval and no prn matches any (L141), else at its prn (L267, L281) | 50 mg → 500 mg |
 | `new_prescription_preserved` | WARNING | no | new_prescriptions(raw) − named(note) (L41, L156) | a started drug the note dropped |
@@ -1947,15 +2002,17 @@ Four things to read off the table:
    `metformin held` is metformin stopped, and `continue metformin` is metformin continued,
    the active it implies set aside (L272); `metformin 500 mg BID` is one dose;
    `denies chest pain` is chest pain absent; `r/o pulmonary embolism` is a rule-out and
-   `pulmonary embolism ruled out` an exclusion. The note's reading is every claim's text,
-   whatever its section (invariant 5). A `must_preserve` item holds when the note keeps its
-   reading: the allergen; the drug at its status (L215), a continued one kept by a reading
-   of continued or of active with no stop, as a span supports it (L272); the dose, as
-   `dose_consistency` matches one (L141); the finding at its polarity (L36); the diagnosis
-   as below (L216). A `must_not_add` item fires on a claim that reads it positively: the
-   drug active, the finding present, the diagnosis asserted at any certainty, an invented
-   differential included (D7). A negated, stopped, or excluded mention adds nothing, so a
-   faithful "denies chest pain" is not an invented chest pain (L36).
+   `pulmonary embolism ruled out` an exclusion; `right knee` is the right side at the knee
+   (L286). The note's reading is every claim's text, whatever its section (invariant 5). A
+   `must_preserve` item holds when the note keeps its reading: the allergen; the drug at its
+   status (L215), a continued one kept by a reading of continued or of active with no stop,
+   as a span supports it (L272); the dose, as `dose_consistency` matches one (L141); the
+   finding at its polarity (L36); the side, some claim charting it at its site (L286); the
+   diagnosis as below (L216). A `must_not_add` item fires on a claim that reads it
+   positively: the drug active, the finding present, the diagnosis asserted at any
+   certainty, an invented differential included (D7). A negated, stopped, or excluded
+   mention adds nothing, so a faithful "denies chest pain" is not an invented chest pain
+   (L36).
 
 **A labeled diagnosis is compared note-wide (L216).** A note records a course ("r/o PE in
 the ED", "PE confirmed on CTA"), so `must_preserve` reads the whole note's strongest
@@ -2007,6 +2064,7 @@ have caught. The contract, per CRITICAL check:
 | | a continued home med | **CI-only gap** → `must_preserve(kind="medication")` |
 | `allergy_preserved` | the allergy | that omission is its subject — fires |
 | consistency family, `hallucinated_medication` | the claim | nothing left to contradict; the omission belongs to `allergy_preserved` / `new_prescription_preserved` live and `must_preserve` in CI |
+| `laterality_consistency` | the side | **CI-only gap** → a laterality label (L286) |
 | `must_preserve` | the labeled fact | that omission is its subject — fires (CI) |
 | `must_not_add` | the claim that adds a label | nothing left that adds it; an omitted invention is the faithful note (CI, L223) |
 
@@ -2158,6 +2216,9 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 | `detect_premature_exclusion` | injected | detection | L140 — "r/o PE" → "PE ruled out" |
 | `detect_degenerate_quote` | injected | detection | D15 |
 | `detect_empty_note` | injected | detection | L55 |
+| `detect_laterality_swap` | injected | detection | L286 — a side swapped |
+| `detect_laterality_dropped` | injected | detection | L286 — a side dropped (D17) |
+| `control_laterality_kept` | injected | control | L286 — both sides kept |
 | `control_hedged_assessment` | injected, twin `control_hedged_assessment_model` (L247) | control | D7 — a hedged A kept hedged is clean (L23) |
 | `control_empty_assessment` | model | control | D7 — no stated A, no A claims, clean (L23) |
 
@@ -2170,9 +2231,9 @@ moved to `tests/test_grounding.py`, L66.)
 CRITICAL   dropped allergy · hallucinated med · contraindication (same drug, same class,
            identical R1) · negation flip · status flip · drug absent from its span ·
            invented or certainty-upgraded diagnosis · a wrong exclusion, or an excluded
-           diagnosis asserted definite or probable (L140, L142) · labeled invention ·
-           labeled omission (allergy / medication / finding / diagnosis) · labeled status
-           flip, certainty upgrade, or wrong exclusion (L215, L216)
+           diagnosis asserted definite or probable (L140, L142) · a wrong side (L286) ·
+           labeled invention · labeled omission (allergy / medication / finding / diagnosis
+           / side) · labeled status flip, certainty upgrade, or wrong exclusion (L215, L216)
 WARNING    dose mismatch · cross-class contraindication with a dissimilar or unknown side
            chain (D9, D14) · dropped NKDA or NKA (D10, L144) · dropped new prescription ·
            degenerate quote · empty note on clinical input · certainty downgrade · reopened
@@ -2523,13 +2584,14 @@ sit far below the full output budget. `concurrency` is on the record because con
 lands in those times (429 retries and their backoff) and in the failure count. `draft` makes
 a run replayable: grounding and the checks are pure functions of the draft, the raw text,
 the config, and the code at the run's commit (D5), so reading a run, or a check change
-against it, costs no API call. A run starts from `python -m backend.corpus` (L210). Without
-`--spend` it is a dry run (L240): it loads the cases, runs `plan_run` as `score_corpus`
-does, and prints the model and injected case counts, the planned calls (n × k, and the
-ceiling with validation retries), the lineage the record would carry, and `runs_path`; it
-builds no client. A refusal from `plan_run` raises and exits 1 on either path: the command
-is the boundary. `--spend` runs `score_corpus` with `get_client()` (§5.2) and prints the
-record's metrics, its token usage, and where it was written (L242).
+against it, costs no API call, and a free-tier test replays every committed record (§11,
+L294). A run starts from `python -m backend.corpus` (L210). Without `--spend` it is a dry
+run (L240): it loads the cases, runs `plan_run` as `score_corpus` does, and prints the model
+and injected case counts, the planned calls (n × k, and the ceiling with validation
+retries), the lineage the record would carry, and `runs_path`; it builds no client. A
+refusal from `plan_run` raises and exits 1 on either path: the command is the boundary.
+`--spend` runs `score_corpus` with `get_client()` (§5.2) and prints the record's metrics,
+its token usage, and where it was written (L242).
 
 `CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`,
 `grounding.py`, and `schemas.py` (L189), computed at import — derived like every other
@@ -2598,55 +2660,70 @@ know, stated plainly (v1.3):
   nothing; so does a finding the span never names, which is the judge's and `must_not_add`'s
   to catch. A span holding both polarities ("denies chest pain at rest, reports chest pain
   on exertion") passes a claim keeping either one, since qualifiers aren't extracted.
-- **Laterality** (L200). No extractor reads a side and no check compares one (§7, §8.4), so
-  a wrong side has only the judge behind it (2c, WARNING-tier). A claim reading "Right knee
-  pain after a fall" under the verbatim quote "Left knee pain after a fall" grounds at Tier
-  1 and fires nothing. A quote that swaps the side itself fires nothing when it clears the
-  fuzzy cutoff, and most do: mid-note, "Pain in L arm since this morning" against "R arm"
-  scores 96.9, and a 43-character left/right swap 93.0. "Left" and "right" differ in
-  length, so a short one can fall below it: "Left knee pain after a fall" mid-note scores
-  88.9 and is flagged `UNSUPPORTED`, which the clinician sees (all measured, cutoff 90).
-  Wrong-site is a never-event class; the check waits for a later minor revision.
+- **Laterality** (L200, L285, L286). `laterality_consistency` compares a claim's sides with
+  its clause's at each site both name, a site being the words after a side (§7), so a side
+  no cue table lists reads nothing: the eye and ear abbreviations (OD is also overdose, AS
+  aortic stenosis), "both", and comparisons, so "OD pain", "Both knees swollen", and "Edema
+  L>R" name no side (prototyped). Where a claim and its clause share no site, it compares
+  their sides whole, so a "left" or "right" that names no side and that `NOT_SIDES` lacks
+  can fire there. A claim that drops the side names none and passes; live, that omission is
+  a CI-only gap, which `must_preserve` covers through a laterality label (D17, L286). In the
+  three committed runs, 73 claims restate a side, and none drops, swaps, or adds one
+  (measured).
 - **A quote that borrows from its clause** (L261). The claim-local family reads a span in
   its clause, so a quote naming no drug passes `drug_in_quote` when its clause names one:
   "Resume metformin in 48 hours" citing "resume in 48 hours" in "Metformin held for CT with
   contrast today, resume in 48 hours". Status is read from the same clause, so a borrowed
   drug at the wrong status still fires, but the highlighted quote the clinician sees may not
   name the drug. Highlighting the clause is phase 3's (a patch on #3).
-- **A window that crosses a comma** (L121, L261, L276). A pre-cue's window runs
+- **A window that crosses a comma** (L121, L261, L276, L291). A pre-cue's window runs
   `NEGATION_WINDOW` words across a comma, so "Not on metformin, lisinopril 10 mg daily"
-  reads the lisinopril stopped and "No fever, chills present" reads the chills absent
-  (measured). Since v1.8 reads a span in its clause, a faithful "Lisinopril 10 mg daily"
-  citing "lisinopril 10 mg daily" there fires `med_status_consistency`, and "Chills" citing
-  "chills present" fires `negation_consistency`: false CRITICALs a quote cut short of the
-  cue used to hide (prototyped). Closing the window at a comma would unread "no fever,
-  chills, or sweats", which is everyday charting.
-- **A repeat in a certainty window** (L265, L278). A diagnosis named again in a certainty
-  pre-cue's window reads at its own cues whatever its words, so "r/o PE, CTA PE protocol
-  ordered" and "r/o PE, PE less likely" read pulmonary embolism definite beside rule-out,
-  and an upgraded "Pulmonary embolism" citing either passes `diagnosis_in_quote`
-  (measured). A differential's window keeps its repeat, so "PNA vs PE, PE confirmed" reads
-  pulmonary embolism possible alone and a faithful "PE confirmed" fires the check. Telling
-  a workup's answer from another mention needs a confirming cue, which would be a decision,
-  for the deferred-amendments issue.
+  reads the lisinopril stopped (measured), and a faithful "Lisinopril 10 mg daily" citing
+  "lisinopril 10 mg daily" there fires `med_status_consistency`, a false CRITICAL a quote
+  cut short of the cue used to hide (prototyped). "Present" takes back the window's second
+  mention across a comma with no "and" or "or" (L291), so "No fever, chills present" reads
+  the chills present; past that the cost stays, and "Denies fever and chills, nausea
+  present" reads the nausea absent (prototyped). Closing the window at a comma would unread
+  "no fever, chills, or sweats", which is everyday charting.
+- **A repeat in a certainty window** (L265, L292). A diagnosis named again in a certainty or
+  differential window keeps the window's reading unless a confirming cue governs it, so "r/o
+  PE, hx of PE" reads rule-out alone and "Likely PNA, PNA treated" probable alone, and a
+  faithful "History of PE" or "Pneumonia treated" citing the repeat fires
+  `diagnosis_in_quote` (prototyped). "r/o PE, PE on CTA" reads rule-out too: "on CTA" names
+  a modality, which no confirming cue lists.
 - **A restart's reach** (L262). A restart or resumption cue that governs no mention reaches
   the stopped drug before it in its clause, whatever its object: "Metformin held, resume PT"
   reads metformin stopped and active, so "Resume metformin" passes it (measured). A restart
   reads as done from its form, not its time, so "resumed tomorrow" reads active now. No
   other cue reaches back, so a stop after a word still reads nothing: "Apixaban continued,
   then held" reads active and continued, the hold unread (measured). A negation refuses a
-  start only across function words, so "No plan to start metformin" reads active (L271,
-  measured).
+  start or a stop only across function words, so "No plan to start metformin" reads active
+  and "No plan to stop apixaban" stopped (L271, L288, measured).
 - **An indication's list** (L266, L280). After a drug and "for", a finding after a comma
   joins the indication, so "Ibuprofen for pain, fever since Monday" reads no fever
   (measured); with a period, the fever reads present. A list that opens on any other word
   reads as before L266: "Tylenol for the pain and fever" reads both findings present, and
   "Ibuprofen for knee pain" the pain (measured).
-- **A prn's reach** (L267, L282). A prn sets the prn of the dose before it as far as the
-  next dose, drug, or terminator, so a later order's prn in the same sentence joins it when
-  that order names no listed drug and no dose: "Tylenol 650 mg q6h scheduled, oxycodone prn
-  breakthrough" reads the acetaminophen as needed. A faithful "Tylenol 650 mg q6h" citing it
-  fires `dose_consistency`, and a claim adding the prn passes it (measured).
+- **A prn's reach** (L267, L293). Past its interval, a prn counts only across marks and
+  route words, so one charted after any other word is lost: "Tylenol 650 mg q6h and prn",
+  "q6h, then prn", "q6h x 3 days then prn", "q6h for pain, prn", and "q6h, may take prn"
+  read the dose scheduled, and a faithful "Tylenol 650 mg q6h prn" citing the first fires
+  `dose_consistency`, a WARNING (prototyped).
+- **A denied allergy across a comma** (L290). A negation pre-cue denies an allergy only
+  where no comma separates it from the allergy cue, so "No PCN, sulfa allergies" reads a
+  sulfa allergy, and a faithful "No PCN or sulfa allergies" citing it fires
+  `allergy_preserved` (prototyped). Read across the comma, the denial would delete a real
+  allergy: "No fever, PCN allergy" would read none, silencing both allergy checks. "PCN
+  allergy, denied" and "PCN allergy: none" read the penicillin too.
+- **A diagnosis that names something else** (L135, L296). A diagnosis no cue governs is
+  definite, so one naming a test, a workup, or a plan reads as asserted: "PE workup
+  pending." and "PNA coverage with ceftriaxone." read the diagnosis definite, and a claim of
+  it fires no check (measured). The deferred-amendments issue holds it.
+- **An unlisted drug's dose** (L133, L296). A dose belongs to the most recent listed drug in
+  its sentence, so an unlisted drug's dose joins the listed one before it: "Lisinopril 10 mg
+  daily, amlodipine 5 mg daily" reads lisinopril 5 mg daily beside 10 mg daily, and
+  "Lisinopril 5 mg daily" citing it passes `dose_consistency` (measured). The
+  deferred-amendments issue holds it.
 - **Labels read through the extractors** (L220). The loader checks a label against the raw
   text through the same extractor the check uses (L219), so a label can't state what the
   extractor misreads, and a misread label loads: "apixaban continued, then held" reads
@@ -3252,6 +3329,13 @@ in the push workflow — it spends real money.
   `--spend` appends one record and prints its metrics, usage, and path, and the lineage the
   dry run printed is the record's. The `__main__` line stays untested: run as a process, the
   command reads the real tree's git once model cases exist.
+- **The committed records replay (L294)** — every line of `runs/corpus_runs.jsonl`, grounded
+  and checked from its drafts in `ci` mode (§8.7): a record whose `checks_version` is
+  today's replays to its recorded verdicts and fired checks, and every record replays to a
+  committed snapshot, so a change that moves a replayed verdict is a reviewed diff. The case
+  guard recomputes `corpus_version` over a record's own cases, so an added case leaves an
+  old record replayable and an edited one refuses. 2c's judge findings, which can't replay
+  free, are left out of both comparisons.
 - **Judge plumbing (phase 2c)** — a fake `Judge` that times out yields an errored WARNING,
   the note is returned, and `all_critical_passed` is unchanged.
 - **The sink actually sinks (phase 3)** — the integration test asserts a `notes` row with the
@@ -3489,8 +3573,8 @@ above.
 
 ```
 □ before any 2c step: the scope-rule revision (v1.8: #10 entries 7, 9, 10, 11, 16, 22, 23,
-  and 24, with 13 rejected; L261–L270), then the laterality revision (entry 6), each with
-  its re-baseline (L256)
+  and 24, with 13 rejected; L261–L270), then the laterality revision (v1.9: #11 entries 6,
+  25, 26, 27, 28, 29, and 30; L285–L296), each with its re-baseline (L256)
 □ judge_client.py (edge), implementing 2a's Judge protocol (L111): one batched call (L40),
   its own call config pinned per invariant 3 (L182), judge_timeout_s (L54)
 □ text_entailment_judge (D8): WARNING, needs_judge
