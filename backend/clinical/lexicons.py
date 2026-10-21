@@ -163,6 +163,13 @@ FINDING_NEG_PRE: set[str] = {
     "won't",
     # Absence over a lifetime ("never had chest pain", "never took metformin") (L289).
     "never",
+    # An order not needed isn't given: "no need to start" refuses the start, and "no need to
+    # hold" the hold (L288).
+    "no need to",
+    # As "no need to" ("no reason to stop apixaban").
+    "no reason to",
+    # As "no need to" ("not necessary to hold apixaban").
+    "not necessary to",
     # A denied allergy: the drug named is no allergen ("not allergic to amoxicillin").
     "not allergic to",
     # As charted ("no allergy to cephalosporins").
@@ -199,7 +206,7 @@ FINDING_NEG_POST: set[str] = {
     "was ruled out",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-19.
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 PSEUDO_NEGATIONS: set[str] = {
     # "No increase in pain" charts pain that hasn't worsened: the pain is present.
     "no increase",
@@ -219,9 +226,15 @@ PSEUDO_NEGATIONS: set[str] = {
     "no interruptions",
     # "Without interrupting apixaban" charts the same order: the drug is taken.
     "without interrupting",
+    # "No break in apixaban" charts an order kept going: the drug is taken (L288).
+    "no break",
+    # As "no break" ("no pause in anticoagulation").
+    "no pause",
+    # As "no interruption" ("continue apixaban without interruption").
+    "without interruption",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-10.
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 TERMINATORS: set[str] = {
     # Contrast: what follows is asserted on its own ("no fever, but reports cough").
     "but",
@@ -248,18 +261,6 @@ TERMINATORS: set[str] = {
     "continue",
     # The charted past tense ("continued home lisinopril").
     "continued",
-    # A refused stop is a continue order ("do not stop apixaban").
-    "not stop",
-    # The contraction of "do not stop" ("don't stop apixaban").
-    "don't stop",
-    # The contraction of "do not discontinue".
-    "don't discontinue",
-    # The contraction of "do not hold".
-    "don't hold",
-    # As "not stop" ("do not discontinue apixaban").
-    "not discontinue",
-    # As "not stop" ("do not hold apixaban").
-    "not hold",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-07.
@@ -268,7 +269,7 @@ TERMINATORS: set[str] = {
 # headache, or chest pain" puts chest pain at word 8.
 NEGATION_WINDOW: int = 8
 
-# Clinical sign-off: Calvin Patel, 2026-10-10.
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 MED_STOP_CUES: set[str] = {
     # The stop order, written before the drug ("discontinue lisinopril").
     "discontinue",
@@ -286,21 +287,25 @@ MED_STOP_CUES: set[str] = {
     "stopped",
     # The charted past tense of "hold" ("held metformin this morning").
     "held",
+    # A temporary stop, as "hold" ("interrupt apixaban 48 hours before surgery") (L288).
+    "interrupt",
+    # The charted past tense ("interrupted apixaban yesterday").
+    "interrupted",
+    # A stop in progress, as "stopping" ("interrupting apixaban for surgery").
+    "interrupting",
+    # A hold in progress, the common periprocedural charting ("holding apixaban for surgery").
+    "holding",
+    # A stop in progress, as "stopping" ("discontinuing metformin").
+    "discontinuing",
     # A refused start leaves the drug inactive, not started ("do not start metformin").
     "not start",
     # A refused restart, as "not start" ("do not restart metformin until creatinine improves").
     "not restart",
     # A refused resumption, as "not start" ("do not resume apixaban until cleared by surgery").
     "not resume",
-    # The contraction of "do not start" ("don't start metformin").
-    "don't start",
-    # The contraction of "do not restart".
-    "don't restart",
-    # The contraction of "do not resume".
-    "don't resume",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 MED_STOP_POST: set[str] = {
     # The common stop charting, after the drug ("lisinopril discontinued due to cough").
     "discontinued",
@@ -318,6 +323,12 @@ MED_STOP_POST: set[str] = {
     "on hold",
     # Discontinue's abbreviation, charted after the drug ("lisinopril d/c'd").
     "d/c'd",
+    # A hold charted after the drug ("apixaban: holding", "metformin holding for contrast").
+    "holding",
+    # After the drug ("apixaban interrupted for the procedure") (L288).
+    "interrupted",
+    # The copula form of "interrupted".
+    "was interrupted",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-10.

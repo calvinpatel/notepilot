@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L267, L271, L273-L275, L277-L280, L282, L289.
+L193, L261-L267, L271, L273-L275, L277-L280, L282, L288, L289, L297.
 """
 
 import ast
@@ -523,7 +523,7 @@ def test_a_refused_stop_leaves_the_drug_active() -> None:
     "text", ["don't stop apixaban", "don't discontinue apixaban", "don't hold apixaban"]
 )
 def test_a_contracted_refused_stop_leaves_the_drug_active(text: str) -> None:
-    # L172: "don" and "t" are no cue, so the stop verb read as a stop
+    # L288, L289: "don't" is a negation, and a stop it directly precedes is refused
     assert extract_med_status(text) == {"apixaban": {"active"}}
 
 
@@ -1237,6 +1237,91 @@ def test_a_contracted_negation_reads_as_its_spelled_out_form(contracted: str, sp
     assert any(read(spelled) for read in readers)
     for read in readers:
         assert read(contracted) == read(spelled)
+
+
+_AS_CHARTED = [  # L288: a stop refused, not needed, or not made leaves the drug as charted
+    "Do not d/c apixaban",
+    "Do not interrupt apixaban",
+    "Not interrupting apixaban",
+    "Not holding apixaban",
+    "Never stop apixaban",
+    "Denies stopping apixaban",
+    "No held doses of apixaban",
+    "Not to stop apixaban",
+    "Without stopping apixaban",
+    "Without discontinuing apixaban",
+    "No need to hold apixaban",
+    "No reason to stop apixaban",
+    "Not necessary to hold apixaban",
+    "No hold on apixaban",
+    "No break in apixaban",
+    "No pause in apixaban",
+    "Without interruption of apixaban",
+    "Do not stop or hold apixaban",
+    "Do not stop, hold, or discontinue apixaban",
+    "Do not stop/hold apixaban",
+    "Do not stop & hold apixaban",
+]
+
+
+@pytest.mark.parametrize("text", _AS_CHARTED)
+def test_a_refused_needless_or_unmade_stop_reads_the_drug_as_charted(text: str) -> None:
+    assert extract_med_status(text) == {"apixaban": {"active"}}
+
+
+_STOPPED = [  # L288: a hold, an interruption, a refused continue or start, a needless start
+    "Interrupt apixaban 48 hours before surgery",
+    "Interrupted apixaban yesterday",
+    "Interrupting apixaban for surgery",
+    "Holding apixaban for surgery",
+    "Discontinuing apixaban",
+    "Apixaban interrupted for the procedure",
+    "Apixaban was interrupted",
+    "Apixaban: holding",
+    "Apixaban holding for surgery",
+    "Do not continue apixaban",
+    "Don't continue apixaban",
+    "Apixaban: do not continue",
+    "Don't start apixaban",
+    "Don't resume apixaban until cleared",
+    "No need to start apixaban",
+    "No need to continue apixaban",
+]
+
+
+@pytest.mark.parametrize("text", _STOPPED)
+def test_a_hold_an_interruption_or_a_refused_continue_reads_stopped(text: str) -> None:
+    assert extract_med_status(text) == {"apixaban": {"stopped"}}
+
+
+@pytest.mark.parametrize(
+    ("text", "statuses"),
+    [
+        # a word between two orders ends the refusal, so each reads its own (L288)
+        (
+            "Do not stop apixaban, stop metformin",
+            {"apixaban": {"active"}, "metformin": {"stopped"}},
+        ),
+        (
+            "Do not hold apixaban, hold metformin",
+            {"apixaban": {"active"}, "metformin": {"stopped"}},
+        ),
+        (
+            "Without stopping apixaban, start metformin",
+            {"apixaban": {"active"}, "metformin": {"active"}},
+        ),
+        # a negation past a content word refuses nothing (L271)
+        ("No plan to stop apixaban", {"apixaban": {"stopped"}}),
+        # §8.8's cost (L297): a stop verb governs its window whatever its object
+        ("Interrupted sleep, takes metformin nightly", {"metformin": {"stopped"}}),
+        ("Holding pressure, takes apixaban", {"apixaban": {"stopped"}}),
+        ("Hold pressure, takes apixaban", {"apixaban": {"stopped"}}),
+    ],
+)
+def test_a_refusal_ends_at_a_word_and_a_stop_verb_reads_its_window(
+    text: str, statuses: dict[str, set[str]]
+) -> None:
+    assert extract_med_status(text) == statuses
 
 
 @pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE | MED_STOP_CUES))

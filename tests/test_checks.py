@@ -432,7 +432,7 @@ def test_med_status_consistency_fires_on_a_refused_restart_written_as_an_order(
 
 
 def test_med_status_consistency_fires_on_a_contracted_refused_stop_written_as_a_stop() -> None:
-    # L172: the contraction is a continue order, so the stop is the flip
+    # L288: the refused stop is a continue order, so the stop is the flip
     note, raw = _note(("Stop apixaban", "don't stop apixaban"))
     assert [f.detail for f in check_med_status_consistency(note, raw, config=CHECKS_CONFIG)] == [
         "apixaban: stopped in the claim, active in its source span"

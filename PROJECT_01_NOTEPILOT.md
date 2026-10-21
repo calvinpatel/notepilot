@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9** (minor — the laterality revision, October 2026). Supersedes v1.8.7.
+**Spec version: v1.9.1** (patch — entry 25's build, October 2026). Supersedes v1.9.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2699,6 +2699,14 @@ know, stated plainly (v1.3):
   then held" reads active and continued, the hold unread (measured). A negation refuses a
   start or a stop only across function words, so "No plan to start metformin" reads active
   and "No plan to stop apixaban" stopped (L271, L288, measured).
+- **A stop verb's object** (L288, L297). A stop cue governs its window whatever its own
+  object, so a stop verb that names no drug reaches one after it in its sentence:
+  "Interrupted sleep, takes metformin nightly" and "Holding pressure, takes apixaban" read
+  the drug stopped (prototyped), as v1.3's cues do in "Hold pressure, takes apixaban" and
+  "Held her breath, on metformin" (measured). A faithful "Takes metformin nightly" citing
+  "takes metformin nightly" there fires `med_status_consistency`, and "Metformin stopped"
+  passes it (measured). A stop verb that governs only the list right after it, as an
+  indication cue does (L280), is the deferred-amendments issue's (entry 33).
 - **An indication's list** (L266, L280). After a drug and "for", a finding after a comma
   joins the indication, so "Ibuprofen for pain, fever since Monday" reads no fever
   (measured); with a period, the fever reads present. A list that opens on any other word
