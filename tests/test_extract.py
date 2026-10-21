@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L267, L271, L273-L275, L277-L280, L282.
+L193, L261-L267, L271, L273-L275, L277-L280, L282, L289.
 """
 
 import ast
@@ -1209,6 +1209,34 @@ def test_every_other_name_means_a_listed_drug_and_none_is_one() -> None:
     # L126: GENERIC_DRUGS is the vocabulary, and BRAND_TO_GENERIC maps onto it
     assert set(BRAND_TO_GENERIC.values()) <= GENERIC_DRUGS
     assert not GENERIC_DRUGS & set(BRAND_TO_GENERIC)
+
+
+_CONTRACTED = [  # (contracted, spelled out), L289
+    ("Don't take metformin", "Do not take metformin"),
+    ("Doesn't have chest pain", "Does not have chest pain"),
+    ("Doesn't have PNA", "Does not have PNA"),
+    ("Doesn’t have chest pain", "Does not have chest pain"),  # L170's curly apostrophe
+    ("Didn't take metformin", "Did not take metformin"),
+    ("Hasn't had nausea", "Has not had nausea"),
+    ("Haven't had fever", "Have not had fever"),
+    ("Hadn't had chest pain", "Had not had chest pain"),
+    ("Isn't febrile", "Is not febrile"),
+    ("Wasn't on metformin", "Was not on metformin"),
+    ("Won't start metformin", "Will not start metformin"),
+    ("Never had chest pain", "Has not had chest pain"),
+    ("Never took metformin", "Did not take metformin"),
+    ("Can't rule out PE", "Cannot rule out PE"),
+]
+
+
+@pytest.mark.parametrize(("contracted", "spelled"), _CONTRACTED)
+def test_a_contracted_negation_reads_as_its_spelled_out_form(contracted: str, spelled: str) -> None:
+    # Each reader below reads the contracted form as it reads the spelled-out one, which reads
+    # something, so the pair can't agree on nothing
+    readers = (extract_findings, extract_diagnoses, extract_excluded_diagnoses, extract_med_status)
+    assert any(read(spelled) for read in readers)
+    for read in readers:
+        assert read(contracted) == read(spelled)
 
 
 @pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE | MED_STOP_CUES))

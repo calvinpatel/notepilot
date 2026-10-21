@@ -129,7 +129,7 @@ ALLERGY_POST: set[str] = {
     "allergic",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 FINDING_NEG_PRE: set[str] = {
     # The patient's own negative report, the standard HPI and ROS cue.
     "denies",
@@ -143,6 +143,26 @@ FINDING_NEG_PRE: set[str] = {
     "without",
     # ROS and results phrasing ("negative for fever, chills").
     "negative for",
+    # "Do not", contracted: a contraction splits at its apostrophe, so each is spelled (L289).
+    "don't",
+    # "Does not", contracted ("doesn't have chest pain").
+    "doesn't",
+    # "Did not", contracted ("didn't take metformin").
+    "didn't",
+    # "Has not", contracted ("hasn't had nausea").
+    "hasn't",
+    # "Have not", contracted ("haven't had fever").
+    "haven't",
+    # "Had not", contracted ("hadn't had chest pain").
+    "hadn't",
+    # "Is not", contracted ("isn't febrile").
+    "isn't",
+    # "Was not", contracted ("wasn't on metformin").
+    "wasn't",
+    # "Will not", contracted ("won't start metformin").
+    "won't",
+    # Absence over a lifetime ("never had chest pain", "never took metformin") (L289).
+    "never",
     # A denied allergy: the drug named is no allergen ("not allergic to amoxicillin").
     "not allergic to",
     # As charted ("no allergy to cephalosporins").
@@ -391,7 +411,7 @@ INDICATION_CUES: set[str] = {
     "for",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 CERTAINTY_CUES: dict[str, str] = {
     # §7's example: the commonest hedge ("likely pneumonia").
     "likely": "probable",
@@ -417,6 +437,8 @@ CERTAINTY_CUES: dict[str, str] = {
     "may have": "possible",
     # Not excluded: a possibility, not a plan to exclude; longer than "rule out", so it wins.
     "cannot rule out": "possible",
+    # "Cannot rule out", contracted (L289); longer than "rule out", so it wins.
+    "can't rule out": "possible",
     # §7's example: a diagnosis to be excluded ("r/o PE").
     "r/o": "rule_out",
     # Spelled out.
