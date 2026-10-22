@@ -61,8 +61,12 @@ from backend.clinical.lexicons import (
     MED_STOP_CUES,
     MED_STOP_POST,
     NEGATION_WINDOW,
+    NOT_SIDES,
     PSEUDO_NEGATIONS,
     R1_GROUP,
+    SIDE_CUES,
+    SIDE_LETTERS,
+    SIDE_SITES,
     TERMINATORS,
 )
 from backend.evals.loader import CASES_DIR, load_cases
@@ -1698,6 +1702,10 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "dose unit": set(DOSE_UNITS),
         "frequency": set(DOSE_FREQUENCIES),
         "route": DOSE_ROUTES,
+        "side": set(SIDE_CUES),
+        "side letter": set(SIDE_LETTERS),
+        "side site": set(SIDE_SITES),
+        "not a side": NOT_SIDES,
         "diagnosis": DIAGNOSES | set(DIAGNOSIS_ALIASES),
         "certainty": set(CERTAINTY_CUES),
         "certainty, post": set(CERTAINTY_POST),

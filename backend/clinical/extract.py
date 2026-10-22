@@ -32,6 +32,9 @@ Doses are read by a grammar over the same tokens (L131, L133): a number and a un
 drug, in the drug's sentence, and the frequency charted after it. Past that interval, a prn
 joins the dose only across marks and route words (L267, L293).
 
+Laterality reads site to sides over the same tokens and phrase split (L285): a side binds to
+the words after it, and sides a list joins share the site after the last.
+
 Dose, MedStatus, and Certainty are extraction's result types. They live here and evals imports
 them from here, since clinical/ may not import the spine (§13's third exception, L132).
 """
@@ -72,7 +75,11 @@ from backend.clinical.lexicons import (
     MED_STOP_CUES,
     MED_STOP_POST,
     NEGATION_WINDOW,
+    NOT_SIDES,
     PSEUDO_NEGATIONS,
+    SIDE_CUES,
+    SIDE_LETTERS,
+    SIDE_SITES,
     TERMINATORS,
 )
 
@@ -86,6 +93,7 @@ class Dose(NamedTuple):
 
 MedStatus = Literal["active", "continued", "stopped"]  # continued: no interruption (L262)
 Certainty = Literal["definite", "probable", "possible", "rule_out"]  # strongest first
+Side = Literal["left", "right", "bilateral"]  # L285
 
 # A decimal number whole, so "38.5" ends no sentence; a word; a line break; one mark.
 _TOKEN = re.compile(r"\d+(?:\.\d+)+|[^\W_]+|\n|[^\w\s]")
@@ -206,6 +214,18 @@ _NO_CUES: _Cues = {}
 _UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
 _FREQUENCIES = {tuple(_tokens(name)): freq for name, freq in DOSE_FREQUENCIES.items()}
 _ROUTES = _phrases(DOSE_ROUTES)  # what a prn reaches across past its interval (L293)
+# the sides a side table may name, so a misspelled one fails at import (L285)
+_SIDES: Mapping[str, Side] = {"left": "left", "right": "right", "bilateral": "bilateral"}
+_SIDE_CUES: Mapping[_Phrase, Side] = {
+    tuple(_tokens(cue)): _SIDES[side] for cue, side in SIDE_CUES.items()
+}
+_SIDE_LETTERS: Mapping[_Phrase, Side] = {
+    tuple(_tokens(letter)): _SIDES[side] for letter, side in SIDE_LETTERS.items()
+}
+_SIDE_SITES: Mapping[_Phrase, tuple[Side, str]] = {
+    tuple(_tokens(token)): (_SIDES[side], site) for token, (side, site) in SIDE_SITES.items()
+}
+_NOT_SIDES = _phrases(NOT_SIDES)
 # a number, and any letters fused to it ("500mg"); a decimal is one token already (L121)
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)([^\W\d_]*)")
 
@@ -844,6 +864,67 @@ def extract_excluded_diagnoses(text: str) -> set[str]:
         for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _DIFFERENTIAL)
         if label == "negated"
     }
+
+
+def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
+    """site -> the sides charted for it, a site being the `words` words after a side (L285).
+    "Left knee pain", words=2 -> {"knee pain": {"left"}}; "RLQ", words=2 ->
+    {"lower quadrant": {"right"}}.
+
+    A side is a SIDE_CUES phrase; a SIDE_LETTERS letter before a word and not after a number;
+    or a SIDE_SITES token, whose spelled-out site is cut to `words`. A NOT_SIDES phrase names
+    none. Sides joined by "and", "or", or a comma share the site after the last (_JOINS). A
+    site is that many words, none of them a function word (L304), so a side before a mark or
+    at the text's end names none.
+    """
+    tokens = _tokens(text)
+    phrases = list(_split(tokens, (_SIDE_CUES, _SIDE_LETTERS, _SIDE_SITES, _NOT_SIDES)))
+    sides: dict[str, set[Side]] = {}
+    joined: list[Side] = []  # sides that share the site of the next one ("left and right knee")
+
+    def charted(site: str, side: Side) -> None:
+        nonlocal joined
+        for each in (*joined, side):
+            sides.setdefault(site, set()).add(each)
+        joined = []
+
+    def side_at(k: int) -> Side | None:
+        """The side phrase k names: a SIDE_CUES phrase, or a SIDE_LETTERS letter before a word
+        and not after a number."""
+        if k >= len(phrases):
+            return None
+        i, phrase = phrases[k]
+        if phrase in _SIDE_CUES:
+            return _SIDE_CUES[phrase]
+        if (
+            phrase in _SIDE_LETTERS
+            and k + 1 < len(phrases)
+            and all(map(_is_word, phrases[k + 1][1]))
+            and not (i and tokens[i - 1][:1].isdigit())
+        ):
+            return _SIDE_LETTERS[phrase]
+        return None
+
+    for n, (i, phrase) in enumerate(phrases):
+        if phrase in _SIDE_SITES:
+            its_side, site = _SIDE_SITES[phrase]
+            charted(" ".join(site.split()[:words]), its_side)
+            continue
+        if (side := side_at(n)) is None:
+            continue
+        # a join holds the side only for a side that follows it (L285)
+        if n + 1 < len(phrases) and phrases[n + 1][1] in _JOINS and side_at(n + 2) is not None:
+            joined.append(side)
+            continue
+        site_tokens = tokens[i + len(phrase) : i + len(phrase) + words]
+        if (
+            len(site_tokens) == words
+            and all(map(_is_word, site_tokens))
+            and not any(token in FUNCTION_WORDS for token in site_tokens)
+        ):
+            charted(" ".join(site_tokens), side)
+        joined = []
+    return sides
 
 
 def extract_findings(text: str) -> dict[str, set[bool]]:

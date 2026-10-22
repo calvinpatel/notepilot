@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,40 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.9.5 — entry 6's reading (patch)
+
+Theme: L285, built, with what the adversarial pass found past part two's rows. Two details
+§7 left open are filled, and two ways a side goes unread are stated, the deferred-amendments
+issue holding the decisions (entry 36). The build adds "left-side" and "right-side" to
+`SIDE_CUES`, as the "-sided" forms are. Cal approved the patch and signed the four side
+tables on Oct 22, before the code that depends on them, which lands with them in one commit.
+`extract_laterality` lands first; its label and its check land in later commits (L286,
+L287), and `SITE_WORDS` with the first that reads it. The committed records replay as at
+v1.9. No invariant moves; CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L305 §7 — a two-letter side takes its period.** Fill: §7 counts a bare letter before a
+  word, which left the abbreviation's period unread, so "Rt. knee pain" named no side and
+  "Left knee pain" citing it passed the prototype's check, a silent swap (prototyped). "Lt."
+  and "rt." now read as "lt" and "rt" do. A lone "L." or "R." stays none, since it is also
+  an initial: "Dr. R. Smith" names no side (measured).
+- **L306 §8.8 — two ways a side goes unread.** Fill: §8.8 states them. "/" and "&" join no
+  sides, since §7's joins are `_JOINS`, and a bare letter before a comma is none, since §7
+  counts one only before a word, so "Left & right knee pain" and "L, R knee pain" read the
+  right knee alone, and a faithful "Left knee pain" citing either fires the prototype's
+  check, a loud false CRITICAL. A side charted after its site names none ("Chest pain on the
+  left", "Edema in the lower extremity, left"), and a clause naming no side contradicts no
+  claim, so "Right-sided chest pain" citing "Chest pain on the left" passes it, a silent
+  swap (prototyped). Both are decisions, so the deferred-amendments issue holds them (entry
+  36), and tests pin the readings.
+
+**INFO**
+- **L304 §7 — a site holds no function word.** Fill: §7 called a site the words after a side
+  but not which words, and the prototype barred only a first function word, so "R knee and L
+  ankle" read the right side at "knee and" at two words (measured on the build). A site now
+  holds none, so a join or an article ends it: that row reads no two-word site, and "knee"
+  and "ankle" at one word.
 
 ## v1.9.4 — entry 27's certainty (patch)
 

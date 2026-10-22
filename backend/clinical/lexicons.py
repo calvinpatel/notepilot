@@ -861,3 +861,120 @@ FUNCTION_WORDS: set[str] = {
     # Demonstrative, as "this".
     "that",
 }
+
+# Clinical sign-off: Calvin Patel, 2026-10-22.
+SIDE_CUES: dict[str, str] = {
+    # The side a finding or a site is charted on; it binds to the words after it (L285).
+    "left": "left",
+    # As "left".
+    "right": "right",
+    # Both sides, which supports left and right alike (L286).
+    "bilateral": "bilateral",
+    # As "bilateral" ("edema bilaterally" reads no site after it; "bilaterally symmetric").
+    "bilaterally": "bilateral",
+    # As "bilateral", shortened as charted.
+    "bilat": "bilateral",
+    # The "-sided" form ("left-sided chest pain"), whose site follows the "sided".
+    "left-sided": "left",
+    # As "left-sided".
+    "right-sided": "right",
+    # The "-sided" form without its hyphen.
+    "left sided": "left",
+    # As "left sided".
+    "right sided": "right",
+    # The "-side" form ("left-side weakness").
+    "left-side": "left",
+    # As "left-side".
+    "right-side": "right",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-22.
+SIDE_LETTERS: dict[str, str] = {
+    # A bare letter is a side only before a word and not after a number, so "L knee" reads
+    # left and "2 L NC" (liters) and "R/O PE" read no side (L285).
+    "l": "left",
+    # As "l".
+    "r": "right",
+    # As "l", the two-letter form.
+    "lt": "left",
+    # As "lt".
+    "rt": "right",
+    # The two-letter form with its abbreviation's period ("Lt. knee"); a lone "L." or "R." is
+    # also an initial ("Dr. R. Smith"), so only the two-letter forms take one (L305).
+    "lt.": "left",
+    # As "lt.".
+    "rt.": "right",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-22.
+SIDE_SITES: dict[str, tuple[str, str]] = {
+    # A side and its site in one token, the site spelled out so it meets the charting that
+    # spells it: "RUQ" reads as "right upper quadrant" does (L285).
+    "ruq": ("right", "upper quadrant"),
+    # As "ruq".
+    "rlq": ("right", "lower quadrant"),
+    # As "ruq".
+    "luq": ("left", "upper quadrant"),
+    # As "ruq".
+    "llq": ("left", "lower quadrant"),
+    # A limb ("RUE weakness").
+    "rue": ("right", "upper extremity"),
+    # As "rue".
+    "lue": ("left", "upper extremity"),
+    # As "rue".
+    "rle": ("right", "lower extremity"),
+    # As "rue".
+    "lle": ("left", "lower extremity"),
+    # Both upper limbs.
+    "bue": ("bilateral", "upper extremity"),
+    # Both lower limbs ("BLE edema").
+    "ble": ("bilateral", "lower extremity"),
+    # A lung lobe ("RUL infiltrate").
+    "rul": ("right", "upper lobe"),
+    # As "rul".
+    "rml": ("right", "middle lobe"),
+    # As "rul".
+    "rll": ("right", "lower lobe"),
+    # As "rul".
+    "lul": ("left", "upper lobe"),
+    # As "rul".
+    "lll": ("left", "lower lobe"),
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-22.
+NOT_SIDES: set[str] = {
+    # "Left" the verb: the patient left, and no side is charted (L285).
+    "left ama",
+    # As "left ama" ("left against medical advice").
+    "left against",
+    # As "left ama" ("left without being seen").
+    "left without",
+    # As "left ama" ("left a message").
+    "left a",
+    # As "left ama" ("left message for patient").
+    "left message",
+    # As "left ama" ("left voicemail").
+    "left voicemail",
+    # As "left ama" ("left work early").
+    "left work",
+    # As "left ama" ("left early").
+    "left early",
+    # As "left ama" ("left home this morning").
+    "left home",
+    # "Right" the adverb: "call back right away".
+    "right away",
+    # As "right away" ("right after surgery").
+    "right after",
+    # As "right away" ("right before the fall").
+    "right before",
+    # As "right away".
+    "right now",
+    # Handedness names no side of a finding ("right handed").
+    "right handed",
+    # As "right handed".
+    "left handed",
+    # As "right handed", hyphenated.
+    "right-handed",
+    # As "right-handed".
+    "left-handed",
+}
