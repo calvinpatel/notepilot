@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,42 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.9.2 — entry 26's build (patch)
+
+Theme: L290, built, with what the adversarial pass found past the sheet's rows. A post-cue
+denial now reads as the pre-cue one has since L129, and so a contested allergy, documented
+after the patient's denial, reads no allergen where `ca6dbdf` read one by accident. Keeping
+a contested allergy is a decision, so §8.8 states the cost and the deferred-amendments issue
+holds the fix (entry 34), as v1.9.1 did for a stop verb's object (L297). Cal approved the
+fill, and signed `DENIED_ALLERGY_CUES`, on Oct 21, before the code that depends on them,
+which lands with them in one commit. The committed records replay as at v1.9. No invariant
+moves; CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L298 §8.8 — a contested allergy.** Fill: §8.8 states it. L290 reads a denied allergy in
+  either form, and a denial reads before what follows it, so "Patient denies PCN allergy but
+  chart lists it", "Patient denies PCN allergy, though listed in chart", and "PCN allergy:
+  denied by patient, documented by pharmacy" read no allergen, where `ca6dbdf` read
+  penicillin; "Denies allergy to penicillin but chart lists it" has read none since L129
+  (measured). Beside "Start amoxicillin 500 mg tid", `ca6dbdf` fires
+  `allergy_contraindication` and `allergy_preserved`, and this build fires neither
+  (measured): a silent miss on an allergy the chart documents. Naming the allergen again
+  keeps it ("Denies PCN allergy; chart lists PCN allergy"), and so does a denial after the
+  allergy ("PCN allergy (patient denies)", "Chart lists PCN allergy; patient denies",
+  measured). A test pins the cost.
+- **L299 §8.8 — a denial's reach.** Fill: §8.8 states it. Claude Code's run of this build
+  measured two loud costs past the sheet's rows. A denial ends its negation's window, so an
+  allergy named after it with its own cue reads on its own: "No PCN allergy or sulfa
+  allergy" and "Denies PCN allergy and sulfa allergy" read a sulfa allergy, and a faithful
+  "No PCN or sulfa allergy" fires `allergy_preserved`, as at `ca6dbdf`, which read the
+  penicillin too. A denied-allergy cue's window crosses a comma, as L276 states for a
+  negation's: "Not allergic to PCN, on amoxicillin 500 mg tid" reads the amoxicillin with no
+  status, where `ca6dbdf` read it stopped, and a faithful "On amoxicillin 500 mg tid" fires
+  `drug_in_quote` where `ca6dbdf` fired `med_status_consistency` (measured). The run found
+  one more, which this build fixes, since §7 has a negation post-cue deny only right after
+  the allergy cue: a mention between them kept the cue's allergens open, so "PCN allergy:
+  amoxicillin denied" denied the penicillin. Tests pin all three.
 
 ## v1.9.1 — entry 25's build (patch)
 

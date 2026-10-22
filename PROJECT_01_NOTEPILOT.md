@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.1** (patch — entry 25's build, October 2026). Supersedes v1.9.
+**Spec version: v1.9.2** (patch — entry 26's build, October 2026). Supersedes v1.9.1.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2717,12 +2717,27 @@ know, stated plainly (v1.3):
   "q6h, then prn", "q6h x 3 days then prn", "q6h for pain, prn", and "q6h, may take prn"
   read the dose scheduled, and a faithful "Tylenol 650 mg q6h prn" citing the first fires
   `dose_consistency`, a WARNING (prototyped).
-- **A denied allergy across a comma** (L290). A negation pre-cue denies an allergy only
-  where no comma separates it from the allergy cue, so "No PCN, sulfa allergies" reads a
-  sulfa allergy, and a faithful "No PCN or sulfa allergies" citing it fires
+- **A denied allergy across a comma** (L290, L299). A negation pre-cue denies an allergy
+  only where no comma separates it from the allergy cue, so "No PCN, sulfa allergies" reads
+  a sulfa allergy, and a faithful "No PCN or sulfa allergies" citing it fires
   `allergy_preserved` (prototyped). Read across the comma, the denial would delete a real
   allergy: "No fever, PCN allergy" would read none, silencing both allergy checks. "PCN
-  allergy, denied" and "PCN allergy: none" read the penicillin too.
+  allergy, denied" and "PCN allergy: none" read the penicillin too. A denial ends its
+  negation's window, so an allergy named after it, its own cue and all, reads on its own:
+  "No PCN allergy or sulfa allergy" and "Denies PCN allergy and sulfa allergy" read a sulfa
+  allergy, and a faithful "No PCN or sulfa allergy" fires `allergy_preserved`, as it did
+  before L290 (L299, measured). A denied-allergy cue's window crosses a comma as a
+  negation's does, so "Not allergic to PCN, on amoxicillin 500 mg tid" reads the amoxicillin
+  with no status, and a faithful "On amoxicillin 500 mg tid" fires `drug_in_quote` where
+  `ca6dbdf` fired `med_status_consistency` (L299, measured).
+- **A contested allergy** (L290, L298). A denial reads before what follows it, so a note
+  that documents the allergy after the patient denies it, referring back, reads no allergen:
+  "Patient denies PCN allergy but chart lists it" and "PCN allergy: denied by patient,
+  documented by pharmacy" (measured), as "Denies allergy to penicillin but chart lists it"
+  has read since L129. Beside "Start amoxicillin 500 mg tid", no allergy check fires
+  (measured), where a documented allergy should be honored until it is delabeled. A
+  documentation that names the allergen again keeps it ("Denies PCN allergy; chart lists PCN
+  allergy"). The deferred-amendments issue holds the fix (entry 34).
 - **A diagnosis that names something else** (L135, L296). A diagnosis no cue governs is
   definite, so one naming a test, a workup, or a plan reads as asserted: "PE workup
   pending." and "PNA coverage with ceftriaxone." read the diagnosis definite, and a claim of

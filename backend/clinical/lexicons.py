@@ -170,7 +170,12 @@ FINDING_NEG_PRE: set[str] = {
     "no reason to",
     # As "no need to" ("not necessary to hold apixaban").
     "not necessary to",
-    # A denied allergy: the drug named is no allergen ("not allergic to amoxicillin").
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-21.
+DENIED_ALLERGY_CUES: set[str] = {
+    # A denied allergy before its drug: the drug is no allergen, and the cue asserts no
+    # status, since a denial says nothing of whether the drug is taken (L290).
     "not allergic to",
     # As charted ("no allergy to cephalosporins").
     "no allergy to",
@@ -178,7 +183,7 @@ FINDING_NEG_PRE: set[str] = {
     "denies allergy to",
     # As "no allergy to" ("no known allergy to sulfa").
     "no known allergy to",
-    # A denied allergy, plural: the drug named is no allergen ("no allergies to penicillin").
+    # The plural ("no allergies to penicillin").
     "no allergies to",
     # As "no allergies to" ("no known allergies to sulfa"); without it, the NKA alias matches.
     "no known allergies to",

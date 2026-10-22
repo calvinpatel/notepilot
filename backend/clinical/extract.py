@@ -22,10 +22,11 @@ negation, stop, start, and allergy (L124, L125, L128); then a restart that gover
 reaches back to the stopped drug before it, and a continue cue asserts continued (L262, L273), a
 refused one reading stopped (L288). Allergy context reaches further than the others (L128): a
 header at a line's start opens a section, and an allergy post-cue reaches back over any list,
-not only one that opens its clause. A diagnosis sees negation and certainty, and a differential
-cue ("vs") governs both its sides (L135). In a certainty pre-cue's window, a diagnosis the
-window already governs reads at its own cues when it's named again, unless the name restates the
-mention directly before it (L265, L278, L279).
+not only one that opens its clause. A denied allergy reads no allergen and no status (L290). A
+diagnosis sees negation and certainty, and a differential cue ("vs") governs both its sides
+(L135). In a certainty pre-cue's window, a diagnosis the window already governs reads at its own
+cues when it's named again, unless the name restates the mention directly before it (L265, L278,
+L279).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
 drug, in the drug's sentence, and the frequency charted after it.
@@ -46,6 +47,7 @@ from backend.clinical.lexicons import (
     BRAND_TO_GENERIC,
     CERTAINTY_CUES,
     CERTAINTY_POST,
+    DENIED_ALLERGY_CUES,
     DIAGNOSES,
     DIAGNOSIS_ALIASES,
     DIFFERENTIAL_CUES,
@@ -87,7 +89,15 @@ _APOSTROPHES = str.maketrans({"\u2018": "'", "\u2019": "'"})
 
 type _Phrase = tuple[str, ...]
 type _Label = Literal[
-    "negated", "stopped", "started", "allergy", "probable", "possible", "rule_out", "indication"
+    "negated",
+    "stopped",
+    "started",
+    "allergy",
+    "denied",
+    "probable",
+    "possible",
+    "rule_out",
+    "indication",
 ]
 type _Cues = Mapping[_Phrase, _Label]
 
@@ -139,6 +149,7 @@ _DRUG_PRE = (
     | _cues("stopped", MED_STOP_CUES)
     | _cues("started", MED_START_CUES)
     | _cues("allergy", ALLERGY_CUES)
+    | _cues("denied", DENIED_ALLERGY_CUES)  # no allergen and no status (L290)
 )
 _DRUG_POST = (
     _NEG_POST
@@ -292,7 +303,7 @@ def _scope(
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
     None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L266, L271, L278-L280,
-    L288).
+    L288, L290).
     """
     return _scope_at(text, entities, pre, post, differential, drugs).mentions
 
@@ -330,6 +341,8 @@ def _scope_at(
     rereads: set[str] | None = None
     drug_named = False  # a drug named since the clause opened (L266)
     indicating = False  # the list right after an indication cue is open (L280)
+    allergy_run: list[int] = []  # the mentions the allergy cue just before governs (L290)
+    pre_comma = False  # a comma since the open pre-cue (L290)
     for i, phrase in phrases:
         words = sum(map(_is_word, phrase))
         in_window = window > 0
@@ -345,13 +358,28 @@ def _scope_at(
                 governing.add(i)
             window, label, opener = NEGATION_WINDOW, differential[phrase], i
             rereads = None  # a differential keeps its repeats (L278)
+        elif phrase in post and post[phrase] == "negated" and allergy_run:
+            # L290: a negation post-cue directly after an allergy cue denies its allergens
+            for m in allergy_run:
+                mentions[m] = (mentions[m][0], "denied")
+            governing.add(i)
         elif phrase in post and before is not None:  # tested ahead of pre, per L121
             cue = post[phrase]
             listed = cue == "allergy" or (cue in _LIST_REACH and run_bare)
             reach = run if listed else [before]
+            denied = False
             for m in reach:  # a list's earlier mentions only where no other cue governs
-                if m == before or mentions[m][1] is None:
+                if cue == "allergy" and mentions[m][1] == "negated" and not pre_comma:
+                    # L290: a negation with no comma before the allergy cue denies it, and
+                    # the denial ends the negation's window
+                    mentions[m] = (mentions[m][0], "denied")
+                    denied = True
+                elif m == before or mentions[m][1] is None:
                     mentions[m] = (mentions[m][0], cue)
+            if cue == "allergy":
+                allergy_run = [m for m in reach if mentions[m][1] == "allergy"]
+            if denied:
+                window = 0
             governing.add(i)
         elif phrase in pre:
             if pre[phrase] == "allergy" and phrase[-1] == ":" and before is not None:
@@ -360,6 +388,7 @@ def _scope_at(
                 for m in run:
                     if m == before or mentions[m][1] is None:
                         mentions[m] = (mentions[m][0], "allergy")
+                allergy_run = [m for m in run if mentions[m][1] == "allergy"]  # L290
                 governing.add(i)
             # L271, L288: a start or stop a negation directly precedes is refused ("Not
             # starting metformin", "Do not hold apixaban"). A refused start is negated; a
@@ -372,6 +401,7 @@ def _scope_at(
                 negated = refusing and pre[phrase] == "started"
                 window, label, opener = NEGATION_WINDOW, "negated" if negated else pre[phrase], i
                 rereads = set() if label in _REREAD_WINDOWS else None
+                pre_comma = False
         elif phrase in entities:
             entity = entities[phrase]
             # L265, L278: named again in a certainty window, an entity reads at its own cues;
@@ -395,6 +425,7 @@ def _scope_at(
         # adjacency: a mention opens it; a word, a terminator, or a comma ends it (L122). A
         # list's run survives a join and a mark, and ends where adjacency ends otherwise.
         if phrase in entities:
+            allergy_run = []  # a mention between the allergy cue and a negation ends it (L290)
             before = len(mentions) - 1
             if not run:
                 run_bare = clause_open
@@ -403,6 +434,12 @@ def _scope_at(
             before = None
             if phrase not in _JOINS:
                 run = []
+            if post.get(phrase) != "allergy" and not (
+                pre.get(phrase) == "allergy" and phrase[-1] == ":"
+            ):
+                allergy_run = []  # an allergy cue's allergens stay open across marks alone
+        if phrase == (",",):
+            pre_comma = True
         # L193: a clause opens after . ; or a line break, or after a header's colon (a header
         # at a line's start or after a period); any word closes it
         if phrase in _CLAUSE_STARTS or (
@@ -625,7 +662,8 @@ def extract_allergies(text: str) -> set[str]:
 
     A key is a generic drug ("amoxicillin"), a class ("penicillin", "sulfa", "nsaid"),
     "nkda", or "nka" (D10). A mention is an allergen where allergy context governs it
-    (L128); "nkda" and "nka" are allergy statements wherever they aren't negated (L129).
+    (L128), unless a negation denies it (L290); "nkda" and "nka" are allergy statements
+    wherever they aren't negated (L129).
     """
     return {
         name

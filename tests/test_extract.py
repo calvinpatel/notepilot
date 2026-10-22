@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L267, L271, L273-L275, L277-L280, L282, L288, L289, L297.
+L193, L261-L267, L271, L273-L275, L277-L280, L282, L288-L290, L297-L299.
 """
 
 import ast
@@ -36,6 +36,7 @@ from backend.clinical.lexicons import (
     CERTAINTY_CUES,
     CERTAINTY_POST,
     CROSS_REACTIVITY,
+    DENIED_ALLERGY_CUES,
     DIAGNOSES,
     DIAGNOSIS_ALIASES,
     DIFFERENTIAL_CUES,
@@ -718,6 +719,86 @@ def test_a_list_can_reach_back_into_a_medication() -> None:
 def test_nkda_and_nka_need_no_allergy_cue(text: str, statement: str) -> None:
     # D10: NKDA and NKA are different facts
     assert extract_allergies(text) == {statement}
+
+
+_DENIED = [  # L290: a denied allergy, either form, names no allergen
+    "No PCN allergy",
+    "Denies PCN allergy",
+    "No known PCN allergy",
+    "PCN allergy denied",
+    "PCN allergy - denied",
+    "PCN allergy: denied",
+    "PCN allergy negative",
+    "No longer PCN allergic",
+    "No PCN allergy (hives was a viral rash)",
+    "No PCN or sulfa allergy",
+    "No PCN/sulfa allergy",
+    "Denies PCN and sulfa allergies",
+    "PCN and sulfa allergies denied",
+    "PCN & sulfa allergies denied",
+    "PCN and sulfa allergies: denied",
+    "Denies fever, no PCN allergy",
+]
+
+
+@pytest.mark.parametrize("text", _DENIED)
+def test_a_denied_allergy_in_either_form_names_no_allergen(text: str) -> None:
+    assert extract_allergies(text) == set()
+
+
+@pytest.mark.parametrize(
+    ("text", "allergens"),
+    [
+        # L290: a comma between the negation and the allergy cue keeps the allergy
+        ("No fever, PCN allergy", {"penicillin"}),
+        ("Afebrile, no rash, PCN allergy", {"penicillin"}),
+        ("Not on amoxicillin, PCN allergy", {"penicillin"}),
+        # the denial ends its window, and a later allergy reads on its own
+        ("No PCN allergy, sulfa allergy", {"sulfa"}),
+        ("Denies PCN allergy, has sulfa allergy", {"sulfa"}),
+        ("PCN allergy denied, sulfa allergy", {"sulfa"}),
+        ("No PCN allergy but sulfa allergy", {"sulfa"}),
+        ("Hx of PCN allergy, denies sulfa allergy", {"penicillin"}),
+        ("PCN allergy: amoxicillin", {"penicillin", "amoxicillin"}),
+        # a negation post-cue denies only right after the allergy cue, past no mention
+        ("PCN allergy: amoxicillin denied", {"penicillin"}),
+        # §8.8's costs (L290, L298)
+        ("No PCN, sulfa allergies", {"sulfa"}),
+        ("PCN allergy, denied", {"penicillin"}),
+        ("PCN allergy: none", {"penicillin"}),
+        ("Patient denies PCN allergy but chart lists it", set()),
+        ("Denies PCN allergy; chart lists PCN allergy", {"penicillin"}),
+        ("No PCN allergy or sulfa allergy", {"sulfa"}),
+        ("Denies PCN allergy and sulfa allergy", {"sulfa"}),
+    ],
+)
+def test_a_denial_reaches_only_what_it_denies(text: str, allergens: set[str]) -> None:
+    assert extract_allergies(text) == allergens
+
+
+@pytest.mark.parametrize(
+    ("text", "statuses"),
+    [
+        # L290: a denied allergy asserts no status, and the denial ends the negation's window
+        ("No allergy to amoxicillin", {}),
+        ("No amoxicillin allergy", {}),
+        ("Not allergic to amoxicillin. Start amoxicillin", {"amoxicillin": {"active"}}),
+        ("Denies amoxicillin allergy, on amoxicillin", {"amoxicillin": {"active"}}),
+        ("No PCN allergy, amoxicillin 500 mg tid", {"amoxicillin": {"active"}}),
+        # §8.8's cost (L299): a denied-allergy cue's window crosses a comma
+        ("Not allergic to PCN, on amoxicillin 500 mg tid", {}),
+    ],
+)
+def test_a_denied_allergy_says_nothing_of_whether_the_drug_is_taken(
+    text: str, statuses: dict[str, set[str]]
+) -> None:
+    assert extract_med_status(text) == statuses
+
+
+@pytest.mark.parametrize("cue", sorted(DENIED_ALLERGY_CUES))
+def test_every_denied_allergy_cue_reads_no_allergen_and_no_status(cue: str) -> None:
+    assert extract_allergies(f"{cue} amoxicillin") == set()
+    assert extract_med_status(f"{cue} amoxicillin") == {}
 
 
 def test_a_denied_allergy_names_no_allergen() -> None:
@@ -1464,6 +1545,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "allergen": set(ALLERGY_ALIASES),
         "allergy": ALLERGY_CUES,
         "allergy, post": ALLERGY_POST,
+        "denied allergy": DENIED_ALLERGY_CUES,
         "dose unit": set(DOSE_UNITS),
         "frequency": set(DOSE_FREQUENCIES),
         "diagnosis": DIAGNOSES | set(DIAGNOSIS_ALIASES),
