@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,35 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.9.7 — v1.9's re-baseline (patch)
+
+Theme: v1.9's live measurement, recorded as v1.8.7 recorded v1.8's (L283, L284). The
+re-baseline ran on `6870541`, v1.9's code complete, and §14 called for no smoke run. With
+it, the laterality revision meets L256's gate, as the scope-rule revision did with v1.8's,
+so phase 2c opens. No invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L308 §14 — no smoke run for v1.9.** Fill: §14 repeats the smoke run at a change of
+  request shape or of the pinned model (L81, L185), and v1.9 changes neither:
+  `PROMPT_VERSION` is a99d6d205d0e, as at v1.7's smoke run (L259) and v1.8's re-baseline
+  (L283), and `uv.lock`, `config.py`, `orchestrator.py`, and `pyproject.toml` are unchanged
+  since `4877d3d` (measured).
+- **L309 §5.3 — v1.9's re-baseline: all 72 repeats pass.** Measured: one run on `6870541`,
+  `git_dirty` false, `prompt_version` a99d6d205d0e, `checks_version` 671078539429,
+  `corpus_version` 040ccf7c0d67, 72 repeats, each in one validation attempt. Detection
+  recall 1.0, control specificity 1.0, model fidelity 1.0, `fidelity_caught` None, pass rate
+  1.0, no flaky case; 115,251 input and 15,398 output tokens. The verdicts are v1.8's, and
+  neither revision's checks moved one: this run's drafts replay unmoved under v1.8's checks
+  at `bfc9827`, and v1.8's drafts replay unmoved under v1.9's, so v1.9's readings and its
+  laterality check change no verdict the corpus holds. `laterality_consistency` fired on no
+  repeat, and no reference check fired on any. As under v1.8, `allergy_contraindication`
+  fired on all 24 detection repeats and on the 3 of `control_pcn_allergy_cephalexin`, which
+  pass. `quote_informativeness` (WARNING) fired on two repeats of `fidelity_no_htn_urgency`,
+  whose claim "Asymptomatic" quoted the one word, against one under v1.8; the drafts moved
+  it, since replayed under v1.8's checks they fire it on the same two. 14 of the 24 cases
+  gave one draft across their repeats (11 under v1.8), and no case changed verdict across
+  its repeats.
 
 ## v1.9.6 — entry 6's label (patch)
 

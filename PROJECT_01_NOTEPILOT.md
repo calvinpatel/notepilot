@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.6** (patch — entry 6's label, October 2026). Supersedes v1.9.5.
+**Spec version: v1.9.7** (patch — v1.9's re-baseline, October 2026). Supersedes v1.9.6.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -843,7 +843,9 @@ planned restart sits beside the hold (L262). "Resume metformin in 48 hours" citi
 in 48 hours" passes, and a claim continuing the held drug still fires. The probe's 27 drafts
 and both records' 144 repeats all pass (measured). Live on v1.8's code, all 72 repeats pass
 (L284): the model still splits the plan off, and replayed under v1.7's checks its drafts
-fail the same 9, so the checks moved the number, not the drafts.
+fail the same 9, so the checks moved the number, not the drafts. Live on v1.9's code, all 72
+pass again (L309): this run's drafts replay unmoved under v1.8's checks, and v1.8's under
+v1.9's.
 
 ### 5.4 The boundary: validate, and self-correct
 
