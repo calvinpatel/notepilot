@@ -1,11 +1,11 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
-D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281)."""
+D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285, L286, L307)."""
 
 from collections.abc import Callable
 
 import pytest
 
-from backend.clinical.extract import Dose
+from backend.clinical.extract import Dose, Side
 from backend.clinical.lexicons import (
     ALLERGY_ALIASES,
     DIAGNOSES,
@@ -37,6 +37,7 @@ from backend.evals.checks import (
     preserve_miss,
     read_label,
     span_text,
+    supported_sides,
 )
 from backend.evals.registry import REGISTRY, Finding
 from backend.schemas import (
@@ -1561,6 +1562,10 @@ def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> 
         ("diagnosis", "pulmonary embolism", ("pulmonary embolism", ({"definite"}, False))),
         ("diagnosis", "r/o pulmonary embolism", ("pulmonary embolism", ({"rule_out"}, False))),
         ("diagnosis", "pulmonary embolism ruled out", ("pulmonary embolism", (set(), True))),
+        # L286: one side at one site, read at the narrowest width
+        ("laterality", "right knee", ("knee", "right")),
+        ("laterality", "bilateral knee", ("knee", "bilateral")),
+        ("laterality", "RLQ", ("lower", "right")),
     ],
 )
 def test_read_label_reads_one_entity_and_one_reading(
@@ -1588,6 +1593,9 @@ def test_read_label_reads_one_entity_and_one_reading(
         ("finding", "chest pain; denies chest pain"),  # one finding, both polarities
         ("diagnosis", "PE vs pneumonia"),  # two diagnoses
         ("diagnosis", "r/o PE, PE ruled out"),  # a certainty and an exclusion
+        ("laterality", "knee pain"),  # no side
+        ("laterality", "left and right knee"),  # one site, two sides
+        ("laterality", "right knee, left hip"),  # two sites
     ],
 )
 def test_read_label_reads_nothing_from_any_other_text(kind: str, text: str) -> None:
@@ -1601,6 +1609,7 @@ def test_read_label_reads_nothing_from_any_other_text(kind: str, text: str) -> N
         ("medication", "metformin"),
         ("dose", "metformin 500 mg"),
         ("diagnosis", "pneumonia"),
+        ("laterality", "right knee"),
     ],
 )
 def test_present_false_applies_to_findings_only(kind: str, text: str) -> None:
@@ -1630,6 +1639,7 @@ def test_a_finding_label_states_its_polarity(text: str, present: bool) -> None:
         ("dose", "500 mg", "doesn't read as one dose with one reading"),
         ("finding", "CP", "doesn't read as one finding with one reading"),
         ("diagnosis", "PE vs pneumonia", "doesn't read as one diagnosis with one reading"),
+        ("laterality", "knee pain", "doesn't read as one side at one site"),
     ],
 )
 def test_an_unreadable_label_names_its_kind_never_its_text(
@@ -1664,10 +1674,50 @@ def test_a_positive_not_add_label_reads(kind: str, text: str) -> None:
     assert label_problem(NotAddItem.model_validate({"text": text, "kind": kind})) is None
 
 
+@pytest.mark.parametrize(
+    ("sides", "supported"),
+    [
+        ({"left"}, {"left"}),
+        ({"bilateral"}, {"bilateral", "left", "right"}),
+        ({"left", "right"}, {"left", "right", "bilateral"}),
+        (set(), set()),
+    ],
+)
+def test_bilateral_and_left_with_right_support_each_other(
+    sides: set[Side], supported: set[Side]
+) -> None:
+    assert supported_sides(sides) == supported  # L285
+
+
 def _miss(text: str, kind: str, note: list[str], present: bool = True) -> Severity | None:
     return preserve_miss(
         PreserveItem.model_validate({"text": text, "kind": kind, "present": present}), note
     )
+
+
+@pytest.mark.parametrize(
+    ("label", "note", "miss"),
+    [
+        # L286: the side, some claim charting it at its site
+        ("right knee", ["Right knee pain after a fall"], None),
+        ("right knee", ["Rt. knee swollen"], None),
+        ("right lower quadrant", ["RLQ tenderness"], None),
+        # bilateral supports either side, and left with right supports bilateral
+        ("right knee", ["Bilateral knee pain"], None),
+        ("bilateral knee", ["Left and right knee pain"], None),
+        # dropped, swapped, or charted at another site
+        ("right knee", ["Knee pain after a fall"], Severity.CRITICAL),
+        ("right knee", ["Left knee pain after a fall"], Severity.CRITICAL),
+        ("right knee", ["Right hip pain", "Knee pain"], Severity.CRITICAL),
+        # §8.8's cost (L307): one word wide, a quadrant, a lobe, and a limb share a site
+        ("RLQ", ["Right lower lobe consolidation"], None),
+        ("RLQ", ["RLE edema"], None),
+    ],
+)
+def test_a_laterality_label_keeps_its_side(
+    label: str, note: list[str], miss: Severity | None
+) -> None:
+    assert _miss(label, "laterality", note) == miss
 
 
 @pytest.mark.parametrize(

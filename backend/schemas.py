@@ -173,7 +173,9 @@ class EvalReport(BaseModel):
         return bool(crits) and all(r.passed for r in crits)
 
 
-PreserveKind = Literal["allergy", "medication", "dose", "finding", "diagnosis"]
+PreserveKind = Literal[
+    "allergy", "medication", "dose", "finding", "diagnosis", "laterality"  # L286: a side
+]
 
 
 class PreserveItem(BaseModel):

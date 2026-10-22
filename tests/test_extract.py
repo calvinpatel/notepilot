@@ -1930,6 +1930,7 @@ def test_each_table_is_signed_off_and_each_entry_carries_its_rationale() -> None
             for key in table.value.keys:
                 assert key is not None, name  # no ** unpacking
                 assert lines[key.lineno - 2].lstrip().startswith("#"), ast.unparse(key)
-        else:
-            assert isinstance(table.value, ast.Constant), name
+        else:  # a constant, or a tuple of them (SITE_WORDS, L285)
+            values = table.value.elts if isinstance(table.value, ast.Tuple) else [table.value]
+            assert all(isinstance(value, ast.Constant) for value in values), name
             assert table.lineno - 1 - top >= 2, name  # the sign-off line, then a rationale

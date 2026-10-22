@@ -21,6 +21,7 @@ from backend.clinical.extract import (
     Certainty,
     Dose,
     MedStatus,
+    Side,
     clause_bounds,
     content_tokens,
     extract_allergies,
@@ -29,10 +30,17 @@ from backend.clinical.extract import (
     extract_drugs,
     extract_excluded_diagnoses,
     extract_findings,
+    extract_laterality,
     extract_med_status,
     new_prescriptions,
 )
-from backend.clinical.lexicons import CROSS_REACTIVITY, DOSE_MASS_UG, DRUG_CLASS, R1_GROUP
+from backend.clinical.lexicons import (
+    CROSS_REACTIVITY,
+    DOSE_MASS_UG,
+    DRUG_CLASS,
+    R1_GROUP,
+    SITE_WORDS,
+)
 from backend.evals.registry import Finding, register_check
 from backend.schemas import (
     ChecksConfig,
@@ -160,6 +168,17 @@ def _compare_per_key[V](
 def _statuses(statuses: set[MedStatus]) -> str:
     """'active', 'stopped', 'active and stopped', and so on, for a finding's detail."""
     return " and ".join(sorted(statuses))
+
+
+def supported_sides(sides: set[Side]) -> set[Side]:
+    """The sides a reading supports: its own, left and right where it reads bilateral, and
+    bilateral where it reads left and right (L285)."""
+    supported = set(sides)
+    if "bilateral" in sides:
+        supported |= {"left", "right"}
+    if {"left", "right"} <= sides:
+        supported.add("bilateral")
+    return supported
 
 
 def supported_statuses(statuses: set[MedStatus]) -> set[MedStatus]:
@@ -561,8 +580,11 @@ def check_empty_note_on_clinical_input(
 # --- reference labels (§8.4 point 4; L214-L219) ---------------------------------------------
 
 # What a label reads as, by kind: an allergen nothing more, a drug its status, a dose the
-# dose, a finding its polarity, a diagnosis its certainty or its exclusion (L214)
-type LabelValue = MedStatus | Dose | bool | _Reading | None
+# dose, a finding its polarity, a diagnosis its certainty or its exclusion (L214), a site its
+# side (L286)
+type LabelValue = MedStatus | Dose | bool | _Reading | Side | None
+# A laterality label and the note it's kept by, read at the narrowest width (L286)
+_LABEL_WIDTH = min(SITE_WORDS)
 
 
 def _one[T](readings: Mapping[str, set[T]]) -> tuple[str, T] | None:
@@ -609,6 +631,8 @@ def read_label(item: PreserveItem | NotAddItem) -> tuple[str, LabelValue] | None
             return _one(extract_findings(item.text))
         case "diagnosis":
             return _diagnosis(item.text)
+        case "laterality":  # one side at one site, read at the narrowest width (L286)
+            return _one(extract_laterality(item.text, _LABEL_WIDTH))
 
 
 def label_problem(item: PreserveItem | NotAddItem) -> str | None:
@@ -617,7 +641,13 @@ def label_problem(item: PreserveItem | NotAddItem) -> str | None:
         return "present applies to findings"
     reading = read_label(item)
     if reading is None:  # an allergy label states the allergen alone, no reading (L214)
-        one = "one allergy" if item.kind == "allergy" else f"one {item.kind} with one reading"
+        match item.kind:
+            case "allergy":
+                one = "one allergy"
+            case "laterality":
+                one = "one side at one site"
+            case _:
+                one = f"one {item.kind} with one reading"
         return f"doesn't read as {one}"
     _, value = reading
     if isinstance(item, PreserveItem):
@@ -692,6 +722,13 @@ def preserve_miss(item: PreserveItem, texts: Sequence[str]) -> Severity | None:
             readings = [_diagnosis_readings(t).get(name, (set(), False)) for t in texts]
             said: set[Certainty] = set().union(*(certainties for certainties, _ in readings))
             return _diagnosis_miss(wanted, (said, any(excluded for _, excluded in readings)))
+        case "laterality":  # the side, some claim charting it at its site (L286)
+            site, side = _one(extract_laterality(item.text, _LABEL_WIDTH)) or _unreadable(item)
+            kept = any(
+                side in supported_sides(extract_laterality(t, _LABEL_WIDTH).get(site, set()))
+                for t in texts
+            )
+            return None if kept else Severity.CRITICAL
 
 
 def adds(item: NotAddItem, text: str) -> bool:

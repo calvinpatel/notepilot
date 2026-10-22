@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.5** (patch — entry 6's reading, October 2026). Supersedes v1.9.4.
+**Spec version: v1.9.6** (patch — entry 6's label, October 2026). Supersedes v1.9.5.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2666,21 +2666,26 @@ know, stated plainly (v1.3):
   nothing; so does a finding the span never names, which is the judge's and `must_not_add`'s
   to catch. A span holding both polarities ("denies chest pain at rest, reports chest pain
   on exertion") passes a claim keeping either one, since qualifiers aren't extracted.
-- **Laterality** (L200, L285, L286, L306). `laterality_consistency` compares a claim's sides
-  with its clause's at each site both name, a site being the words after a side (§7), so a
-  side no cue table lists reads nothing: the eye and ear abbreviations (OD is also overdose,
-  AS aortic stenosis), "both", and comparisons, so "OD pain", "Both knees swollen", and
-  "Edema L>R" name no side (prototyped). Where a claim and its clause share no site, it
-  compares their sides whole, so a "left" or "right" that names no side and that `NOT_SIDES`
-  lacks can fire there. A claim that drops the side names none and passes; live, that
-  omission is a CI-only gap, which `must_preserve` covers through a laterality label (D17,
-  L286). In the three committed runs, 73 claims restate a side, and none drops, swaps, or
-  adds one (measured). "/" and "&" join no sides, and a bare letter before a comma is none,
-  so "Left & right knee pain" and "L, R knee pain" read the right knee alone, and a faithful
-  "Left knee pain" citing either fires `laterality_consistency` (prototyped). A side charted
-  after its site names none ("Chest pain on the left", "Edema in the lower extremity,
-  left"), and a clause naming no side contradicts no claim, so a claim that swaps it passes
-  (prototyped). The deferred-amendments issue holds both (entry 36).
+- **Laterality** (L200, L285, L286, L306, L307). `laterality_consistency` compares a claim's
+  sides with its clause's at each site both name, a site being the words after a side (§7),
+  so a side no cue table lists reads nothing: the eye and ear abbreviations (OD is also
+  overdose, AS aortic stenosis), "both", and comparisons, so "OD pain", "Both knees
+  swollen", and "Edema L>R" name no side (prototyped). Where a claim and its clause share no
+  site, it compares their sides whole, so a "left" or "right" that names no side and that
+  `NOT_SIDES` lacks can fire there. A claim that drops the side names none and passes; live,
+  that omission is a CI-only gap, which `must_preserve` covers through a laterality label
+  (D17, L286). In the three committed runs, 73 claims restate a side, and none drops, swaps,
+  or adds one (measured). "/" and "&" join no sides, and a bare letter before a comma is
+  none, so "Left & right knee pain" and "L, R knee pain" read the right knee alone, and a
+  faithful "Left knee pain" citing either fires `laterality_consistency` (prototyped). A
+  side charted after its site names none ("Chest pain on the left", "Edema in the lower
+  extremity, left"), and a clause naming no side contradicts no claim, so a claim that swaps
+  it passes (prototyped). The deferred-amendments issue holds both (entry 36).
+  `must_preserve` reads a laterality label and the note one word wide, where a quadrant, a
+  lobe, and a limb on one side share a site: a "RLQ" label is kept by "Right lower lobe
+  consolidation" or "RLE edema", and a "right lower lobe" one by "RLQ tenderness"
+  (measured). No case labels one yet; the deferred-amendments issue holds the fix (entry
+  37).
 - **A quote that borrows from its clause** (L261). The claim-local family reads a span in
   its clause, so a quote naming no drug passes `drug_in_quote` when its clause names one:
   "Resume metformin in 48 hours" citing "resume in 48 hours" in "Metformin held for CT with
