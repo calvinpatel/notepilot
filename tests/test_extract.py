@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L267, L271, L273-L275, L277-L280, L282, L288-L292, L297-L303.
+L193, L261-L267, L271, L273-L275, L277-L280, L282, L288-L293, L297-L303.
 """
 
 import ast
@@ -44,6 +44,7 @@ from backend.clinical.lexicons import (
     DIAGNOSIS_ALIASES,
     DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
+    DOSE_ROUTES,
     DOSE_UNITS,
     DRUG_CLASS,
     FINDING_ALIASES,
@@ -930,10 +931,43 @@ def test_a_dose_keeps_the_first_interval_in_its_reach() -> None:
     assert extract_doses(text) == {"metformin": {Dose(500.0, "mg", "bid")}}
 
 
-def test_a_later_orders_prn_in_the_sentence_joins_the_dose() -> None:
-    # L282's cost (§8.8): oxycodone is no listed drug, so its prn is the acetaminophen's
-    text = "Tylenol 650 mg q6h scheduled, oxycodone prn breakthrough"
-    assert extract_doses(text) == {"acetaminophen": {Dose(650.0, "mg", "q6h", prn=True)}}
+_Q6H = Dose(650.0, "mg", "q6h")
+_Q6H_PRN = Dose(650.0, "mg", "q6h", prn=True)
+
+
+@pytest.mark.parametrize(
+    ("text", "dose"),
+    [
+        # L293: past its interval, a prn joins the dose across marks and route words
+        ("Tylenol 650 mg q6h, prn", _Q6H_PRN),
+        ("Tylenol 650 mg q6h (prn)", _Q6H_PRN),
+        ("Tylenol 650 mg q6h/prn", _Q6H_PRN),
+        ("Tylenol 650 mg q6h po prn", _Q6H_PRN),
+        ("Tylenol 650 mg q6h IV prn", _Q6H_PRN),
+        ("Tylenol 650 mg q6h by mouth prn", _Q6H_PRN),
+        ("Tylenol 650 mg every 6 hours, as needed for pain", _Q6H_PRN),
+        # and anywhere before it
+        ("Tylenol 650 mg prn q6h", _Q6H_PRN),
+        # so a later order's prn is that order's
+        ("Tylenol 650 mg q6h, Zofran prn nausea", _Q6H),
+        ("Tylenol 650 mg q6h (scheduled), Zofran prn", _Q6H),
+        ("Tylenol 650 mg q6h scheduled, oxycodone prn breakthrough", _Q6H),
+        ("Tylenol 650 mg q6h, q4h prn breakthrough", _Q6H),
+        # §8.8's cost (L293): a prn past any other word is lost
+        ("Tylenol 650 mg q6h and prn", _Q6H),
+        ("Tylenol 650 mg q6h, then prn", _Q6H),
+        ("Tylenol 650 mg q6h x 3 days then prn", _Q6H),
+        ("Tylenol 650 mg q6h for pain, prn", _Q6H),
+        ("Tylenol 650 mg q6h, may take prn", _Q6H),
+    ],
+)
+def test_past_its_interval_a_prn_joins_across_marks_and_routes_only(text: str, dose: Dose) -> None:
+    assert extract_doses(text) == {"acetaminophen": {dose}}
+
+
+@pytest.mark.parametrize("route", sorted(DOSE_ROUTES))
+def test_every_route_word_keeps_a_prn_in_reach(route: str) -> None:
+    assert extract_doses(f"Tylenol 650 mg q6h {route} prn") == {"acetaminophen": {_Q6H_PRN}}
 
 
 @pytest.mark.parametrize(
@@ -1663,6 +1697,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "denied allergy": DENIED_ALLERGY_CUES,
         "dose unit": set(DOSE_UNITS),
         "frequency": set(DOSE_FREQUENCIES),
+        "route": DOSE_ROUTES,
         "diagnosis": DIAGNOSES | set(DIAGNOSIS_ALIASES),
         "certainty": set(CERTAINTY_CUES),
         "certainty, post": set(CERTAINTY_POST),

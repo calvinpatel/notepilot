@@ -664,6 +664,57 @@ DOSE_FREQUENCIES: dict[str, str] = {
     "as needed": "prn",
 }
 
+# Clinical sign-off: Calvin Patel, 2026-10-21.
+DOSE_ROUTES: set[str] = {
+    # By mouth: past its interval, a prn reaches across a route word, as across a mark
+    # ("q6h po prn") (L293).
+    "po",
+    # Intravenous ("q6h IV prn").
+    "iv",
+    # Intramuscular.
+    "im",
+    # Subcutaneous, as commonly charted.
+    "sq",
+    # Subcutaneous.
+    "sc",
+    # Subcutaneous, spelled as charted.
+    "subq",
+    # Sublingual.
+    "sl",
+    # Per rectum.
+    "pr",
+    # "po" spelled out ("q6h by mouth prn").
+    "by mouth",
+    # As "by mouth".
+    "orally",
+    # As "orally", the adjective.
+    "oral",
+    # "iv" spelled out.
+    "intravenous",
+    # As "intravenous".
+    "intravenously",
+    # "im" spelled out.
+    "intramuscular",
+    # As "intramuscular".
+    "intramuscularly",
+    # "sc" spelled out.
+    "subcutaneous",
+    # As "subcutaneous".
+    "subcutaneously",
+    # As "subcutaneous", shortened as charted.
+    "subcut",
+    # "sl" spelled out.
+    "sublingual",
+    # As "sublingual".
+    "sublingually",
+    # "pr" spelled out.
+    "per rectum",
+    # As "per rectum".
+    "rectal",
+    # As "per rectum".
+    "rectally",
+}
+
 # Clinical sign-off: Calvin Patel, 2026-10-07.
 FINDINGS: set[str] = {
     # The pertinent negative an acute-chest-pain workup turns on.

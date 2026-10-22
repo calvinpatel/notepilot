@@ -29,7 +29,8 @@ diagnosis sees negation and certainty, and a differential cue ("vs") governs bot
 reads the repeat it governs definite (L265, L292).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
-drug, in the drug's sentence, and the frequency charted after it.
+drug, in the drug's sentence, and the frequency charted after it. Past that interval, a prn
+joins the dose only across marks and route words (L267, L293).
 
 Dose, MedStatus, and Certainty are extraction's result types. They live here and evals imports
 them from here, since clinical/ may not import the spine (§13's third exception, L132).
@@ -55,6 +56,7 @@ from backend.clinical.lexicons import (
     DIAGNOSIS_ALIASES,
     DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
+    DOSE_ROUTES,
     DOSE_UNITS,
     FINDING_ALIASES,
     FINDING_NEG_POST,
@@ -203,6 +205,7 @@ _DIFFERENTIAL = _certainty_cues(DIFFERENTIAL_CUES)
 _NO_CUES: _Cues = {}
 _UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
 _FREQUENCIES = {tuple(_tokens(name)): freq for name, freq in DOSE_FREQUENCIES.items()}
+_ROUTES = _phrases(DOSE_ROUTES)  # what a prn reaches across past its interval (L293)
 # a number, and any letters fused to it ("500mg"); a decimal is one token already (L121)
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)([^\W\d_]*)")
 
@@ -757,30 +760,36 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
     A dose belongs to the most recent drug before it in the same sentence, whatever that
     mention's status, and takes the first interval charted after its unit before the next
     dose, drug, or terminator (L133); a prn in that reach sets its prn, beside any interval
-    (L267).
+    (L267), though past the interval only across marks and route words (L293).
     """
-    phrases = [p for _, p in _split(_tokens(text), (_TERMINATORS, _NAMES, _UNITS, _FREQUENCIES))]
+    tables = (_TERMINATORS, _NAMES, _UNITS, _FREQUENCIES, _ROUTES)
+    phrases = [p for _, p in _split(_tokens(text), tables)]
     doses: dict[str, set[Dose]] = {}
     drug: str | None = None  # the most recent drug in this sentence
     pending: tuple[str, float, str] | None = None  # a dose still reaching for its frequency
     freq: str | None = None  # the first interval charted in the pending dose's reach
     prn = False  # a prn charted in the pending dose's reach (L267)
+    adjacent = False  # only marks and route words since the interval (L293)
 
     def settle() -> None:
-        nonlocal pending, freq, prn
+        nonlocal pending, freq, prn, adjacent
         if pending is not None:
             name, value, unit = pending
             doses.setdefault(name, set()).add(Dose(value, unit, freq, prn))
-        pending, freq, prn = None, None, False
+        pending, freq, prn, adjacent = None, None, False, False
 
     i = 0
     while i < len(phrases):
         phrase = phrases[i]
         if phrase in _FREQUENCIES and pending is not None:
             if _FREQUENCIES[phrase] == "prn":
-                prn = True
+                prn = prn or freq is None or adjacent
             elif freq is None:
-                freq = _FREQUENCIES[phrase]
+                freq, adjacent = _FREQUENCIES[phrase], True
+            else:
+                adjacent = False
+        elif phrase in _ROUTES:
+            pass  # a route word keeps a prn's reach open (L293)
         elif phrase in _TERMINATORS:
             settle()
             drug = None
@@ -793,6 +802,8 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
             pending = None if drug is None else (drug, value, unit)
             i += width
             continue
+        elif any(map(_is_word, phrase)):
+            adjacent = False
         i += 1
     settle()
     return doses
