@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L267, L271, L273-L275, L277-L280, L282, L288-L291, L297-L300.
+L193, L261-L267, L271, L273-L275, L277-L280, L282, L288-L292, L297-L303.
 """
 
 import ast
@@ -36,6 +36,8 @@ from backend.clinical.lexicons import (
     BRAND_TO_GENERIC,
     CERTAINTY_CUES,
     CERTAINTY_POST,
+    CONFIRMING_CUES,
+    CONFIRMING_POST,
     CROSS_REACTIVITY,
     DENIED_ALLERGY_CUES,
     DIAGNOSES,
@@ -1072,7 +1074,7 @@ def test_an_exam_header_reads_as_pulmonary_embolism() -> None:
     assert extract_diagnoses(text) == {"pulmonary embolism": {"definite"}}
 
 
-# --- a mention named again in its window (L265, L278, L279) ----------------------
+# --- a mention named again in its window (L265, L279, L292, L301-L303) ------------
 
 
 @pytest.mark.parametrize(
@@ -1081,21 +1083,71 @@ def test_an_exam_header_reads_as_pulmonary_embolism() -> None:
     ids=["comma", "then", "period"],
 )
 def test_a_diagnosis_named_again_in_a_certainty_window_reads_at_its_own_cues(text: str) -> None:
-    # L265: the workup and its answer read apart in one sentence, as across a period
+    # L265, L292: a confirming cue answers the workup, in one sentence as across a period
     assert extract_diagnoses(text) == {"pulmonary embolism": {"rule_out", "definite"}}
 
 
-def test_a_certainty_window_rereads_a_diagnosis_named_again_whatever_its_words() -> None:
-    # L278's cost: "protocol" answers no workup, yet the repeat reads definite
-    text = "r/o PE, CTA PE protocol ordered"
-    assert extract_diagnoses(text) == {"pulmonary embolism": {"rule_out", "definite"}}
+_RO = {"pulmonary embolism": {"rule_out"}}
+_RO_DEFINITE = {"pulmonary embolism": {"rule_out", "definite"}}
+
+
+@pytest.mark.parametrize(
+    ("text", "certainties"),
+    [
+        # L292: a window keeps a repeat that no confirming cue governs
+        ("r/o PE, CTA PE protocol ordered", _RO),
+        ("r/o PE, PE workup pending", _RO),
+        ("r/o PE, PE not confirmed", _RO),
+        # and a confirming cue, before or after, answers the workup
+        ("r/o PE, PE was confirmed", _RO_DEFINITE),
+        ("r/o PE, CT shows PE", _RO_DEFINITE),
+        ("r/o PE, confirmed PE on CTA", _RO_DEFINITE),
+        (
+            "PNA vs PE, PE confirmed",
+            {"pneumonia": {"possible"}, "pulmonary embolism": {"possible", "definite"}},
+        ),
+        (
+            "PNA vs PE, CXR shows PNA",
+            {"pneumonia": {"possible", "definite"}, "pulmonary embolism": {"possible"}},
+        ),
+        # "unlikely" and "less likely" read possible, in a window or out of one
+        ("r/o PE, PE less likely", {"pulmonary embolism": {"rule_out", "possible"}}),
+        ("r/o PE, PE is unlikely", {"pulmonary embolism": {"rule_out", "possible"}}),
+        ("PE unlikely", {"pulmonary embolism": {"possible"}}),
+        ("PE is less likely", {"pulmonary embolism": {"possible"}}),
+        # L302: a differential reweighs a confirmed mention, as a bare one
+        ("CT shows PE vs atelectasis", {"pulmonary embolism": {"possible"}}),
+        # §8.8's costs (L292, L303)
+        ("r/o PE, hx of PE", _RO),
+        ("Likely PNA, PNA treated", {"pneumonia": {"probable"}}),
+        ("r/o PE, PE on CTA", _RO),
+        (
+            "PE less likely, PNA more likely",
+            {"pulmonary embolism": {"possible"}, "pneumonia": {"definite"}},
+        ),
+    ],
+)
+def test_a_window_keeps_a_repeat_until_a_confirming_cue_answers_it(
+    text: str, certainties: dict[str, set[str]]
+) -> None:
+    assert extract_diagnoses(text) == certainties
+
+
+@pytest.mark.parametrize("cue", sorted(CONFIRMING_CUES))
+def test_every_confirming_cue_answers_the_workup_before_it(cue: str) -> None:
+    assert extract_diagnoses(f"r/o PE, {cue} PE") == _RO_DEFINITE
+
+
+@pytest.mark.parametrize("cue", sorted(CONFIRMING_POST))
+def test_every_confirming_post_cue_answers_the_workup_before_it(cue: str) -> None:
+    assert extract_diagnoses(f"r/o PE, PE {cue}") == _RO_DEFINITE
 
 
 @pytest.mark.parametrize(
     "text", ["r/o pulmonary embolism (PE)", "r/o PE/pulmonary embolism"], ids=["parens", "slash"]
 )
 def test_a_name_restating_the_mention_before_it_is_that_mention(text: str) -> None:
-    # L279: one diagnosis under two names is one mention, not the workup's answer
+    # L279, L301: a restatement is a repeat, which the window keeps
     assert extract_diagnoses(text) == {"pulmonary embolism": {"rule_out"}}
 
 
@@ -1614,6 +1666,8 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "diagnosis": DIAGNOSES | set(DIAGNOSIS_ALIASES),
         "certainty": set(CERTAINTY_CUES),
         "certainty, post": set(CERTAINTY_POST),
+        "confirming": CONFIRMING_CUES,
+        "confirming, post": CONFIRMING_POST,
         "differential": set(DIFFERENTIAL_CUES),
         "negation": FINDING_NEG_PRE,
         "negation, post": FINDING_NEG_POST,
@@ -1635,6 +1689,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         {"start", "start, post"},
         {"allergy", "allergy, post"},
         {"certainty", "certainty, post"},
+        {"confirming", "confirming, post"},  # L292: "confirmed" before or after
         {"restart", "start"},  # L274: a restart is a start (L169)
         {"restart", "start, post"},
         {"continue", "terminator"},  # L262: a continue cue still closes a finding's window

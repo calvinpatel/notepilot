@@ -25,9 +25,8 @@ refused one reading stopped (L288). Allergy context reaches further than the oth
 header at a line's start opens a section, and an allergy post-cue reaches back over any list,
 not only one that opens its clause. A denied allergy reads no allergen and no status (L290). A
 diagnosis sees negation and certainty, and a differential cue ("vs") governs both its sides
-(L135). In a certainty pre-cue's window, a diagnosis the window already governs reads at its own
-cues when it's named again, unless the name restates the mention directly before it (L265, L278,
-L279).
+(L135). Every window keeps a repeat, and in a certainty or differential window a confirming cue
+reads the repeat it governs definite (L265, L292).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
 drug, in the drug's sentence, and the frequency charted after it.
@@ -49,6 +48,8 @@ from backend.clinical.lexicons import (
     BRAND_TO_GENERIC,
     CERTAINTY_CUES,
     CERTAINTY_POST,
+    CONFIRMING_CUES,
+    CONFIRMING_POST,
     DENIED_ALLERGY_CUES,
     DIAGNOSES,
     DIAGNOSIS_ALIASES,
@@ -100,6 +101,7 @@ type _Label = Literal[
     "possible",
     "rule_out",
     "indication",
+    "confirmed",
 ]
 type _Cues = Mapping[_Phrase, _Label]
 
@@ -182,11 +184,6 @@ _CERTAINTY: Mapping[str, _Label] = {
     "possible": "possible",
     "rule_out": "rule_out",
 }
-# the pre-cue labels whose window a repeated entity reads outside, at its own cues (L265,
-# L278): a certainty's, where a repeat charts the workup's answer ("r/o PE, PE confirmed").
-# A negation, stop, start, or allergy window keeps it, since a list repeats its entities
-# ("denies abdominal pain, back pain"), and so does a differential's.
-_REREAD_WINDOWS: frozenset[_Label] = frozenset(_CERTAINTY.values())
 
 
 def _certainty_cues(table: Mapping[str, str]) -> dict[_Phrase, _Label]:
@@ -199,8 +196,9 @@ _DIAGNOSES = _phrases(DIAGNOSES) | {
 }
 # every entity a header's first word may not name, across the families (L128, L193)
 _ENTITIES = _NAMES | _FINDINGS | _DIAGNOSES
-_DX_PRE = _NEG_PRE | _certainty_cues(CERTAINTY_CUES)
-_DX_POST = _NEG_POST | _certainty_cues(CERTAINTY_POST)
+# a workup's answer reads its diagnosis definite, a repeat in a window among them (L292)
+_DX_PRE = _NEG_PRE | _certainty_cues(CERTAINTY_CUES) | _cues("confirmed", CONFIRMING_CUES)
+_DX_POST = _NEG_POST | _certainty_cues(CERTAINTY_POST) | _cues("confirmed", CONFIRMING_POST)
 _DIFFERENTIAL = _certainty_cues(DIFFERENTIAL_CUES)
 _NO_CUES: _Cues = {}
 _UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
@@ -308,8 +306,8 @@ def _scope(
     drugs: Collection[_Phrase] = (),
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
-    None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L266, L271, L278-L280,
-    L288, L290, L291).
+    None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L266, L271, L280, L288,
+    L290-L292).
     """
     return _scope_at(text, entities, pre, post, differential, drugs).mentions
 
@@ -353,8 +351,6 @@ def _scope_at(
     run: list[int] = []  # the mentions a list joins, ending at `before` (L128)
     clause_open = True  # no word yet since the clause opened: a list starting here is bare
     run_bare = False  # the open run began its clause (L193)
-    # the entities the open certainty pre-cue governs; None in any other window (L278)
-    rereads: set[str] | None = None
     drug_named = False  # a drug named since the clause opened (L266)
     indicating = False  # the list right after an indication cue is open (L280)
     allergy_run: list[int] = []  # the mentions the allergy cue just before governs (L290)
@@ -371,11 +367,12 @@ def _scope_at(
             if refusing:  # L288: "do not continue" is a stop, which _med_readings reads
                 refused.add(i)
         elif phrase in differential:  # both sides: the mention before, unless governed, and after
-            if before is not None and mentions[before][1] is None:
+            # a confirming cue asserts what a bare mention does, so it governs nothing here
+            # ("CT shows PE vs atelectasis") (L302)
+            if before is not None and mentions[before][1] in (None, "confirmed"):
                 mentions[before] = (mentions[before][0], differential[phrase])
                 governing.add(i)
             window, label, opener = NEGATION_WINDOW, differential[phrase], i
-            rereads = None  # a differential keeps its repeats (L278)
         elif phrase in _AFFIRM_POST and before is not None:
             # L291: "present" after the second mention a negation reads, across a comma and no
             # "and" or "or", takes it back ("No fever, chills present")
@@ -429,27 +426,16 @@ def _scope_at(
             else:
                 negated = refusing and pre[phrase] == "started"
                 window, label, opener = NEGATION_WINDOW, "negated" if negated else pre[phrase], i
-                rereads = set() if label in _REREAD_WINDOWS else None
                 pre_comma = pre_joined = False
                 pre_read = 0
         elif phrase in entities:
             entity = entities[phrase]
-            # L265, L278: named again in a certainty window, an entity reads at its own cues;
-            # a name restating the mention directly before it is that mention (L279)
-            repeat = (
-                in_window
-                and rereads is not None
-                and entity in rereads
-                and (before is None or mentions[before][0] != entity)
-            )
-            windowed = in_window and not repeat
-            governing_label = label if windowed else "allergy" if i in sections else None
+            # L292: a window keeps a repeat; a confirming cue answers a certainty's workup
+            governing_label = label if in_window else "allergy" if i in sections else None
             if indicating:  # L266: why the drug is given, not a finding the note asserts
                 governing_label = "indication"
-            if windowed:
+            if in_window:
                 governing.add(opener)
-                if rereads is not None:
-                    rereads.add(entity)
             mentions.append((entity, governing_label))
             if governing_label == "negated":
                 pre_read += 1
@@ -816,6 +802,7 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
 # asserted at all, so "negated" has no entry (L135)
 _ASSERTED: Mapping[_Label | None, Certainty] = {
     None: "definite",
+    "confirmed": "definite",  # a workup's answer (L292)
     "probable": "probable",
     "possible": "possible",
     "rule_out": "rule_out",

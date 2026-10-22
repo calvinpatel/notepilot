@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.3** (patch — entry 27's affirmation, October 2026). Supersedes v1.9.2.
+**Spec version: v1.9.4** (patch — entry 27's certainty, October 2026). Supersedes v1.9.3.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1477,9 +1477,8 @@ PE vs pneumonia, pneumonia less likely" the differential keeps pneumonia possibl
 certainty or differential window, a confirming cue (`CONFIRMING_CUES` before the diagnosis,
 `CONFIRMING_POST` after it) reads the repeat it governs definite, so "r/o PE, PE confirmed"
 reads both certainties, as "r/o PE. PE confirmed" does, while "r/o PE, PE workup pending"
-stays at rule-out (L265, L292). A name restating the mention directly before it, across any
-mark but a comma (L122), is that mention, so "r/o pulmonary embolism (PE)" reads rule-out
-alone (L279).
+stays at rule-out (L265, L292). A name restating the mention directly before it is a repeat
+like any other, so "r/o pulmonary embolism (PE)" reads rule-out alone (L279, L301).
 
 **A post-cue reaches a list that opens its clause (L193).** A negation, stop, or start
 post-cue reaches back over the coordinated run before it — mentions joined by commas,
@@ -1634,9 +1633,9 @@ diagnosis no cue governs is definite. A negated diagnosis isn't asserted, so "PE
 excluded ones (L140). "Cannot rule out", "can't rule out" (L289), and "not ruled out" are
 possible, and so are "unlikely" and "less likely" after a diagnosis, since no certainty sits
 lower (L292). A differential cue ("vs") governs both its sides: the diagnosis immediately
-before it, unless another cue governs that one, and the window after it, so "PNA vs PE"
-reads both as possible. "PE" also charts the physical exam, so "PE: lungs clear" reads a
-pulmonary embolism, an accepted cost.
+before it, unless a cue other than a confirming one governs that one (L302), and the window
+after it, so "PNA vs PE" reads both as possible. "PE" also charts the physical exam, so "PE:
+lungs clear" reads a pulmonary embolism, an accepted cost.
 
 **Laterality (L285).** `extract_laterality` reads site to sides, a site being the words
 after a side, read at each width in `SITE_WORDS` (two words, then one): "Left knee pain
@@ -2696,6 +2695,14 @@ know, stated plainly (v1.3):
   faithful "History of PE" or "Pneumonia treated" citing the repeat fires
   `diagnosis_in_quote` (prototyped). "r/o PE, PE on CTA" reads rule-out too: "on CTA" names
   a modality, which no confirming cue lists.
+- **A comparative** (L292, L303). "Less likely" reads as one cue, so the "likely" in it no
+  longer reads the next diagnosis probable, as it did by accident: "PE less likely, PNA more
+  likely" reads the pneumonia definite (measured), so a "Pneumonia" claim citing "PNA more
+  likely" passes `diagnosis_in_quote` and a faithful "Probable pneumonia" fires it
+  (measured). "More likely" is no cue, and adding it as one reads "PNA more likely than PE"
+  with the embolism definite (prototyped), the diagnosis the note disfavors. "Unlikely"
+  before a diagnosis is no cue either ("Unlikely PE" reads definite). The
+  deferred-amendments issue holds the comparatives (entry 35).
 - **A restart's reach** (L262). A restart or resumption cue that governs no mention reaches
   the stopped drug before it in its clause, whatever its object: "Metformin held, resume PT"
   reads metformin stopped and active, so "Resume metformin" passes it (measured). A restart

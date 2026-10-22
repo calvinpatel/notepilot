@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,46 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.9.4 — entry 27's certainty (patch)
+
+Theme: L292, built, with what the adversarial pass found past the sheet's rows. Retiring
+L278's reread leaves L279's restating rule nothing to except, and a confirming pre-cue met
+L135's differential; one is a fill and one a conflict, both §7's. The ruled "less likely"
+also took away an accidental reading that comparatives leaned on, a decision §8.8 states and
+the deferred-amendments issue holds (entry 35). The build adds the copula forms of L292's
+two certainty cues ("is unlikely", "is less likely"), as "was confirmed" is
+`CONFIRMING_POST`'s. Cal approved the patch and signed `CONFIRMING_CUES`, `CONFIRMING_POST`,
+and `CERTAINTY_POST`'s new entries on Oct 21, before the code that depends on them, which
+lands with them in one commit. The committed records replay as at v1.9. No invariant moves;
+CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L302 §7 — a differential reweighs a confirmed mention.** Conflict: L292's confirming
+  pre-cue labels the diagnosis after it, and L135's differential governs the mention before
+  it only where no other cue does, so "CT shows PE vs atelectasis" read the embolism
+  definite on the build (measured), a silent upgrade of everyday radiology wording;
+  `b0e6ab2` read it possible. A confirming cue asserts what a bare mention does, so the
+  differential reads a confirmed mention as it reads one no cue governs. A faithful
+  "Pulmonary embolism" claim citing it fires `diagnosis_in_quote`, as at `b0e6ab2`
+  (measured).
+- **L303 §8.8 — a comparative.** Fill: §8.8 states it. At `b0e6ab2`, the "likely" inside "PE
+  less likely" read as a pre-cue, so "PE less likely, PNA more likely" read the embolism
+  definite and, by accident, the pneumonia probable. With L292's "less likely" read as one
+  cue, the embolism reads possible and the pneumonia definite: a "Pneumonia" claim citing
+  "PNA more likely" passes `diagnosis_in_quote`, where `b0e6ab2` fired it, and a faithful
+  "Probable pneumonia" fires it (measured). Adding "more likely" as a probable post-cue
+  reads that row right and "PNA more likely than PE" with the embolism definite, the
+  diagnosis the note disfavors, where `b0e6ab2` read it probable (prototyped). A comparative
+  is a decision, so the deferred-amendments issue holds it (entry 35), with "unlikely"
+  before a diagnosis ("Unlikely PE" reads definite at both). A test pins the cost.
+
+**INFO**
+- **L301 §7 — a restatement is a repeat.** Fill: §7 says how L279's restatement reads once
+  L292 retires L278's reread. L279 excepted a restatement from the reread ("r/o pulmonary
+  embolism (PE)" reads rule-out alone); with every window keeping its repeats, a restatement
+  is one of them, so the exception has nothing left to except. The code that ran it goes
+  with the reread, and its tests read as before.
 
 ## v1.9.3 — entry 27's affirmation (patch)
 

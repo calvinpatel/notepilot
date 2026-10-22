@@ -468,7 +468,7 @@ CERTAINTY_CUES: dict[str, str] = {
     "rule out": "rule_out",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 CERTAINTY_POST: dict[str, str] = {
     # After the diagnosis ("pneumonia likely").
     "likely": "probable",
@@ -478,6 +478,36 @@ CERTAINTY_POST: dict[str, str] = {
     "possible": "possible",
     # Not yet excluded; longer than the negation cue "not", so it wins.
     "not ruled out": "possible",
+    # Weighed down, not excluded ("PE unlikely given the Wells score"); no certainty sits
+    # lower than possible, and reading it definite upgrades it (L292).
+    "unlikely": "possible",
+    # As "unlikely" ("PE less likely").
+    "less likely": "possible",
+    # The copula form, which would otherwise separate the cue from its diagnosis.
+    "is unlikely": "possible",
+    # The copula form of "less likely".
+    "is less likely": "possible",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-21.
+CONFIRMING_CUES: set[str] = {
+    # A workup's answer before the diagnosis it confirms ("CT shows PE"): a repeat in a
+    # certainty or differential window reads definite (L292).
+    "shows",
+    # The charted past tense ("CTA showed PE").
+    "showed",
+    # As "shows" ("CT confirms PE").
+    "confirms",
+    # As charted before the diagnosis ("confirmed PE on CTA").
+    "confirmed",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-21.
+CONFIRMING_POST: set[str] = {
+    # A workup's answer after the diagnosis it confirms ("r/o PE, PE confirmed") (L292).
+    "confirmed",
+    # The copula form, which would otherwise separate the cue from its diagnosis.
+    "was confirmed",
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-08.
