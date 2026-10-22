@@ -230,6 +230,70 @@ def check_negation_consistency(
     return _compare_per_key(note, raw_text, extract_findings, _polarities)
 
 
+# The narrowest SITE_WORDS width: a laterality label's, the note's it is kept by, and the one
+# a claim's and its span's sides are compared whole at (L286)
+_NARROWEST = min(SITE_WORDS)
+
+
+def _sides_said(sides: set[Side]) -> str:
+    return " and ".join(sorted(sides)) or "no side"
+
+
+def _unsupported_side(text: str, clause: str) -> str | None:
+    """Where text charts a side its clause doesn't support, said as a finding's detail, else
+    None (L286).
+
+    At each SITE_WORDS width, longer first, a site both name compares text's sides with the
+    ones the clause's support. Where they share no site at either width, text's sides are
+    compared with the clause's whole, and a clause naming no side contradicts none (L306).
+    """
+    shared = False
+    for width in SITE_WORDS:
+        claimed, charted = extract_laterality(text, width), extract_laterality(clause, width)
+        for site in sorted(claimed.keys() & charted.keys()):
+            shared = True
+            if not claimed[site] <= supported_sides(charted[site]):
+                return (
+                    f"{site}: {_sides_said(claimed[site])} in the claim, "
+                    f"{_sides_said(charted[site])} in its source span"
+                )
+    if shared:
+        return None
+    claimed_sides: set[Side] = set().union(*extract_laterality(text, _NARROWEST).values())
+    charted_sides: set[Side] = set().union(*extract_laterality(clause, _NARROWEST).values())
+    if claimed_sides and charted_sides and not claimed_sides <= supported_sides(charted_sides):
+        return (
+            f"{_sides_said(claimed_sides)} in the claim, "
+            f"{_sides_said(charted_sides)} in its source span, at no site both name"
+        )
+    return None
+
+
+@register_check(name="laterality_consistency", severity=Severity.CRITICAL)
+def check_laterality_consistency(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
+    """One finding per claim charting a side its span doesn't support (L286).
+
+    sides(text) ⊆ sides(span), per site (§8.4), read at each SITE_WORDS width, longer first,
+    bilateral supporting left and right and left with right supporting bilateral (L285).
+    Where a claim and its span share no site, their sides are compared whole, and a span
+    naming no side contradicts none (L306). A claim with no span is skipped (§8.4).
+
+    Omission (D17): a claim that drops the side names none, so the check passes; that
+    omission is a CI-only gap, which must_preserve covers through a laterality label (L286).
+    """
+    findings: list[Finding] = []
+    for claim in note.claims:
+        clause = clause_text(claim, raw_text)
+        if clause is None:
+            continue
+        detail = _unsupported_side(claim.text, clause)
+        if detail is not None:
+            findings.append(Finding(detail=detail, claim_ids=(claim.id,)))
+    return findings
+
+
 # A diagnosis' reading in one string: the certainties asserted for it, and whether it is excluded
 type _Reading = tuple[set[Certainty], bool]
 
@@ -583,8 +647,6 @@ def check_empty_note_on_clinical_input(
 # dose, a finding its polarity, a diagnosis its certainty or its exclusion (L214), a site its
 # side (L286)
 type LabelValue = MedStatus | Dose | bool | _Reading | Side | None
-# A laterality label and the note it's kept by, read at the narrowest width (L286)
-_LABEL_WIDTH = min(SITE_WORDS)
 
 
 def _one[T](readings: Mapping[str, set[T]]) -> tuple[str, T] | None:
@@ -632,7 +694,7 @@ def read_label(item: PreserveItem | NotAddItem) -> tuple[str, LabelValue] | None
         case "diagnosis":
             return _diagnosis(item.text)
         case "laterality":  # one side at one site, read at the narrowest width (L286)
-            return _one(extract_laterality(item.text, _LABEL_WIDTH))
+            return _one(extract_laterality(item.text, _NARROWEST))
 
 
 def label_problem(item: PreserveItem | NotAddItem) -> str | None:
@@ -723,9 +785,9 @@ def preserve_miss(item: PreserveItem, texts: Sequence[str]) -> Severity | None:
             said: set[Certainty] = set().union(*(certainties for certainties, _ in readings))
             return _diagnosis_miss(wanted, (said, any(excluded for _, excluded in readings)))
         case "laterality":  # the side, some claim charting it at its site (L286)
-            site, side = _one(extract_laterality(item.text, _LABEL_WIDTH)) or _unreadable(item)
+            site, side = _one(extract_laterality(item.text, _NARROWEST)) or _unreadable(item)
             kept = any(
-                side in supported_sides(extract_laterality(t, _LABEL_WIDTH).get(site, set()))
+                side in supported_sides(extract_laterality(t, _NARROWEST).get(site, set()))
                 for t in texts
             )
             return None if kept else Severity.CRITICAL

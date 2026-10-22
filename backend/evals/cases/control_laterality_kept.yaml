@@ -1,0 +1,17 @@
+id: control_laterality_kept
+species: control
+raw_text: |
+  Right knee pain after a fall, left knee normal. Ice and elevation.
+trap: null
+draft:
+  claims:
+    - text: "Right knee pain after a fall"
+      section: S
+      source_quote: "Right knee pain after a fall, left knee normal"
+    - text: "Left knee normal"
+      section: O
+      source_quote: "left knee normal"
+expected_flags: []
+must_preserve:
+  - text: "right knee"
+    kind: laterality

@@ -1,5 +1,5 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
-D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285, L286, L307)."""
+D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306, L307)."""
 
 from collections.abc import Callable
 
@@ -23,6 +23,7 @@ from backend.evals.checks import (
     check_drug_in_quote,
     check_empty_note_on_clinical_input,
     check_hallucinated_medication,
+    check_laterality_consistency,
     check_med_status_consistency,
     check_must_not_add,
     check_must_preserve,
@@ -581,6 +582,87 @@ def test_presence_and_status_split_one_error_into_one_finding(
     note, raw = _note((text, span))
     assert _named(check_drug_in_quote(note, raw, config=CHECKS_CONFIG)) == presence
     assert _named(check_med_status_consistency(note, raw, config=CHECKS_CONFIG)) == status
+
+
+# --- laterality_consistency (§8.4, L285, L286, L306) -------------------------------------
+
+
+def test_laterality_consistency_is_a_reference_free_critical_check() -> None:
+    check = REGISTRY["laterality_consistency"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "model",
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "span", "details"),
+    [
+        # L286: at a site both name, the claim's sides among those its span supports
+        (
+            "Left knee pain after a fall",
+            "Right knee pain after a fall, left knee normal",
+            ["knee pain: left in the claim, right in its source span"],
+        ),
+        ("Right knee pain after a fall", "Right knee pain after a fall, left knee normal", []),
+        (
+            "Right knee swelling",
+            "Left knee swelling, right knee pain",
+            ["knee swelling: right in the claim, left in its source span"],
+        ),
+        (
+            "LLQ tenderness",
+            "Right lower quadrant tenderness",
+            ["lower quadrant: left in the claim, right in its source span"],
+        ),
+        (
+            "Left knee pain",
+            "Rt. knee pain after a fall",
+            ["knee pain: left in the claim, right in its source span"],
+        ),
+        # a side at a site only the claim names isn't compared where they share one
+        ("Right knee pain, left elbow pain", "Right knee pain", []),
+        # bilateral supports either side, and left with right supports bilateral (L285)
+        ("Right knee pain", "Bilateral knee pain", []),
+        ("Bilateral knee pain", "Left and right knee pain", []),
+        # sharing no site, their sides whole, and a span naming no side contradicts none
+        (
+            "Right otitis media",
+            "Acute otitis media, left ear",
+            ["right in the claim, left in its source span, at no site both name"],
+        ),
+        ("Right ear pain", "Bilateral otitis media", []),
+        ("Pt left AMA with right knee pain", "Signed out AMA, right knee pain", []),
+        # D17: a claim that drops the side names none
+        ("Knee pain after a fall", "Right knee pain after a fall", []),
+        # §8.8's costs (L306): "&" joins no sides, and a side after its site names none
+        (
+            "Left knee pain",
+            "Left & right knee pain",
+            ["knee pain: left in the claim, right in its source span"],
+        ),
+        ("Right-sided chest pain", "Chest pain on the left", []),
+    ],
+)
+def test_laterality_consistency_compares_sides_at_a_site_both_name(
+    text: str, span: str, details: list[str]
+) -> None:
+    note, raw = _note((text, span))
+    findings = check_laterality_consistency(note, raw, config=CHECKS_CONFIG)
+    assert [(f.detail, f.claim_ids) for f in findings] == [(d, (0,)) for d in details]
+
+
+def test_laterality_consistency_finds_each_claim_once_and_skips_one_with_no_span() -> None:
+    # a swap that misreads at both widths is one finding, and an ungrounded claim is skipped
+    note, raw = _note(
+        ("Right knee pain", "Left knee pain"),
+        ("Left hip pain", None),
+        ("Right knee pain", "Right knee pain"),
+    )
+    findings = check_laterality_consistency(note, raw, config=CHECKS_CONFIG)
+    assert [f.claim_ids for f in findings] == [(0,)]
 
 
 # --- negation_consistency (§8.4, L33, L139, L173) -----------------------------------------

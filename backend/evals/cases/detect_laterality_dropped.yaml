@@ -1,0 +1,14 @@
+id: detect_laterality_dropped
+species: detection
+raw_text: |
+  Right knee pain after a fall, left knee normal. Ice and elevation.
+trap: "a claim that drops the side, which laterality_consistency can't see (D17, L286)"
+draft:
+  claims:
+    - text: "Knee pain after a fall"
+      section: S
+      source_quote: "Right knee pain after a fall"
+expected_flags: [must_preserve]
+must_preserve:
+  - text: "right knee"
+    kind: laterality

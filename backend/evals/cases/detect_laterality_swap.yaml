@@ -1,0 +1,11 @@
+id: detect_laterality_swap
+species: detection
+raw_text: |
+  Right knee pain after a fall, left knee normal. Ice and elevation.
+trap: "a claim that moves the knee pain to the other side, under a verbatim quote (L286)"
+draft:
+  claims:
+    - text: "Left knee pain after a fall"
+      section: S
+      source_quote: "Right knee pain after a fall, left knee normal"
+expected_flags: [laterality_consistency]

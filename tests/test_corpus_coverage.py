@@ -18,8 +18,10 @@ from backend.clinical.extract import (
     extract_diagnoses,
     extract_excluded_diagnoses,
     extract_findings,
+    extract_laterality,
     new_prescriptions,
 )
+from backend.clinical.lexicons import SITE_WORDS
 from backend.evals.checks import drug_mentions, named_drugs, span_text
 from backend.evals.loader import CASES_DIR, load_cases
 from backend.evals.registry import REGISTRY
@@ -67,6 +69,17 @@ def _shares_a_finding(case: EvalCase, note: SOAPNote) -> bool:
     return False
 
 
+def _shares_a_site(case: EvalCase, note: SOAPNote) -> bool:
+    for claim in note.claims:
+        span = span_text(claim, case.raw_text)
+        for width in SITE_WORDS:
+            if span is not None and extract_laterality(claim.text, width).keys() & (
+                extract_laterality(span, width).keys()
+            ):
+                return True
+    return False
+
+
 def _names_a_drug(case: EvalCase, note: SOAPNote) -> bool:
     return any(named_drugs(claim.text) for claim in note.claims)
 
@@ -93,7 +106,8 @@ def _carries_a_not_add_label(case: EvalCase, note: SOAPNote) -> bool:
 
 # A control exercises a check when the check has something to compare on it (L138, L146,
 # L152, L222): for the claim-local family, a key its extractor finds in both a claim's text and
-# that claim's span; for hallucinated_medication, a claim naming a drug, which grounding's flag
+# that claim's span, a site at any SITE_WORDS width for laterality_consistency; for
+# hallucinated_medication, a claim naming a drug, which grounding's flag
 # then decides; for allergy_preserved, an allergy the raw text and a claim both state; for
 # allergy_contraindication, an allergy and a drug for the ladder to pair; for must_preserve
 # and must_not_add, a label of their list, since each compares its labels with the note.
@@ -103,6 +117,7 @@ EXERCISES: dict[str, Callable[[EvalCase, SOAPNote], bool]] = {
     "diagnosis_in_quote": _shares_a_diagnosis,
     "drug_in_quote": _shares_a_drug,
     "hallucinated_medication": _names_a_drug,
+    "laterality_consistency": _shares_a_site,
     "med_status_consistency": _shares_a_drug,
     "must_not_add": _carries_a_not_add_label,
     "must_preserve": _carries_a_preserve_label,

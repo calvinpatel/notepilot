@@ -10,6 +10,7 @@ from backend.evals.checks import (
     check_diagnosis_in_quote,
     check_drug_in_quote,
     check_hallucinated_medication,
+    check_laterality_consistency,
     check_med_status_consistency,
     check_must_not_add,
     check_must_preserve,
@@ -24,6 +25,7 @@ FAMILY: dict[str, CheckFn] = {
     "diagnosis_in_quote": check_diagnosis_in_quote,
     "drug_in_quote": check_drug_in_quote,
     "hallucinated_medication": check_hallucinated_medication,
+    "laterality_consistency": check_laterality_consistency,
     "med_status_consistency": check_med_status_consistency,
     "negation_consistency": check_negation_consistency,
 }
@@ -116,6 +118,36 @@ def test_an_omitted_continued_home_medication_is_a_ci_only_gap() -> None:
     raw = "NSAID allergy. Continue ibuprofen 400 mg prn."
     note = SOAPNote(claims=(_claim(raw, "NSAID allergy"),))
     assert check_allergy_contraindication(note, raw, None, config=CHECKS_CONFIG) == []
+
+
+def test_an_omitted_side_is_a_ci_only_gap_a_laterality_label_covers() -> None:
+    # §8.4's row: a claim that drops the side names none, so laterality_consistency passes,
+    # and must_preserve(kind="laterality") covers it in CI (L286)
+    raw = "Right knee pain after a fall, left knee normal."
+    quote = "Right knee pain after a fall"
+    start = raw.index(quote)
+    dropped = ClinicalClaim(
+        id=0,
+        text="Knee pain after a fall",
+        section="S",
+        source_quote=quote,
+        source_span=(start, start + len(quote)),
+    )
+    note = SOAPNote(claims=(dropped,))
+    assert check_laterality_consistency(note, raw, None, config=CHECKS_CONFIG) == []
+    case = EvalCase.model_validate(
+        {
+            "id": "drops_a_side",
+            "species": "fidelity",
+            "raw_text": raw,
+            "trap": "omission",
+            "must_preserve": [{"text": "right knee", "kind": "laterality"}],
+        }
+    )
+    # the detail names the label's entity, the site, as every kind's names its own
+    assert [f.detail for f in check_must_preserve(note, raw, case, config=CHECKS_CONFIG)] == [
+        "knee (laterality): in the answer key, not kept by the note"
+    ]
 
 
 def test_an_omitted_labeled_fact_is_must_preserves_subject() -> None:
