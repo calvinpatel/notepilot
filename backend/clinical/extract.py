@@ -11,10 +11,11 @@ new pre-cue of any class replaces the open window, except that a start or stop c
 directly precedes, across function words only, is refused (L271, L288): a refused start reads
 negated, and a refused stop closes the window, its refusal reaching a stop cue joined after it.
 A post-cue governs the mention immediately before it, across any mark but a comma or a
-terminator. A negation, stop, or start post-cue governs the whole list before it when the list
-opens its clause: at the text's start, or after a period, a semicolon, a line break, or a
-header's colon (L193). A cue in both a pre and a post table is a post-cue there and a pre-cue
-anywhere else. A terminator closes the window.
+terminator, and "present" after a negation's second mention, across a comma and no "and" or
+"or", takes that mention back (L291). A negation, stop, or start post-cue governs the whole list
+before it when the list opens its clause: at the text's start, or after a period, a semicolon, a
+line break, or a header's colon (L193). A cue in both a pre and a post table is a post-cue there
+and a pre-cue anywhere else. A terminator closes the window.
 
 A finding sees one class of cue, negation; after a drug in its clause, an indication cue opens
 the list right after it, which reads no finding (L266, L280). A drug sees four at once:
@@ -41,6 +42,7 @@ from typing import Literal, NamedTuple
 
 from backend.clinical.lexicons import (
     ABSENT_FINDINGS,
+    AFFIRMING_POST,
     ALLERGY_ALIASES,
     ALLERGY_CUES,
     ALLERGY_POST,
@@ -136,6 +138,8 @@ _FINDINGS = (
 ABSENCE_WORDS = frozenset(token for word in ABSENT_FINDINGS for token in _tokens(word))
 _NEG_PRE = _cues("negated", FINDING_NEG_PRE)
 _NEG_POST = _cues("negated", FINDING_NEG_POST)
+# what takes a negated list's second mention back out of its window (L291)
+_AFFIRM_POST = _phrases(AFFIRMING_POST)
 # every name a listed drug is charted by, under the generic it means (L126), and every
 # allergen name under the class or statement it means (L129)
 _DRUGS = _phrases(GENERIC_DRUGS) | {
@@ -161,6 +165,8 @@ _DRUG_POST = (
 NO_ALLERGY_STATEMENTS = frozenset({"nkda", "nka"})
 # a header is up to this many words and a colon (L128)
 _HEADER_WORDS = 3
+# the negated mention an affirming post-cue takes back: the window's second (L291)
+_AFFIRMED_MENTION = 2
 # the words that join a list a post-cue reaches back over (L128, L193). A mark joins by
 # default: only a word, a terminator, or a comma ends a run, so "/" and "&" join already.
 _JOINS = frozenset({(",",), ("and",), ("or",)})
@@ -303,7 +309,7 @@ def _scope(
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
     None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L266, L271, L278-L280,
-    L288, L290).
+    L288, L290, L291).
     """
     return _scope_at(text, entities, pre, post, differential, drugs).mentions
 
@@ -320,7 +326,17 @@ def _scope_at(
     drugs' names, an indication cue after one in its clause opens an indication (L266, L280).
     """
     tokens = _tokens(text)
-    tables = (_PSEUDO, _TERMINATORS, entities, pre, post, differential, drugs, _INDICATIONS)
+    tables = (
+        _PSEUDO,
+        _TERMINATORS,
+        entities,
+        pre,
+        post,
+        differential,
+        drugs,
+        _INDICATIONS,
+        _AFFIRM_POST,
+    )
     phrases = list(_split(tokens, tables))
     sections = _sections(tokens, phrases, entities, pre)
     at = dict(phrases)
@@ -343,6 +359,8 @@ def _scope_at(
     indicating = False  # the list right after an indication cue is open (L280)
     allergy_run: list[int] = []  # the mentions the allergy cue just before governs (L290)
     pre_comma = False  # a comma since the open pre-cue (L290)
+    pre_joined = False  # an "and" or "or" since the open pre-cue (L291)
+    pre_read = 0  # the mentions the open pre-cue's window has read negated (L291)
     for i, phrase in phrases:
         words = sum(map(_is_word, phrase))
         in_window = window > 0
@@ -358,6 +376,17 @@ def _scope_at(
                 governing.add(i)
             window, label, opener = NEGATION_WINDOW, differential[phrase], i
             rereads = None  # a differential keeps its repeats (L278)
+        elif phrase in _AFFIRM_POST and before is not None:
+            # L291: "present" after the second mention a negation reads, across a comma and no
+            # "and" or "or", takes it back ("No fever, chills present")
+            if (
+                mentions[before][1] == "negated"
+                and pre_comma
+                and not pre_joined
+                and pre_read == _AFFIRMED_MENTION
+            ):
+                mentions[before] = (mentions[before][0], None)
+                governing.add(i)
         elif phrase in post and post[phrase] == "negated" and allergy_run:
             # L290: a negation post-cue directly after an allergy cue denies its allergens
             for m in allergy_run:
@@ -401,7 +430,8 @@ def _scope_at(
                 negated = refusing and pre[phrase] == "started"
                 window, label, opener = NEGATION_WINDOW, "negated" if negated else pre[phrase], i
                 rereads = set() if label in _REREAD_WINDOWS else None
-                pre_comma = False
+                pre_comma = pre_joined = False
+                pre_read = 0
         elif phrase in entities:
             entity = entities[phrase]
             # L265, L278: named again in a certainty window, an entity reads at its own cues;
@@ -421,6 +451,8 @@ def _scope_at(
                 if rereads is not None:
                     rereads.add(entity)
             mentions.append((entity, governing_label))
+            if governing_label == "negated":
+                pre_read += 1
             starts.append(i)
         # adjacency: a mention opens it; a word, a terminator, or a comma ends it (L122). A
         # list's run survives a join and a mark, and ends where adjacency ends otherwise.
@@ -440,6 +472,8 @@ def _scope_at(
                 allergy_run = []  # an allergy cue's allergens stay open across marks alone
         if phrase == (",",):
             pre_comma = True
+        elif phrase in _JOINS:
+            pre_joined = True
         # L193: a clause opens after . ; or a line break, or after a header's colon (a header
         # at a line's start or after a period); any word closes it
         if phrase in _CLAUSE_STARTS or (

@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.2** (patch — entry 26's build, October 2026). Supersedes v1.9.1.
+**Spec version: v1.9.3** (patch — entry 27's affirmation, October 2026). Supersedes v1.9.2.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1467,15 +1467,19 @@ after the cue. "Immediately before" skips any mark but a comma or a terminator (
 "chest pain: denied" negates chest pain, and "endorses chest pain, denied fever" negates the
 fever. A phrase in both cue classes ("denied") is a post-cue when a finding is immediately
 before it and a pre-cue otherwise, so "pt denied chest pain" and "chest pain denied, fever"
-both read right. Every window keeps a repeat, as L121 has it, since a list repeats its
-entities: "Denies abdominal pain, back pain" names pain twice and reads it absent, a hold
-governs the metformin it goes on to describe, and in "r/o PE vs pneumonia, pneumonia less
-likely" the differential keeps pneumonia possible. In a certainty or differential window, a
-confirming cue (`CONFIRMING_CUES` before the diagnosis, `CONFIRMING_POST` after it) reads
-the repeat it governs definite, so "r/o PE, PE confirmed" reads both certainties, as "r/o
-PE. PE confirmed" does, while "r/o PE, PE workup pending" stays at rule-out (L265, L292). A
-name restating the mention directly before it, across any mark but a comma (L122), is that
-mention, so "r/o pulmonary embolism (PE)" reads rule-out alone (L279).
+both read right. An `AFFIRMING_POST` cue ("present") after the second mention a negation's
+window reads, across a comma and with no "and" or "or" since the negation, takes that
+mention back out of the window: "No fever, chills present" reads the chills present, and "No
+fever, chills, or nausea present" none (L291, L300). Every window keeps a repeat, as L121
+has it, since a list repeats its entities: "Denies abdominal pain, back pain" names pain
+twice and reads it absent, a hold governs the metformin it goes on to describe, and in "r/o
+PE vs pneumonia, pneumonia less likely" the differential keeps pneumonia possible. In a
+certainty or differential window, a confirming cue (`CONFIRMING_CUES` before the diagnosis,
+`CONFIRMING_POST` after it) reads the repeat it governs definite, so "r/o PE, PE confirmed"
+reads both certainties, as "r/o PE. PE confirmed" does, while "r/o PE, PE workup pending"
+stays at rule-out (L265, L292). A name restating the mention directly before it, across any
+mark but a comma (L122), is that mention, so "r/o pulmonary embolism (PE)" reads rule-out
+alone (L279).
 
 **A post-cue reaches a list that opens its clause (L193).** A negation, stop, or start
 post-cue reaches back over the coordinated run before it — mentions joined by commas,
@@ -1681,6 +1685,7 @@ ALLERGY_POST:      set[str]          # "allergy", "allergies": after the allerge
 DENIED_ALLERGY_CUES: set[str]        # "not allergic to": no allergen, no status (L290)
 FINDING_NEG_PRE:   set[str]          # "denies", "no", "without", "negative for"
 FINDING_NEG_POST:  set[str]          # "denied", "absent", "negative"
+AFFIRMING_POST:    set[str]          # "present": a negated second mention, back (L291)
 PSEUDO_NEGATIONS:  set[str]          # "no increase", "no change", "no interruption" (L263)
 TERMINATORS:       set[str]          # "but", "however", ";", ".", a line break, ... (L147)
 NEGATION_WINDOW:   int               # words a pre-cue governs — linguistic knowledge, so it lives here

@@ -1,7 +1,7 @@
 """Pins extraction's scope engine and extractors.
 
 Spec §7, §11; D1, D10, D12, L31, L33, L120-L135, L140, L141, L167, L169, L170, L172, L173,
-L193, L261-L267, L271, L273-L275, L277-L280, L282, L288-L290, L297-L299.
+L193, L261-L267, L271, L273-L275, L277-L280, L282, L288-L291, L297-L300.
 """
 
 import ast
@@ -29,6 +29,7 @@ from backend.clinical.extract import (
 )
 from backend.clinical.lexicons import (
     ABSENT_FINDINGS,
+    AFFIRMING_POST,
     ALLERGY_ALIASES,
     ALLERGY_CUES,
     ALLERGY_POST,
@@ -1261,6 +1262,68 @@ def test_every_pre_cue_negates_the_finding_after_it(cue: str) -> None:
     assert extract_findings(f"{cue} fever") == {"fever": {False}}
 
 
+@pytest.mark.parametrize(
+    ("text", "findings"),
+    [
+        # L291: "present" after a negated list's second mention, across a comma and no
+        # "and" or "or", takes that mention back
+        ("No fever, chills present", {"fever": {False}, "chills": {True}}),
+        ("Denies fever, nausea present since yesterday", {"fever": {False}, "nausea": {True}}),
+        ("No fever, pain present at rest", {"fever": {False}, "pain": {True}}),
+        ("No chest pain, nausea present but resolved", {"chest pain": {False}, "nausea": {True}}),
+        ("No pain at rest, pain present with exertion", {"pain": {False, True}}),
+        ("ROS: no fever, chills present", {"fever": {False}, "chills": {True}}),
+        ("No fever, Chills: present", {"fever": {False}, "chills": {True}}),
+        (
+            "Denies fever and chills. No chest pain, nausea present",
+            {"fever": {False}, "chills": {False}, "chest pain": {False}, "nausea": {True}},
+        ),
+        # a first mention, a list joined by "and" or "or", a third mention, no comma, a
+        # cue of its own: the negation keeps them
+        ("No nausea present", {"nausea": {False}}),
+        ("No fever noted", {"fever": {False}}),
+        ("No fever or chills present", {"fever": {False}, "chills": {False}}),
+        ("No fever, or chills present", {"fever": {False}, "chills": {False}}),
+        (
+            "No fever, chills, or nausea present",
+            {"fever": {False}, "chills": {False}, "nausea": {False}},
+        ),
+        (
+            "No fever, chills, nausea present",
+            {"fever": {False}, "chills": {False}, "nausea": {False}},
+        ),
+        ("No fever, chills noted", {"fever": {False}, "chills": {False}}),
+        ("No fever/chills present", {"fever": {False}, "chills": {False}}),
+        ("No fever, no chills present", {"fever": {False}, "chills": {False}}),
+        # §8.8's cost (L291): past the second mention, the window keeps it
+        (
+            "Denies fever and chills, nausea present",
+            {"fever": {False}, "chills": {False}, "nausea": {False}},
+        ),
+    ],
+)
+def test_present_takes_back_a_negated_lists_second_mention(
+    text: str, findings: dict[str, set[bool]]
+) -> None:
+    assert extract_findings(text) == findings
+
+
+def test_present_takes_back_a_drug_or_a_diagnosis_too() -> None:
+    # L291: the rule is the scope engine's, so every extractor reads it
+    assert extract_med_status("No metformin, lisinopril present") == {
+        "metformin": {"stopped"},
+        "lisinopril": {"active"},
+    }
+    assert extract_diagnoses("No PNA, PE present") == {"pulmonary embolism": {"definite"}}
+    assert extract_excluded_diagnoses("No PNA, PE present") == {"pneumonia"}
+
+
+def test_present_leaves_a_mention_the_negation_no_longer_governs() -> None:
+    # L291: only a negated mention is taken back; past a semicolon, an allergy section's
+    # allergen keeps its label, though two negated mentions came before it
+    assert extract_allergies("Allergies:\nNo PCN, sulfa; ibuprofen present") == {"ibuprofen"}
+
+
 @pytest.mark.parametrize("cue", sorted(FINDING_NEG_POST))
 def test_every_post_cue_negates_the_finding_before_it(cue: str) -> None:
     assert extract_findings(f"fever {cue}") == {"fever": {False}}
@@ -1554,6 +1617,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "differential": set(DIFFERENTIAL_CUES),
         "negation": FINDING_NEG_PRE,
         "negation, post": FINDING_NEG_POST,
+        "affirming, post": AFFIRMING_POST,
         "stop": MED_STOP_CUES,
         "stop, post": MED_STOP_POST,
         "start": MED_START_CUES,

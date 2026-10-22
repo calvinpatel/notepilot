@@ -212,6 +212,13 @@ FINDING_NEG_POST: set[str] = {
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-21.
+AFFIRMING_POST: set[str] = {
+    # After the second mention a negation's window reads, across a comma and no "and" or "or",
+    # takes that mention back out of the window: "No fever, chills present" (L291).
+    "present",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-21.
 PSEUDO_NEGATIONS: set[str] = {
     # "No increase in pain" charts pain that hasn't worsened: the pain is present.
     "no increase",
