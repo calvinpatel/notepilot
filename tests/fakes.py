@@ -21,9 +21,10 @@ annotation is the only binding of the real client, and nothing binds the fakes. 
 _fake_binds, and _keyed_fake_binds, never called, bind each side here so
 `mypy backend/ tests/` checks the whole seam.
 
-FakeJudge satisfies Judge with a fixed usage. Its entailment is unscripted: a call fails the
-test through pytest.fail, for the same reason as a call past FakeLLMClient's script.
-_fake_judge_binds binds it.
+FakeJudge satisfies Judge with a fixed usage. Its entailment records each call's pairs and
+answers through its script, a function of the pairs, which may raise; entail_all is the script
+that entails every pair. With no script, a call fails the test through pytest.fail, for the
+same reason as a call past FakeLLMClient's script. _fake_judge_binds binds it.
 
 CHECKS_CONFIG is the config the domain's tests pass to grounding and the checks (L187),
 built from Settings' declared defaults rather than the process's settings, so an exported
@@ -33,7 +34,7 @@ validates the result: model_copy(update=...) would skip ChecksConfig's bounds.
 
 import asyncio
 import copy
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -268,9 +269,19 @@ def _keyed_fake_binds(client: KeyedFakeLLMClient) -> LLMClient:
 @dataclass
 class FakeJudge:
     usage: TokenUsage = field(default_factory=TokenUsage)
+    script: Callable[[Sequence[tuple[str, str]]], list[bool]] | None = None
+    calls: list[list[tuple[str, str]]] = field(default_factory=list)
 
     async def entailment(self, pairs: Sequence[tuple[str, str]]) -> list[bool]:
-        pytest.fail("FakeJudge.entailment is unscripted")
+        self.calls.append(list(pairs))
+        if self.script is None:
+            pytest.fail("FakeJudge.entailment is unscripted")
+        return self.script(pairs)
+
+
+def entail_all(pairs: Sequence[tuple[str, str]]) -> list[bool]:
+    """A FakeJudge script that entails every pair."""
+    return [True] * len(pairs)
 
 
 def _fake_judge_binds(judge: FakeJudge) -> Judge:

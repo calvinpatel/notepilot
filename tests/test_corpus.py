@@ -43,7 +43,7 @@ from backend.schemas import (
     SummarizationResult,
     TokenUsage,
 )
-from tests.fakes import FakeJudge, KeyedFakeLLMClient, text_message, tool_use_message
+from tests.fakes import FakeJudge, KeyedFakeLLMClient, entail_all, text_message, tool_use_message
 
 MESSAGE_SENTINEL: Final = "sentinel-msg-3c9e"
 CAUSE_SENTINEL: Final = "sentinel-cause-81d4"
@@ -301,7 +301,7 @@ async def test_the_judge_is_built_per_case_and_a_raise_building_it_loses_one_row
         if len(built) == 1:
             built.append(FakeJudge())  # counted, never returned
             raise _Crash("building the judge")
-        judge = FakeJudge(usage=TokenUsage(input_tokens=2, output_tokens=1))
+        judge = FakeJudge(usage=TokenUsage(input_tokens=2, output_tokens=1), script=entail_all)
         built.append(judge)
         return judge
 

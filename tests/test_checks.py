@@ -1,7 +1,9 @@
-"""Pins the roster and its helpers, and the reference labels' readings (spec §8.4; D6,
-D9-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306, L307)."""
+"""Pins the roster and its helpers, and the reference labels' readings (spec §8.2, §8.4; D6,
+D8-D17, L35, L40, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306,
+L307, L310, L311)."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import NoReturn
 
 import pytest
 
@@ -30,6 +32,7 @@ from backend.evals.checks import (
     check_negation_consistency,
     check_new_prescription_preserved,
     check_quote_informativeness,
+    check_text_entailment_judge,
     clause_text,
     contraindication,
     drug_mentions,
@@ -41,6 +44,7 @@ from backend.evals.checks import (
     supported_sides,
 )
 from backend.evals.registry import REGISTRY, Finding
+from backend.evals.runner import run_checks
 from backend.schemas import (
     ClinicalClaim,
     EvalCase,
@@ -51,17 +55,18 @@ from backend.schemas import (
     Severity,
     SOAPNote,
 )
-from tests.fakes import CHECKS_CONFIG, checks_config_with
+from tests.fakes import CHECKS_CONFIG, FakeJudge, checks_config_with, entail_all
 from tests.fresh import run_fresh
 
 
-def _note(*claims: tuple[str, str | None]) -> tuple[SOAPNote, str]:
-    """A note of (text, span) claims, ids from 0, and a raw text holding every span, one to a
-    line, so each span is its own clause (L261).
+def _note(*claims: tuple[str, str | None], raw: str | None = None) -> tuple[SOAPNote, str]:
+    """A note of (text, span) claims, ids from 0, and a raw text holding every span: raw where
+    given, else the spans one to a line, so each span is its own clause (L261).
 
     A claim whose span is None grounds nowhere, as Tier 4 leaves it (§6.3).
     """
-    raw = "\n".join(span for _, span in claims if span is not None)
+    if raw is None:
+        raw = "\n".join(span for _, span in claims if span is not None)
     built: list[ClinicalClaim] = []
     for i, (text, span) in enumerate(claims):
         if span is None:
@@ -1625,6 +1630,130 @@ def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> 
     raw = ", ".join(sorted(vocabulary, reverse=True))
     (finding,) = check_empty_note_on_clinical_input(SOAPNote(claims=()), raw, config=CHECKS_CONFIG)
     assert finding.detail == "no claims; the source names: " + ", ".join(sorted(vocabulary))
+
+
+# --- text_entailment_judge (§8.2, §8.4; D8, L40, L310, L311) -----------------------------
+
+# A span inside the first or the third line reads its whole clause there (L261)
+_JUDGED_RAW = (
+    "Asymptomatic, here for a medication refill.\n"
+    "BP 190/110 on arrival; recheck in 30 minutes.\n"
+    "Continue lisinopril 10 mg daily, metformin 500 mg bid."
+)
+
+
+def _entailed_unless(*texts: str) -> Callable[[Sequence[tuple[str, str]]], list[bool]]:
+    """A FakeJudge script entailing every pair but those whose text is one of texts."""
+    return lambda pairs: [text not in texts for text, _ in pairs]
+
+
+class _JudgeTimedOut(Exception):
+    """A judge call that timed out, as a test-local exception."""
+
+
+def _times_out(pairs: Sequence[tuple[str, str]]) -> NoReturn:
+    raise _JudgeTimedOut
+
+
+def test_text_entailment_judge_is_a_reference_free_judged_warning() -> None:
+    check = REGISTRY["text_entailment_judge"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.WARNING,
+        False,
+        True,
+        "model",
+    )
+
+
+@pytest.mark.anyio
+async def test_text_entailment_judge_sends_each_claim_with_a_span_and_its_clause() -> None:
+    # L310: text and clause, in claim order, in one call (L40); a claim with no span skipped
+    note, raw = _note(
+        ("Here for a medication refill", "here for a medication refill"),
+        ("Start amoxicillin", None),
+        ("Metformin 500 mg bid", "metformin 500 mg bid"),
+        raw=_JUDGED_RAW,
+    )
+    judge = FakeJudge(script=entail_all)
+    assert await check_text_entailment_judge(note, raw, config=CHECKS_CONFIG, judge=judge) == []
+    assert judge.calls == [
+        [
+            ("Here for a medication refill", "Asymptomatic, here for a medication refill"),
+            ("Metformin 500 mg bid", "Continue lisinopril 10 mg daily, metformin 500 mg bid"),
+        ]
+    ]
+
+
+@pytest.mark.anyio
+async def test_text_entailment_judge_finds_each_claim_the_judge_does_not_entail() -> None:
+    note, raw = _note(
+        ("Asymptomatic", "Asymptomatic"),
+        ("Start amoxicillin", None),
+        ("Hypertensive urgency", "BP 190/110 on arrival"),
+        ("Recheck BP in 30 minutes", "recheck in 30 minutes"),
+        ("Continue lisinopril 20 mg daily", "Continue lisinopril 10 mg daily"),
+        raw=_JUDGED_RAW,
+    )
+    judge = FakeJudge(
+        script=_entailed_unless("Hypertensive urgency", "Continue lisinopril 20 mg daily")
+    )
+    findings = await check_text_entailment_judge(note, raw, config=CHECKS_CONFIG, judge=judge)
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        ("not entailed by its source span", (2,), None),
+        ("not entailed by its source span", (4,), None),
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "claims", [(), (("Start amoxicillin", None),)], ids=["no-claim", "no-claim-with-a-span"]
+)
+async def test_text_entailment_judge_makes_no_call_on_a_note_with_no_claim_with_a_span(
+    claims: tuple[tuple[str, str | None], ...],
+) -> None:
+    # L310: one call per note is zero calls on zero pairs
+    note, raw = _note(*claims, raw=_JUDGED_RAW)
+    judge = FakeJudge(script=entail_all)
+    assert await check_text_entailment_judge(note, raw, config=CHECKS_CONFIG, judge=judge) == []
+    assert judge.calls == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("verdicts", [[True], [True, True, True]], ids=["fewer", "more"])
+async def test_text_entailment_judge_raises_on_a_verdict_count_other_than_the_pair_count(
+    verdicts: list[bool],
+) -> None:
+    # L311: paired by position, a short or long list would hang a verdict on the wrong claim
+    note, raw = _note(
+        ("Asymptomatic", "Asymptomatic"),
+        ("Recheck BP in 30 minutes", "recheck in 30 minutes"),
+        raw=_JUDGED_RAW,
+    )
+    judge = FakeJudge(script=lambda pairs: verdicts)
+    with pytest.raises(ValueError):
+        await check_text_entailment_judge(note, raw, config=CHECKS_CONFIG, judge=judge)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("text", "critical_passed"),
+    [("Continue lisinopril 10 mg daily", True), ("Continue metformin 10 mg daily", False)],
+    ids=["clean", "a-critical-fires"],
+)
+async def test_a_judge_that_times_out_errors_its_check_and_moves_no_other_result(
+    text: str, critical_passed: bool
+) -> None:
+    # invariant 7 (§8.7, §11): an errored WARNING, and every other result as the run without
+    # a judge reads it, so the CRITICAL verdict too
+    note, raw = _note((text, "Continue lisinopril 10 mg daily"))
+    off = await run_checks(note, raw, mode="production", config=CHECKS_CONFIG)
+    on = await run_checks(
+        note, raw, mode="production", config=CHECKS_CONFIG, judge=FakeJudge(script=_times_out)
+    )
+    judged = [r for r in on.results if r.check == "text_entailment_judge"]
+    assert [(r.severity, r.passed, r.errored) for r in judged] == [(Severity.WARNING, False, True)]
+    assert [r for r in on.results if r.check != "text_entailment_judge"] == off.results
+    assert (on.all_critical_passed, off.all_critical_passed) == (critical_passed, critical_passed)
 
 
 # --- reference labels (§8.4 point 4; L214-L219, L272) ------------------------------------

@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.7** (patch — v1.9's re-baseline, October 2026). Supersedes v1.9.6.
+**Spec version: v1.9.8** (patch — the judged check, October 2026). Supersedes v1.9.7.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1867,7 +1867,11 @@ judge is constructed per request (and per corpus case), so its `usage` belongs t
 one report and lands in `EvalReport.judge_usage` (L7). Whether the judge runs is a
 *parameter* — `run_checks(..., judge=None)` skips it — not a global read inside the domain
 (L49); `settings.judge_enabled` is read only at the edge that decides whether to construct
-one. Tests pass a fake `Judge` with canned verdicts.
+one. Tests pass a fake `Judge` with canned verdicts. The pairs are the claims with a span,
+in claim order, each its text and the span read in its clause as §8.4 reads it; a note with
+none makes no call (L310). A verdict count other than the pair count raises inside the check
+rather than pair a verdict with the wrong claim, and `run_checks` reports the raise as an
+errored result (L311).
 
 **Negation** is the cleanest illustration of why generic code fails: a naive `"chest pain"
 in summary` matches both "denies chest pain" and "reports chest pain" — it cannot tell a

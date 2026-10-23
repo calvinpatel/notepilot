@@ -41,6 +41,7 @@ from backend.clinical.lexicons import (
     R1_GROUP,
     SITE_WORDS,
 )
+from backend.evals.judge import Judge
 from backend.evals.registry import Finding, register_check
 from backend.schemas import (
     ChecksConfig,
@@ -236,6 +237,7 @@ _NARROWEST = min(SITE_WORDS)
 
 
 def _sides_said(sides: set[Side]) -> str:
+    """'left', 'right', 'left and right', and so on, for a finding's detail."""
     return " and ".join(sorted(sides)) or "no side"
 
 
@@ -639,6 +641,37 @@ def check_empty_note_on_clinical_input(
         return []
     names = ", ".join(sorted(entities))
     return [Finding(detail=f"no claims; the source names: {names}", claim_ids=())]
+
+
+@register_check(name="text_entailment_judge", severity=Severity.WARNING, needs_judge=True)
+async def check_text_entailment_judge(
+    note: SOAPNote,
+    raw_text: str,
+    case: EvalCase | None = None,
+    *,
+    config: ChecksConfig,
+    judge: Judge,
+) -> list[Finding]:
+    """One finding per claim the judge reads as not entailed by its source span (§8.2, D8).
+
+    The judge gets the claims that have a span, each as its text and the span read in its
+    clause (§8.4, L261), in claim order and in one call (L40, L310). A note with none makes no
+    call. A verdict count that isn't the pair count raises, so no verdict is paired with the
+    wrong claim (L311).
+    """
+    grounded = [
+        (claim, clause)
+        for claim in note.claims
+        if (clause := clause_text(claim, raw_text)) is not None
+    ]
+    if not grounded:
+        return []
+    verdicts = await judge.entailment([(claim.text, clause) for claim, clause in grounded])
+    return [
+        Finding(detail="not entailed by its source span", claim_ids=(claim.id,))
+        for (claim, _), entailed in zip(grounded, verdicts, strict=True)  # L311
+        if not entailed
+    ]
 
 
 # --- reference labels (§8.4 point 4; L214-L219) ---------------------------------------------
