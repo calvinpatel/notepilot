@@ -21,6 +21,14 @@ annotation is the only binding of the real client, and nothing binds the fakes. 
 _fake_binds, and _keyed_fake_binds, never called, bind each side here so
 `mypy backend/ tests/` checks the whole seam.
 
+FakeJudgeClient satisfies judge_client's JudgeLLMClient, the judge's own seam (L314). Each
+call's answer is keyed by its user message, since a note's pair calls run concurrently, and
+each call suspends once before answering, as KeyedFakeMessages' do, so a test can read the
+peak of its calls in flight. A call whose message is in hang waits until it's cancelled, and
+the fake records every call cancelled in flight. _judge_sdk_binds, _fake_judge_client_binds, and
+_anthropic_judge_binds bind AsyncAnthropic and the fake to the seam, and AnthropicJudge to
+Judge.
+
 FakeJudge satisfies Judge with a fixed usage. Its entailment records each call's pairs and
 answers through its script, a function of the pairs: entail_all entails every pair,
 entail_all_but every pair but those whose text it names, and time_out raises JudgeTimedOut, a
@@ -59,6 +67,7 @@ from anthropic.types import (
 
 from backend.config import Settings
 from backend.evals.judge import Judge
+from backend.judge_client import AnthropicJudge, JudgeLLMClient
 from backend.orchestrator import SUMMARY_TOOL, LLMClient
 from backend.schemas import ChecksConfig, TokenUsage
 
@@ -212,6 +221,7 @@ def tool_use_message(
     input_tokens: int = 10,
     output_tokens: int = 20,
     tool_use_id: str = "toolu_fake_1",
+    name: str = SUMMARY_TOOL["name"],
 ) -> Message:
     """A canned tool-use response, built with the SDK's typed constructors.
 
@@ -222,11 +232,7 @@ def tool_use_message(
     """
     return Message(
         id="msg_fake_1",
-        content=[
-            ToolUseBlock(
-                id=tool_use_id, input=tool_input, name=SUMMARY_TOOL["name"], type="tool_use"
-            )
-        ],
+        content=[ToolUseBlock(id=tool_use_id, input=tool_input, name=name, type="tool_use")],
         model="fake-model",
         role="assistant",
         stop_reason=stop_reason,
@@ -266,6 +272,108 @@ def _fake_binds(client: FakeLLMClient) -> LLMClient:
 
 def _keyed_fake_binds(client: KeyedFakeLLMClient) -> LLMClient:
     return client
+
+
+@dataclass(frozen=True)
+class RecordedJudgeCall:
+    """One judge create call's kwargs, deep-copied at call time, as RecordedCall's are."""
+
+    model: ModelParam
+    system: str | Iterable[TextBlockParam]
+    tools: list[ToolUnionParam]
+    messages: list[MessageParam]
+    tool_choice: ToolChoiceParam
+    max_tokens: int
+    thinking: ThinkingConfigParam
+    output_config: OutputConfigParam
+    timeout: float
+
+
+class FakeJudgeMessages:
+    """Records each call, suspends once, then answers from the script keyed by its message."""
+
+    def __init__(
+        self, scripts: Mapping[str, Message | Exception], *, hang: Iterable[str] = ()
+    ) -> None:
+        self._scripts = dict(scripts)
+        self._hang = frozenset(hang)
+        self.calls: list[RecordedJudgeCall] = []
+        self.cancelled: list[str] = []  # the messages of the calls cancelled while in flight
+        self.in_flight = 0
+        self.peak_in_flight = 0
+
+    # Nine keyword-only parameters, all required, types identical to _JudgeMessages.create,
+    # for the reason FakeMessages.create gives.
+    async def create(
+        self,
+        *,
+        model: ModelParam,
+        system: str | Iterable[TextBlockParam],
+        tools: Iterable[ToolUnionParam],
+        messages: Iterable[MessageParam],
+        tool_choice: ToolChoiceParam,
+        max_tokens: int,
+        thinking: ThinkingConfigParam,
+        output_config: OutputConfigParam,
+        timeout: float,
+    ) -> Message:
+        recorded = RecordedJudgeCall(
+            model=copy.deepcopy(model),
+            system=copy.deepcopy(system),
+            tools=copy.deepcopy(list(tools)),
+            messages=copy.deepcopy(list(messages)),
+            tool_choice=copy.deepcopy(tool_choice),
+            max_tokens=copy.deepcopy(max_tokens),
+            thinking=copy.deepcopy(thinking),
+            output_config=copy.deepcopy(output_config),
+            timeout=copy.deepcopy(timeout),
+        )
+        self.calls.append(recorded)
+        content = recorded.messages[0]["content"]
+        if not isinstance(content, str):
+            pytest.fail("the judge's user message is not a string")
+        self.in_flight += 1
+        self.peak_in_flight = max(self.peak_in_flight, self.in_flight)
+        try:
+            await asyncio.sleep(0)  # the one suspension: the note's other calls run here
+            if content in self._hang:
+                await asyncio.Event().wait()  # never set: only a cancellation ends it
+        except asyncio.CancelledError:
+            self.cancelled.append(content)
+            raise
+        finally:
+            self.in_flight -= 1
+        if content not in self._scripts:
+            pytest.fail(f"unscripted judge call for message {content!r}")
+        item = self._scripts[content]
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+class FakeJudgeClient:
+    """Satisfies JudgeLLMClient; `messages` is a property so tests can reach its records."""
+
+    def __init__(
+        self, scripts: Mapping[str, Message | Exception], *, hang: Iterable[str] = ()
+    ) -> None:
+        self._messages = FakeJudgeMessages(scripts, hang=hang)
+
+    @property
+    def messages(self) -> FakeJudgeMessages:
+        return self._messages
+
+
+def _judge_sdk_binds(client: AsyncAnthropic) -> JudgeLLMClient:
+    return client
+
+
+def _fake_judge_client_binds(client: FakeJudgeClient) -> JudgeLLMClient:
+    return client
+
+
+def _anthropic_judge_binds(judge: AnthropicJudge) -> Judge:
+    return judge
 
 
 # what a FakeJudge answers its pairs with

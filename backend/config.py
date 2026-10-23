@@ -2,9 +2,9 @@
 
 Every field declares its domain (L77). `max_output_tokens` is a read-only property derived
 from `max_input_chars` and `output_tokens_per_input_char` (L94), checked against the model's
-declared output ceiling at construction (L16, L72). Three boot checks beyond the fields'
-bounds, each a validation error: the derived output ceiling, the input bounds, and runs_path's
-.jsonl name (L232).
+declared output ceiling at construction (L16, L72). Four boot checks beyond the fields'
+bounds, each a validation error: the derived output ceiling, the input bounds, runs_path's
+.jsonl name (L232), and a judge timeout below summarize's (L314).
 
 Tests run with dotenv disabled; see tests/conftest.py.
 """
@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     max_validation_retries: int = Field(2, ge=0)
     sdk_transport_retries: int = Field(2, ge=0)
     llm_timeout_s: float = Field(90.0, gt=0, allow_inf_nan=False)  # L54
+
+    # The judge (§8.2; L312, L314): one call per claim pair, at most judge_concurrency of a
+    # note's calls in flight, each bounded by judge_timeout_s and retried by the SDK like
+    # summarize's. A note's judge adds, at worst, about
+    #     ceil(pairs / judge_concurrency) × judge_timeout_s × (sdk_transport_retries + 1)
+    # and a corpus run's judges multiply the calls in flight by corpus_concurrency.
+    judge_timeout_s: float = Field(15.0, gt=0, allow_inf_nan=False)  # L54, L314
+    judge_concurrency: int = Field(4, ge=1)  # L314
 
     # Tier 3's floor (§6.3, L105): a rapidfuzz score, 0 to 100. allow_inf_nan=False makes a
     # non-finite value a finite_number error; ge and le alone report nan as less_than_equal.
@@ -141,6 +149,18 @@ class Settings(BaseSettings):
                     "min_input_chars": self.min_input_chars,
                     "max_input_chars": self.max_input_chars,
                 },
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _judge_timeout_below_llm_timeout(self) -> Self:
+        """The judge's per-call timeout is shorter than summarize's (§8.2, L54, L314)."""
+        if self.judge_timeout_s >= self.llm_timeout_s:
+            raise PydanticCustomError(
+                "judge_timeout_not_below_llm_timeout",
+                "judge_timeout_s={judge} must be less than llm_timeout_s={llm}; lower "
+                "judge_timeout_s or raise llm_timeout_s",
+                {"judge": self.judge_timeout_s, "llm": self.llm_timeout_s},
             )
         return self
 

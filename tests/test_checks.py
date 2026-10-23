@@ -1,5 +1,5 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.2, §8.4; D6,
-D8-D17, L35, L40, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306,
+D8-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306,
 L307, L310, L311)."""
 
 from collections.abc import Callable
@@ -1638,7 +1638,7 @@ def test_empty_note_on_clinical_input_names_each_entity_once_in_name_order() -> 
     assert finding.detail == "no claims; the source names: " + ", ".join(sorted(vocabulary))
 
 
-# --- text_entailment_judge (§8.2, §8.4; D8, L40, L310, L311) -----------------------------
+# --- text_entailment_judge (§8.2, §8.4; D8, L310, L311) ----------------------------------
 
 # A span inside the first or the third line reads its whole clause there (L261)
 _JUDGED_RAW = (
@@ -1660,7 +1660,7 @@ def test_text_entailment_judge_is_a_reference_free_judged_warning() -> None:
 
 @pytest.mark.anyio
 async def test_text_entailment_judge_sends_each_claim_with_a_span_and_its_clause() -> None:
-    # L310: text and clause, in claim order, in one call (L40); a claim with no span skipped
+    # L310: text and clause, in claim order, in one call; a claim with no span skipped
     note, raw = _note(
         ("Here for a medication refill", "here for a medication refill"),
         ("Start amoxicillin", None),

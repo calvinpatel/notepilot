@@ -655,7 +655,7 @@ async def check_text_entailment_judge(
     """One finding per claim the judge reads as not entailed by its source span (§8.2, D8).
 
     The judge gets the claims that have a span, each as its text and the span read in its
-    clause (§8.4, L261), in claim order and in one call (L40, L310). A note with none makes no
+    clause (§8.4, L261), in claim order and in one call (L310). A note with none makes no
     call. A verdict count that isn't the pair count raises, so no verdict is paired with the
     wrong claim (L311).
     """

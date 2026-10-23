@@ -1,4 +1,4 @@
-"""Pins config wiring (spec §10; L209, L232, L233).
+"""Pins config wiring (spec §10; L209, L232, L233, L314).
 
 Settings is built at import time, so test_dotenv_disabled_under_pytest sees the
 environment conftest set before backend was first imported. _dotenv_path is pure,
@@ -61,6 +61,8 @@ def _settings(
     max_validation_retries: int = 2,
     sdk_transport_retries: int = 2,
     llm_timeout_s: float = 90.0,
+    judge_timeout_s: float = 10.0,
+    judge_concurrency: int = 2,
     fuzzy_score_cutoff: float = 50.0,
     min_quote_content_tokens: int = 2,
     corpus_repeats: int = 2,
@@ -79,6 +81,8 @@ def _settings(
         max_validation_retries=max_validation_retries,
         sdk_transport_retries=sdk_transport_retries,
         llm_timeout_s=llm_timeout_s,
+        judge_timeout_s=judge_timeout_s,
+        judge_concurrency=judge_concurrency,
         fuzzy_score_cutoff=fuzzy_score_cutoff,
         min_quote_content_tokens=min_quote_content_tokens,
         corpus_repeats=corpus_repeats,
@@ -97,8 +101,11 @@ _CORPUS_COUNT_KNOBS: dict[str, Callable[[int], Settings]] = {
     "corpus_repeats": lambda v: _settings(corpus_repeats=v),
     "corpus_concurrency": lambda v: _settings(corpus_concurrency=v),
 }
+# llm_timeout_s's builder holds the judge's timeout below every value the tests pass, so the
+# boot check that orders the two (L314) never adds a second error.
 _POSITIVE_FLOAT_KNOBS: dict[str, Callable[[float], Settings]] = {
-    "llm_timeout_s": lambda v: _settings(llm_timeout_s=v),
+    "llm_timeout_s": lambda v: _settings(llm_timeout_s=v, judge_timeout_s=0.0001),
+    "judge_timeout_s": lambda v: _settings(judge_timeout_s=v),
     "output_tokens_per_input_char": lambda v: _settings(output_tokens_per_input_char=v),
 }
 
@@ -284,6 +291,35 @@ def test_runs_path_accepts_a_jsonl_file() -> None:
 def test_corpus_count_bounds_match_the_record(knob: str, field: str) -> None:
     # L233: a knob the record would reject fails at boot, not after the spend
     assert _bounds(CorpusRunRecord.model_fields[field]) == _bounds(Settings.model_fields[knob])
+
+
+# --- the judge: a count of calls, and a timeout below summarize's (§8.2, §10; L314) ---
+
+
+def test_judge_concurrency_rejects_zero() -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(judge_concurrency=0)
+    (err,) = exc.value.errors()
+    assert err["type"] == "greater_than_equal"
+    assert err["loc"] == ("judge_concurrency",)
+
+
+def test_judge_concurrency_accepts_one() -> None:
+    assert _settings(judge_concurrency=1).judge_concurrency == 1
+
+
+@pytest.mark.parametrize("judge_timeout_s", [30.0, 31.0], ids=["equal", "above"])
+def test_judge_timeout_not_below_llm_timeout_rejected(judge_timeout_s: float) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(llm_timeout_s=30.0, judge_timeout_s=judge_timeout_s)
+    (err,) = exc.value.errors()
+    assert err["type"] == "judge_timeout_not_below_llm_timeout"
+    assert err["loc"] == ()
+
+
+def test_judge_timeout_below_llm_timeout_accepted() -> None:
+    s = _settings(llm_timeout_s=30.0, judge_timeout_s=29.5)
+    assert (s.judge_timeout_s, s.llm_timeout_s) == (29.5, 30.0)
 
 
 # --- max_output_tokens: derived, checked against the ceiling (L16, L72, L94) ------
