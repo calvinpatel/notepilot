@@ -2,8 +2,7 @@
 D8-D17, L35, L40, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306,
 L307, L310, L311)."""
 
-from collections.abc import Callable, Sequence
-from typing import NoReturn
+from collections.abc import Callable
 
 import pytest
 
@@ -55,7 +54,14 @@ from backend.schemas import (
     Severity,
     SOAPNote,
 )
-from tests.fakes import CHECKS_CONFIG, FakeJudge, checks_config_with, entail_all
+from tests.fakes import (
+    CHECKS_CONFIG,
+    FakeJudge,
+    checks_config_with,
+    entail_all,
+    entail_all_but,
+    time_out,
+)
 from tests.fresh import run_fresh
 
 
@@ -1642,19 +1648,6 @@ _JUDGED_RAW = (
 )
 
 
-def _entailed_unless(*texts: str) -> Callable[[Sequence[tuple[str, str]]], list[bool]]:
-    """A FakeJudge script entailing every pair but those whose text is one of texts."""
-    return lambda pairs: [text not in texts for text, _ in pairs]
-
-
-class _JudgeTimedOut(Exception):
-    """A judge call that timed out, as a test-local exception."""
-
-
-def _times_out(pairs: Sequence[tuple[str, str]]) -> NoReturn:
-    raise _JudgeTimedOut
-
-
 def test_text_entailment_judge_is_a_reference_free_judged_warning() -> None:
     check = REGISTRY["text_entailment_judge"]
     assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
@@ -1695,7 +1688,7 @@ async def test_text_entailment_judge_finds_each_claim_the_judge_does_not_entail(
         raw=_JUDGED_RAW,
     )
     judge = FakeJudge(
-        script=_entailed_unless("Hypertensive urgency", "Continue lisinopril 20 mg daily")
+        script=entail_all_but("Hypertensive urgency", "Continue lisinopril 20 mg daily")
     )
     findings = await check_text_entailment_judge(note, raw, config=CHECKS_CONFIG, judge=judge)
     assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
@@ -1748,7 +1741,7 @@ async def test_a_judge_that_times_out_errors_its_check_and_moves_no_other_result
     note, raw = _note((text, "Continue lisinopril 10 mg daily"))
     off = await run_checks(note, raw, mode="production", config=CHECKS_CONFIG)
     on = await run_checks(
-        note, raw, mode="production", config=CHECKS_CONFIG, judge=FakeJudge(script=_times_out)
+        note, raw, mode="production", config=CHECKS_CONFIG, judge=FakeJudge(script=time_out)
     )
     judged = [r for r in on.results if r.check == "text_entailment_judge"]
     assert [(r.severity, r.passed, r.errored) for r in judged] == [(Severity.WARNING, False, True)]

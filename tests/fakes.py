@@ -22,9 +22,11 @@ _fake_binds, and _keyed_fake_binds, never called, bind each side here so
 `mypy backend/ tests/` checks the whole seam.
 
 FakeJudge satisfies Judge with a fixed usage. Its entailment records each call's pairs and
-answers through its script, a function of the pairs, which may raise; entail_all is the script
-that entails every pair. With no script, a call fails the test through pytest.fail, for the
-same reason as a call past FakeLLMClient's script. _fake_judge_binds binds it.
+answers through its script, a function of the pairs: entail_all entails every pair,
+entail_all_but every pair but those whose text it names, and time_out raises JudgeTimedOut, a
+test-local stand-in for a call that timed out. With no script, a call fails the test through
+pytest.fail, for the same reason as a call past FakeLLMClient's script. _fake_judge_binds
+binds it.
 
 CHECKS_CONFIG is the config the domain's tests pass to grounding and the checks (L187),
 built from Settings' declared defaults rather than the process's settings, so an exported
@@ -36,7 +38,7 @@ import asyncio
 import copy
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, NoReturn
 
 import pytest
 from anthropic import AsyncAnthropic
@@ -266,10 +268,14 @@ def _keyed_fake_binds(client: KeyedFakeLLMClient) -> LLMClient:
     return client
 
 
+# what a FakeJudge answers its pairs with
+type JudgeScript = Callable[[Sequence[tuple[str, str]]], list[bool]]
+
+
 @dataclass
 class FakeJudge:
     usage: TokenUsage = field(default_factory=TokenUsage)
-    script: Callable[[Sequence[tuple[str, str]]], list[bool]] | None = None
+    script: JudgeScript | None = None
     calls: list[list[tuple[str, str]]] = field(default_factory=list)
 
     async def entailment(self, pairs: Sequence[tuple[str, str]]) -> list[bool]:
@@ -282,6 +288,20 @@ class FakeJudge:
 def entail_all(pairs: Sequence[tuple[str, str]]) -> list[bool]:
     """A FakeJudge script that entails every pair."""
     return [True] * len(pairs)
+
+
+def entail_all_but(*texts: str) -> JudgeScript:
+    """A FakeJudge script that entails every pair but those whose text is one of texts."""
+    return lambda pairs: [text not in texts for text, _ in pairs]
+
+
+class JudgeTimedOut(Exception):
+    """A judge call that timed out, as a test-local exception."""
+
+
+def time_out(pairs: Sequence[tuple[str, str]]) -> NoReturn:
+    """A FakeJudge script whose call times out."""
+    raise JudgeTimedOut
 
 
 def _fake_judge_binds(judge: FakeJudge) -> Judge:
