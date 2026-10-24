@@ -1,4 +1,5 @@
-"""The corpus scorer, its command, and its git and runs_path helpers (§8.7, §11; L211, L237, L241).
+"""The corpus scorer, its command, and its git and runs_path helpers (§8.7, §11; L211, L237,
+L241, L321, L322).
 
 No network: every call goes to a KeyedFakeLLMClient. No git of the real tree: score_corpus's
 tests replace both git reads, and the helpers' tests run git in a repository under tmp_path,
@@ -33,8 +34,8 @@ from backend.evals.judge import Judge
 from backend.evals.loader import corpus_version
 from backend.evals.runner import CHECKS_VERSION
 from backend.evals.runner import case_result as real_case_result
-from backend.judge_client import JUDGE_VERSION
-from backend.orchestrator import PROMPT_VERSION, LLMClient
+from backend.judge_client import JUDGE_VERSION, AnthropicJudge
+from backend.orchestrator import PROMPT_VERSION, LLMClient, anthropic_client
 from backend.schemas import (
     CaseResult,
     CorpusRunRecord,
@@ -99,8 +100,8 @@ def _upstream() -> APIConnectionError:
 def run_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..., Settings]:
     """Installs a Settings for backend.corpus to read, every knob it reads stated here.
 
-    Non-default counts, retries, and cutoff, so a run that read the defaults instead fails
-    (§11's wiring rule). An exported CORPUS_REPEATS can't reach a test: each knob is passed
+    Non-default counts, retries, cutoff, and judge cap, so a run that read the defaults instead
+    fails (§11's wiring rule). An exported CORPUS_REPEATS can't reach a test: each knob is passed
     explicitly. model_validate, not the constructor: pyright reads every field as a required
     parameter.
     """
@@ -110,6 +111,7 @@ def run_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..
         corpus_repeats: int = 2,
         corpus_concurrency: int = 1,
         max_validation_retries: int = 1,
+        judge_concurrency: int = 3,
         runs_path: Path | None = None,
     ) -> Settings:
         installed = Settings.model_validate(
@@ -121,6 +123,7 @@ def run_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..
                 "corpus_repeats": corpus_repeats,
                 "corpus_concurrency": corpus_concurrency,
                 "max_validation_retries": max_validation_retries,
+                "judge_concurrency": judge_concurrency,
                 "runs_path": runs_path or tmp_path / "runs" / "corpus_runs.jsonl",
             }
         )
@@ -313,6 +316,37 @@ async def test_the_judge_is_built_per_case_and_a_raise_building_it_loses_one_row
     assert [r.status for r in record.cases].count("passed") == 2
     assert (record.judge_enabled, record.judge_version) == (True, JUDGE_VERSION)  # L317
     assert record.judge_usage == TokenUsage(input_tokens=4, output_tokens=2)
+
+
+@pytest.mark.anyio
+async def test_a_crash_after_the_checks_keeps_what_the_judge_spent(
+    run_settings: Callable[..., Settings],
+    lineage: Callable[[KeyedFakeLLMClient], list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # L322: as a crash after summarize keeps summarize's cost (L186), a crash after the
+    # checks keeps the judge's, which was spent
+    run_settings(corpus_repeats=1)
+
+    def case_result(
+        case: EvalCase,
+        repeat: int,
+        report: EvalReport,
+        result: SummarizationResult,
+        *,
+        summarize_wall_s: float,
+    ) -> CaseResult:
+        raise _Crash("building the row")
+
+    monkeypatch.setattr(corpus, "case_result", case_result)
+    client = KeyedFakeLLMClient({_raw("a"): [_ok(9, 10)]})
+    lineage(client)
+    judge = FakeJudge(usage=TokenUsage(input_tokens=2, output_tokens=1), script=entail_all)
+    record = await score_corpus([_case("a")], client=client, judge_factory=lambda: judge)
+    (row,) = record.cases
+    assert (row.error, row.usage) == ("_Crash", TokenUsage(input_tokens=9, output_tokens=10))
+    assert len(judge.calls) == 1  # the checks ran, and the judge with them, before the crash
+    assert record.judge_usage == TokenUsage(input_tokens=2, output_tokens=1)
 
 
 # --- what a run refuses before it spends (L207) --------------------------------------
@@ -601,15 +635,19 @@ def _write_cases(directory: Path, model: list[str], injected: list[str]) -> Path
 
 @pytest.fixture
 def no_spend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A dry run that builds a client or calls score_corpus fails the test."""
+    """A dry run that builds a client or a judge, or calls score_corpus, fails the test."""
 
     def no_client() -> LLMClient:
         pytest.fail("the dry run built a client")
+
+    def no_judge() -> Judge:
+        pytest.fail("the dry run built a judge")
 
     def no_score(*args: object, **kwargs: object) -> object:
         pytest.fail("the dry run called score_corpus")
 
     monkeypatch.setattr(corpus, "get_client", no_client)
+    monkeypatch.setattr(corpus, "_judge", no_judge)
     monkeypatch.setattr(corpus, "score_corpus", no_score)
 
 
@@ -633,10 +671,31 @@ def test_the_dry_run_prints_the_plan_and_spends_nothing(
         f"git_sha={SHA} git_dirty=True",
         f"model=model-under-test prompt_version={PROMPT_VERSION}",
         f"corpus_version={version} checks_version={CHECKS_VERSION}",
+        "judge_enabled=False judge_version=None",
         f"record: {installed.runs_path}",
         "dry run: nothing spent; --spend makes these calls",
     ]
     assert not installed.runs_path.exists()
+
+
+@pytest.mark.usefixtures("no_spend")
+def test_a_judged_dry_run_prints_the_judges_calls_and_lineage(
+    run_settings: Callable[..., Settings],
+    lineage: Callable[[KeyedFakeLLMClient], list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # L321: the judge's calls are known only from the drafts, so the plan states their rule
+    run_settings(judge_concurrency=5)
+    monkeypatch.setattr(corpus, "CASES_DIR", _write_cases(tmp_path / "cases", ["a"], []))
+    lineage(KeyedFakeLLMClient({}))
+    assert corpus.main(["--judge"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[2] == (
+        "judge calls: one per claim with a span in each draft, at most 5 of a repeat's in flight"
+    )
+    assert out[6] == f"judge_enabled=True judge_version={JUDGE_VERSION}"
 
 
 @pytest.mark.parametrize("argv", [[], ["--spend"]], ids=["dry-run", "spend"])
@@ -683,8 +742,45 @@ def test_the_spend_appends_the_record_the_dry_run_described(
     assert [r.case_id for r in record.cases] == ["a", "b"]
     assert record.judge_enabled is False
     # the lineage the dry run printed is the lineage the record carries
-    assert planned[2:5] == [
+    assert planned[2:6] == [
         f"git_sha={record.git_sha} git_dirty={record.git_dirty}",
         f"model={record.model} prompt_version={record.prompt_version}",
         f"corpus_version={record.corpus_version} checks_version={record.checks_version}",
+        f"judge_enabled={record.judge_enabled} judge_version={record.judge_version}",
     ]
+
+
+def test_a_judged_spend_scores_with_the_judge_factory_and_prints_its_usage(
+    run_settings: Callable[..., Settings],
+    lineage: Callable[[KeyedFakeLLMClient], list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # L321: --judge hands score_corpus the module's factory; the stand-in spends nothing
+    installed = run_settings(corpus_repeats=1)
+    monkeypatch.setattr(corpus, "CASES_DIR", _write_cases(tmp_path / "cases", ["a"], []))
+    client = KeyedFakeLLMClient({_raw("a"): [_ok(1, 2)]})
+    lineage(client)
+    monkeypatch.setattr(corpus, "get_client", lambda: client)
+    judge = FakeJudge(usage=TokenUsage(input_tokens=5, output_tokens=3), script=entail_all)
+    monkeypatch.setattr(corpus, "_judge", lambda: judge)
+    assert corpus.main(["--spend", "--judge"]) == 0
+    (record,) = _lines(installed.runs_path)
+    assert (record.judge_enabled, record.judge_version) == (True, JUDGE_VERSION)
+    assert len(judge.calls) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        f"metrics: {record.metrics.model_dump_json()}",
+        "usage: input_tokens=1 output_tokens=2",
+        "judge_usage: input_tokens=5 output_tokens=3",
+        f"record appended to {installed.runs_path}",
+    ]
+
+
+@pytest.mark.usefixtures("fresh_client_cache")
+def test_the_judge_factory_builds_a_new_judge_on_the_one_client() -> None:
+    # L321: the judge --judge gives each repeat, on the client summarize uses (L319)
+    judge = corpus._judge()
+    assert isinstance(judge, AnthropicJudge)
+    assert judge._client is anthropic_client()
+    assert corpus._judge() is not judge  # one per repeat, so its usage is one row's (L7)

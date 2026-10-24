@@ -2,7 +2,7 @@
 
 The model corpus holds its size, a model twin its injected case's raw text, each model
 allergy trap both halves of its danger, and each fidelity trap a fact whose loss is CRITICAL
-(L244, L245, L247, L248).
+(L244, L245, L247, L248). No model case expects a judged check (L323).
 
 load_cases already holds two of §11's corpus checks: every case parses, and every
 expected_flags entry names a registered check.
@@ -72,9 +72,12 @@ def _shares_a_finding(case: EvalCase, note: SOAPNote) -> bool:
 def _shares_a_site(case: EvalCase, note: SOAPNote) -> bool:
     for claim in note.claims:
         span = span_text(claim, case.raw_text)
+        if span is None:
+            continue
         for width in SITE_WORDS:
-            if span is not None and extract_laterality(claim.text, width).keys() & (
-                extract_laterality(span, width).keys()
+            if (
+                extract_laterality(claim.text, width).keys()
+                & extract_laterality(span, width).keys()
             ):
                 return True
     return False
@@ -165,6 +168,14 @@ def test_the_model_corpus_holds_at_least_six_of_each_species(species: str) -> No
 
 def test_the_model_corpus_holds_at_least_twenty_four_cases() -> None:
     assert len(MODEL) >= 24
+
+
+def test_no_model_case_expects_a_judged_check() -> None:
+    # L323: a run without the judge, and every replay, would read the expectation as
+    # not_applicable (L44), so a model case's verdict never waits on the judge
+    judged = {name for name, check in REGISTRY.items() if check.needs_judge}
+    assert judged, "no judged check is registered"
+    assert [c.id for c in MODEL if judged & set(c.expected_flags)] == []
 
 
 TWINS = [c for c in MODEL if c.id.endswith("_model")]

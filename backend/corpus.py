@@ -10,7 +10,8 @@ becomes one errored row (L46, L208), and a run where every case failed still wri
 record.
 
 main is the run's command, python -m backend.corpus: a dry run by default, which runs
-plan_run and builds no client, and the paid run with --spend (L210, L240, L242).
+plan_run and builds no client, and the paid run with --spend (L210, L240, L242). --judge
+gives each repeat a judge on the one client (L321).
 """
 
 import argparse
@@ -38,11 +39,12 @@ from backend.evals.runner import (
     run_checks,
 )
 from backend.grounding import ground
-from backend.judge_client import JUDGE_VERSION
+from backend.judge_client import JUDGE_VERSION, AnthropicJudge
 from backend.orchestrator import (
     PROMPT_VERSION,
     LLMClient,
     OrchestratorError,
+    anthropic_client,
     get_client,
     summarize,
 )
@@ -150,6 +152,7 @@ async def score_corpus(
     async def run_one(case: EvalCase, repeat: int) -> tuple[CaseResult, TokenUsage]:
         async with sem:
             result: SummarizationResult | None = None
+            judge: Judge | None = None
             wall_s: float | None = None
             started = time.perf_counter()  # L201: inside the semaphore
             try:  # L208: every step inside
@@ -180,7 +183,8 @@ async def score_corpus(
                     type(e).__name__,
                     format_frames(e),
                 )
-                # L186, L203: a crash after summarize returned keeps the cost and the draft
+                # L186, L203, L322: a crash after summarize returned keeps the cost and the
+                # draft, and one after the judge was built keeps what the judge spent
                 meta = result.metadata if result is not None else None
                 failed = errored_case(
                     case,
@@ -191,12 +195,13 @@ async def score_corpus(
                     draft=None if result is None else result.draft,
                     summarize_wall_s=(time.perf_counter() - started if wall_s is None else wall_s),
                 )
-                return failed, TokenUsage()
+                return failed, TokenUsage() if judge is None else judge.usage
 
     pairs = await asyncio.gather(
         *(run_one(c, r) for c in plan.model_cases for r in range(settings.corpus_repeats))
     )
     results = [row for row, _ in pairs]
+    judging = judge_factory is not None
     record = CorpusRunRecord(
         ran_at=datetime.now(UTC),
         git_sha=plan.git_sha,
@@ -206,8 +211,8 @@ async def score_corpus(
         corpus_version=plan.corpus_version,  # so an all-failed run is
         checks_version=CHECKS_VERSION,  # still recorded: the one most need to see
         checks_config=config,
-        judge_enabled=judge_factory is not None,
-        judge_version=JUDGE_VERSION if judge_factory is not None else None,  # L317
+        judge_enabled=judging,
+        judge_version=JUDGE_VERSION if judging else None,  # L317
         repeats=settings.corpus_repeats,
         concurrency=settings.corpus_concurrency,  # L202
         n_cases=len(plan.model_cases),
@@ -220,17 +225,26 @@ async def score_corpus(
     return record
 
 
+def _judge() -> Judge:
+    """A judge on the one client per process (L78, L319): --judge's factory (L321)."""
+    return AnthropicJudge(anthropic_client())
+
+
 def main(argv: list[str] | None = None) -> int:
     """python -m backend.corpus: a dry run, or with --spend a real one (L210, L240, L242).
 
     The dry run runs plan_run, as score_corpus does, prints the lineage the record would
-    carry, and builds no client. A refusal raises: this is the boundary.
+    carry, and builds no client. --judge gives each repeat a judge (L321). A refusal raises:
+    this is the boundary.
     """
     parser = argparse.ArgumentParser(
         prog="python -m backend.corpus",
         description="Plan a corpus run; with --spend, make its API calls and append the record.",
     )
     parser.add_argument("--spend", action="store_true", help="make the API calls (costs money)")
+    parser.add_argument(
+        "--judge", action="store_true", help="judge each repeat's claims (more API calls)"
+    )
     args = parser.parse_args(argv)
     cases = load_cases(CASES_DIR)
     if not args.spend:
@@ -239,16 +253,28 @@ def main(argv: list[str] | None = None) -> int:
         ceiling = n * k * (settings.max_validation_retries + 1)
         print(f"model cases: {n} ({len(cases) - n} injected, not run)")
         print(f"calls: {n * k} (n={n} x k={k}), at most {ceiling} with validation retries")
+        if args.judge:
+            print(
+                "judge calls: one per claim with a span in each draft, at most "
+                f"{settings.judge_concurrency} of a repeat's in flight"
+            )
         print(f"git_sha={plan.git_sha} git_dirty={plan.git_dirty}")
         print(f"model={settings.model} prompt_version={PROMPT_VERSION}")
         print(f"corpus_version={plan.corpus_version} checks_version={CHECKS_VERSION}")
+        print(f"judge_enabled={args.judge} judge_version={JUDGE_VERSION if args.judge else None}")
         print(f"record: {settings.runs_path}")
         print("dry run: nothing spent; --spend makes these calls")
         return 0
-    record = asyncio.run(score_corpus(cases, client=get_client(), judge_factory=None))
-    usage = record.usage
+    judge_factory = _judge if args.judge else None
+    record = asyncio.run(score_corpus(cases, client=get_client(), judge_factory=judge_factory))
+    usage, judge_usage = record.usage, record.judge_usage
     print(f"metrics: {record.metrics.model_dump_json()}")
     print(f"usage: input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}")
+    if record.judge_enabled:
+        print(
+            f"judge_usage: input_tokens={judge_usage.input_tokens} "
+            f"output_tokens={judge_usage.output_tokens}"
+        )
     print(f"record appended to {settings.runs_path}")
     return 0
 

@@ -680,11 +680,22 @@ def _records() -> list[tuple[str, CorpusRunRecord]]:
     return [(f"{i} {record.git_sha[:7]}", record) for i, record in enumerate(records)]
 
 
+def _judge_free(fired: list[str]) -> list[str]:
+    """The fired checks a replay can run: every one but a registered judged check (L294)."""
+    return sorted(c for c in fired if not (c in REGISTRY and REGISTRY[c].needs_judge))
+
+
+def _ran(record: CorpusRunRecord) -> _Replayed:
+    """Each recorded row as a replay can read it: its judged findings left out (L294)."""
+    return [(r.case_id, r.repeat, r.status, _judge_free(r.fired_checks)) for r in record.cases]
+
+
 async def _replay(record: CorpusRunRecord) -> _Replayed:
     """Each repeat's draft grounded and checked as score_corpus does: ci mode, no judge.
 
     The cases must be the ones the record ran on, read by corpus_version over the record's own
     case ids (L294). A repeat with no draft keeps its recorded row, having nothing to replay.
+    A replay runs no judge, so a kept row leaves its judged findings out too (L294).
     """
     cases = {case.id: case for case in load_cases(CASES_DIR)}
     ids = sorted({row.case_id for row in record.cases})
@@ -694,7 +705,7 @@ async def _replay(record: CorpusRunRecord) -> _Replayed:
     replayed: _Replayed = []
     for row in record.cases:
         if row.draft is None:
-            replayed.append((row.case_id, row.repeat, row.status, sorted(row.fired_checks)))
+            replayed.append((row.case_id, row.repeat, row.status, _judge_free(row.fired_checks)))
             continue
         case = cases[row.case_id]
         note = ground(row.draft, case.raw_text, config=record.checks_config)
@@ -724,8 +735,7 @@ async def test_a_record_under_todays_checks_replays_as_it_ran() -> None:
     if not current:
         pytest.skip("no committed record ran under today's checks")
     for key, record in current:
-        ran = [(r.case_id, r.repeat, r.status, sorted(r.fired_checks)) for r in record.cases]
-        assert await _replay(record) == ran, key
+        assert await _replay(record) == _ran(record), key
 
 
 @pytest.mark.anyio
@@ -755,6 +765,31 @@ async def test_a_repeat_with_no_draft_keeps_its_recorded_row() -> None:
     )
     replayed = await _replay(record.model_copy(update={"cases": [first, *record.cases[1:]]}))
     assert replayed[0] == (first.case_id, first.repeat, "failed", [])
+
+
+@pytest.mark.anyio
+async def test_a_judged_finding_is_left_out_of_both_sides_of_a_replay() -> None:
+    # L294: a judged run's rows name the judged check, which a replay never runs. The last
+    # record replays as it ran (measured), so planting the name must change neither side:
+    # once in a row with a draft, which replays, and once in a row kept as recorded.
+    _, record = _records()[-1]
+    judged = "text_entailment_judge"
+    assert REGISTRY[judged].needs_judge
+    first, second, *rest = record.cases
+    planted = record.model_copy(
+        update={
+            "cases": [
+                first.model_copy(update={"fired_checks": [*first.fired_checks, judged]}),
+                second.model_copy(
+                    update={"draft": None, "fired_checks": [*second.fired_checks, judged]}
+                ),
+                *rest,
+            ]
+        }
+    )
+    replayed = await _replay(planted)
+    assert replayed == _ran(planted)
+    assert all(judged not in fired for *_, fired in replayed)
 
 
 @pytest.mark.anyio

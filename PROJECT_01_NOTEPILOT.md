@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.11** (patch — the route's judge, October 2026). Supersedes v1.9.10.
+**Spec version: v1.9.12** (patch — a judged corpus run, October 2026). Supersedes v1.9.11.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2271,6 +2271,9 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
   diagnosis to keep; a test holds it.
 - **A model twin takes its injected case's id plus `_model` (L247)**, since an id is its
   file name, and keeps the injected case's raw text.
+- **A model case never expects a judged check (L323).** A run without the judge, and every
+  replay of a judged run, would read the expectation as `not_applicable` (L44), so a model
+  case's verdict never waits on the judge; a test holds it.
 - **DECISION D16 (v1.3, vetoable) — one planted danger per trap.** Expected flags match on
   check *name*, so a trap can pass for the wrong reason: the check fires on an incidental
   claim while missing the planted one. Injected drafts make that nearly impossible — they
@@ -2576,6 +2579,7 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
     async def run_one(case: EvalCase, repeat: int) -> tuple[CaseResult, TokenUsage]:
         async with sem:
             result: SummarizationResult | None = None
+            judge: Judge | None = None
             wall_s: float | None = None
             started = time.perf_counter()                      # L201: inside the semaphore
             try:                                               # L208: every step inside
@@ -2608,11 +2612,12 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
                     summarize_wall_s=(time.perf_counter() - started if wall_s is None
                                       else wall_s),
                 )
-                return failed, TokenUsage()
+                return failed, TokenUsage() if judge is None else judge.usage   # L322
 
     pairs = await asyncio.gather(*(run_one(c, r) for c in plan.model_cases
                                    for r in range(settings.corpus_repeats)))   # D11
     results = [cr for cr, _ in pairs]
+    judging = judge_factory is not None
     record = CorpusRunRecord(
         ran_at=datetime.now(UTC),                                   # L239
         git_sha=plan.git_sha, git_dirty=plan.git_dirty,             # L45, L207
@@ -2620,8 +2625,8 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
         corpus_version=plan.corpus_version,                         #   successful call, so
         checks_version=CHECKS_VERSION,                              #   an all-failed run is
         checks_config=config,                                       #   still recorded: the
-        judge_enabled=judge_factory is not None,                    #   one most need to see
-        judge_version=JUDGE_VERSION if judge_factory is not None else None,       # L317
+        judge_enabled=judging,                                      #   one most need to see
+        judge_version=JUDGE_VERSION if judging else None,           # L317
         repeats=settings.corpus_repeats,
         concurrency=settings.corpus_concurrency,                    # L202
         n_cases=len(plan.model_cases),
@@ -2661,11 +2666,13 @@ v1.3 filed it in `evals/runner.py`, which left `evals/` importing the config. No
 client (`get_client()`, §5.2); `evals/runner.py` keeps the pure parts — `run_checks`,
 `case_verdict`, `corpus_metrics`, `case_result`, `errored_case`, `CHECKS_VERSION`. An AST
 test holds the line (§11). Each case carries its own cost (L186): `CaseResult.usage` and
-`.validation_attempts` come from `RunMetadata` on success, from the `OrchestratorError` on
-a pipeline failure, and from the `RunMetadata` again when a crash comes after `summarize`
+`.validation_attempts` come from `RunMetadata` on success, from the `OrchestratorError` on a
+pipeline failure, and from the `RunMetadata` again when a crash comes after `summarize`
 returned. They are `None` only when a crash lost the case's cost (an `APIError` inside
-`summarize`), so the record's `usage` is the sum of the known costs: a floor, never a
-guess.
+`summarize`), so the record's `usage` is the sum of the known costs: a floor, never a guess.
+The judge's cost follows the same rule: a crash after a repeat's judge was built keeps what
+that judge spent in the record's `judge_usage` (L322), since a judge's calls are paid for
+whether or not its row is built.
 
 **What a case keeps, and how a run starts (L201–L203, L210).** `summarize_wall_s` is
 `time.perf_counter()` around the `await`, started inside the semaphore. The SDK's timeout
@@ -2684,7 +2691,10 @@ and injected case counts, the planned calls (n × k, and the ceiling with valida
 retries), the lineage the record would carry, and `runs_path`; it builds no client. A
 refusal from `plan_run` raises and exits 1 on either path: the command is the boundary.
 `--spend` runs `score_corpus` with `get_client()` (§5.2) and prints the record's metrics,
-its token usage, and where it was written (L242).
+its token usage, and where it was written (L242). `--judge` gives each repeat a judge on the
+one client (L319, L321): the dry run states the judge's calls, one per claim with a span in
+each draft and so known only from the drafts, and either way prints the record's
+`judge_enabled` and `judge_version`; the spend prints the judge's usage too.
 
 `CHECKS_VERSION` (v1.3, L45) is a hash over the source of `evals/`, `clinical/`,
 `grounding.py`, and `schemas.py` (L189), computed at import — derived like every other
@@ -3484,19 +3494,22 @@ in the push workflow — it spends real money.
   case whose `summarize` raises an `APIError` is one errored row and the others still score
   (L46); a run where every case fails still writes its record (L46); each row's usage and
   attempts come from its own path (L186) and the record's usage is their sum; a raise in
-  `case_result` or the judge factory loses one row, not the run (L208); git is read before
-  the first call (L207), and every refusal precedes it (L235); each row keeps its draft and
-  its wall time, clocked inside the semaphore (L201, L203); at most `corpus_concurrency`
-  calls are in flight; a crashed case is logged in L113's form; the record lands at
-  `runs_path` as one line (L238). The fake suspends once per call: one that never suspends
-  hides the semaphore and the clock. No network, and no git of the real tree: the git reads
-  run on a repository under `tmp_path` (L236).
+  `case_result` or the judge factory loses one row, not the run (L208), and a crash after
+  the checks keeps the judge's cost (L322); git is read before the first call (L207), and
+  every refusal precedes it (L235); each row keeps its draft and its wall time, clocked
+  inside the semaphore (L201, L203); at most `corpus_concurrency` calls are in flight; a
+  crashed case is logged in L113's form; the record lands at `runs_path` as one line (L238).
+  The fake suspends once per call: one that never suspends hides the semaphore and the
+  clock. No network, and no git of the real tree: the git reads run on a repository under
+  `tmp_path` (L236).
 - **The command line (L241)** — `main` over case files under `tmp_path`: the dry run prints
-  its plan, builds no client, and never calls `score_corpus`, its counts and ceiling read
-  from non-default settings; both paths refuse a run with no model case before any call;
-  `--spend` appends one record and prints its metrics, usage, and path, and the lineage the
-  dry run printed is the record's. The `__main__` line stays untested: run as a process, the
-  command reads the real tree's git once model cases exist.
+  its plan, builds no client and no judge, and never calls `score_corpus`, its counts and
+  ceiling read from non-default settings; both paths refuse a run with no model case before
+  any call; `--spend` appends one record and prints its metrics, usage, and path, and the
+  lineage the dry run printed is the record's; with `--judge` the dry run states the judge's
+  calls and lineage, and the spend scores with the module's judge factory, whose judge sits
+  on the one client, and prints the judge's usage (L321). The `__main__` line stays
+  untested: run as a process, the command reads the real tree's git once model cases exist.
 - **The committed records replay (L294)** — every line of `runs/corpus_runs.jsonl`, grounded
   and checked from its drafts in `ci` mode (§8.7): a record whose `checks_version` is
   today's replays to its recorded verdicts and fired checks, and every record replays to a
