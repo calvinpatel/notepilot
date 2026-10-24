@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.9** (patch — the judge's client, October 2026). Supersedes v1.9.8.
+**Spec version: v1.9.10** (patch — the judge's version, October 2026). Supersedes v1.9.9.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -206,8 +206,9 @@ Claude Code's standing instruction where an invariant has one; the statement is 
     model's `source_quote` (§6.4, L35). At Tier 3 the quote is the model's claim about the
     source; the span is the source. A Tier 1 exact match is not evidence the text is true.
 15. **Lineage is derived, never declared.** `prompt_version` = hash(system prompt + tool
-    schema + correction template + call config); `corpus_version` = hash(the model cases a
-    run scores, L204);
+    schema + correction template + call config); `judge_version` = hash(the judge's system
+    prompt + tool + call config + user message's form, L313), on a run with a judge (L317);
+    `corpus_version` = hash(the model cases a run scores, L204);
     `checks_version` = hash(the `.py` files in `evals/` + `clinical/` + `grounding.py` +
     `schemas.py`, L114, L189), with the verdict knobs recorded whole beside it
     (`checks_config`, L187); `settings.model` = a pinned model id, never an alias (§5.5,
@@ -582,6 +583,10 @@ class CorpusRunRecord(BaseModel):
                                             #   now it changes the lineage too
     checks_config: ChecksConfig             # L187: so does a knob, so it's recorded
     judge_enabled: bool
+    judge_version: str | None = None        # L317: the judge's version (§8.2, L313), None
+                                            #   exactly when judge_enabled is false, which a
+                                            #   validator holds; None in a record written
+                                            #   before the field, by a run without a judge
     repeats: int = Field(ge=1)              # D11 (L212)
     concurrency: int = Field(ge=1)          # L202: contention lands in the wall times and
                                             #   the upstream failures
@@ -1936,7 +1941,8 @@ JUDGE_CALL_CONFIG = {
 }
 # the user message: one pair, numbered 0, non-ASCII sent as itself
 json.dumps([{"pair": 0, "claim": text, "source": clause}], ensure_ascii=False)
-# derived, never declared (invariant 15), as PROMPT_VERSION is (L15)
+# derived, never declared (invariant 15), as PROMPT_VERSION is (L15); a corpus run with a
+# judge records it as CorpusRunRecord.judge_version (L317)
 JUDGE_VERSION = hash(system prompt + tool + call config + the user message's form)
 ```
 
@@ -2608,6 +2614,7 @@ async def score_corpus(cases: list[EvalCase], *, client: LLMClient,
         checks_version=CHECKS_VERSION,                              #   an all-failed run is
         checks_config=config,                                       #   still recorded: the
         judge_enabled=judge_factory is not None,                    #   one most need to see
+        judge_version=JUDGE_VERSION if judge_factory is not None else None,       # L317
         repeats=settings.corpus_repeats,
         concurrency=settings.corpus_concurrency,                    # L202
         n_cases=len(plan.model_cases),
@@ -2701,7 +2708,8 @@ and `corpus_runs.jsonl` is committed *in the same commit* as the prompt/model ch
 prompted them; the manual-dispatch workflow also uploads the record as a build artifact. v1.3
 (L45): committing the run with its change means the run executes on uncommitted code by
 design — so `git_sha` names the parent commit, `git_dirty=True` says so honestly, and
-`prompt_version` + `checks_version` identify the code that actually ran.
+`prompt_version` + `checks_version` identify the code that actually ran, with
+`judge_version` on a run with a judge (L317).
 
 - **production:** the reference-free subset runs on every real note → a **live safety
   layer**; its CRITICAL findings are the red badges in the UI.
@@ -3716,7 +3724,8 @@ above.
   (L312), its own call config pinned per invariant 3 (L182, L313), judge_timeout_s (L54,
   L314)
 □ text_entailment_judge (D8): WARNING, needs_judge
-□ judge usage → EvalReport.judge_usage → CorpusRunRecord.judge_usage (L7)
+□ judge usage → EvalReport.judge_usage → CorpusRunRecord.judge_usage (L7); the judge's
+  version → CorpusRunRecord.judge_version (L317)
 □ test: judge timeout → errored WARNING, note returned, CRITICAL verdict unchanged
 □ detect_invented_assessment: diagnosis_in_quote fires with the judge off; the judge adds
   its WARNING with it on
@@ -3827,12 +3836,12 @@ The whole project. Per-phase exit criteria live in §14.
 - [ ] `case_verdict` consumes `expected_flags`, handles errored and N/A, and is unit-tested
       (incl. the inversion case: a fired expected flag = a PASS)
 - [ ] `score_corpus` emits a `CorpusRunRecord` with `git_sha` + `git_dirty`,
-      `checks_version`, `checks_config`, `judge_enabled`, k repeats, the four metrics,
-      usage split from judge usage, and a per-(case, repeat) breakdown; survives failing
-      cases; records all-failed runs; committed per D5; rerun on every prompt / model /
-      check change
-- [ ] `prompt_version`, `corpus_version`, `checks_version` are derived hashes;
-      `settings.model` is a pinned model id, never an alias (L84)
+      `checks_version`, `checks_config`, `judge_enabled` and `judge_version`, k repeats, the
+      four metrics, usage split from judge usage, and a per-(case, repeat) breakdown;
+      survives failing cases; records all-failed runs; committed per D5; rerun on every
+      prompt / model / check change
+- [ ] `prompt_version`, `judge_version`, `corpus_version`, `checks_version` are derived
+      hashes; `settings.model` is a pinned model id, never an alias (L84)
 - [ ] `all_critical_passed` guards vacuous truth; `run_checks` fails closed with `errored`
 - [ ] Whole-note safety extraction (never trusts the section)
 - [ ] Token usage captured per note — summed across validation attempts, judge separate —

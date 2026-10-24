@@ -33,6 +33,7 @@ from backend.evals.judge import Judge
 from backend.evals.loader import corpus_version
 from backend.evals.runner import CHECKS_VERSION
 from backend.evals.runner import case_result as real_case_result
+from backend.judge_client import JUDGE_VERSION
 from backend.orchestrator import PROMPT_VERSION, LLMClient
 from backend.schemas import (
     CaseResult,
@@ -186,7 +187,7 @@ async def test_a_run_scores_each_model_case_k_times_in_id_order_and_appends_its_
     assert record.checks_version == CHECKS_VERSION
     assert record.checks_config == installed.checks_config()
     assert (record.repeats, record.concurrency, record.n_cases) == (2, 1, 2)
-    assert record.judge_enabled is False
+    assert (record.judge_enabled, record.judge_version) == (False, None)  # L317
     assert record.ran_at.utcoffset() == timedelta(0)
     assert record.usage == TokenUsage(input_tokens=16, output_tokens=20)
     assert record.judge_usage == TokenUsage()
@@ -310,7 +311,7 @@ async def test_the_judge_is_built_per_case_and_a_raise_building_it_loses_one_row
     crashed = [r for r in record.cases if r.error is not None]
     assert [(r.error, r.draft) for r in crashed] == [("_Crash", DRAFT)]  # L203: after summarize
     assert [r.status for r in record.cases].count("passed") == 2
-    assert record.judge_enabled is True
+    assert (record.judge_enabled, record.judge_version) == (True, JUDGE_VERSION)  # L317
     assert record.judge_usage == TokenUsage(input_tokens=4, output_tokens=2)
 
 

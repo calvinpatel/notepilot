@@ -38,6 +38,7 @@ from backend.evals.runner import (
     run_checks,
 )
 from backend.grounding import ground
+from backend.judge_client import JUDGE_VERSION
 from backend.orchestrator import (
     PROMPT_VERSION,
     LLMClient,
@@ -206,6 +207,7 @@ async def score_corpus(
         checks_version=CHECKS_VERSION,  # still recorded: the one most need to see
         checks_config=config,
         judge_enabled=judge_factory is not None,
+        judge_version=JUDGE_VERSION if judge_factory is not None else None,  # L317
         repeats=settings.corpus_repeats,
         concurrency=settings.corpus_concurrency,  # L202
         n_cases=len(plan.model_cases),

@@ -805,3 +805,32 @@ def test_corpus_run_record_n_cases_counts_distinct_case_ids(
 def test_corpus_run_record_round_trips_through_json() -> None:
     record = CorpusRunRecord.model_validate(_record(_FULL))
     assert CorpusRunRecord.model_validate_json(record.model_dump_json()) == record
+
+
+def test_a_judged_run_records_its_judges_version_through_json() -> None:
+    # L317: set exactly when the run has a judge
+    data = _record(_FULL, judge_enabled=True, judge_version="judge-hash-1")
+    record = CorpusRunRecord.model_validate(data)
+    assert record.judge_version == "judge-hash-1"
+    assert CorpusRunRecord.model_validate_json(record.model_dump_json()) == record
+
+
+def test_a_record_written_before_judge_version_loads_without_one() -> None:
+    # L317: the records committed before the field ran without a judge and don't name it
+    data = _record(_FULL)
+    assert "judge_version" not in data
+    assert CorpusRunRecord.model_validate(data).judge_version is None
+
+
+@pytest.mark.parametrize(
+    ("judge_enabled", "judge_version"),
+    [(True, None), (False, "judge-hash-1")],
+    ids=["judge-without-version", "version-without-judge"],
+)
+def test_corpus_run_record_holds_judge_version_to_its_judge(
+    judge_enabled: bool, judge_version: str | None
+) -> None:
+    data = _record(_FULL, judge_enabled=judge_enabled, judge_version=judge_version)
+    assert _record_error(data) == (
+        "Value error, judge_version is set exactly when judge_enabled is true"
+    )

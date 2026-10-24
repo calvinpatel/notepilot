@@ -311,6 +311,9 @@ class CorpusRunRecord(BaseModel):
     checks_version: str  # L45
     checks_config: ChecksConfig  # L187
     judge_enabled: bool
+    # L317: the judge's version, None exactly when judge_enabled is false. None by default, so
+    # a record written before the field, by a run without a judge, loads as it was written.
+    judge_version: str | None = None
     repeats: int = Field(ge=1)  # D11 (L212)
     concurrency: int = Field(ge=1)  # L202
     n_cases: int = Field(ge=1)  # distinct model cases (L225)
@@ -327,4 +330,10 @@ class CorpusRunRecord(BaseModel):
         expected = sorted((case_id, r) for case_id in case_ids for r in range(self.repeats))
         if sorted((row.case_id, row.repeat) for row in self.cases) != expected:
             raise ValueError("cases holds one row per case and repeat")
+        return self
+
+    @model_validator(mode="after")
+    def _judge_version_with_its_judge(self) -> Self:  # L317
+        if (self.judge_version is not None) != self.judge_enabled:
+            raise ValueError("judge_version is set exactly when judge_enabled is true")
         return self
