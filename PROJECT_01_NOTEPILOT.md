@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.13** (patch — 2c's runs, October 2026). Supersedes v1.9.12.
+**Spec version: v1.9.14** (patch — the 2c close, October 2026). Supersedes v1.9.13.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3701,9 +3701,9 @@ request shape, and at every change of the pinned model (L185). 2a's close runs o
 the request shape is unchanged (L179): the response and the page are new, and real model
 output meets `ground()` and `run_checks` for the first time. The tag records what it
 renders; a finding it shows is recorded, not fixed. 2b's close runs none (L250): the request
-shape is unchanged since v1.4's smoke run, and the baseline's 72 calls ran on it. No
-automated test, by design: the annotated tag is the record, audited alongside the lines
-above.
+shape is unchanged since v1.4's smoke run, and the baseline's 72 calls ran on it. 2c's close
+runs one with the judge on (L324): the judge's call is a new request shape. No automated
+test, by design: the annotated tag is the record, audited alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
@@ -3772,13 +3772,14 @@ above.
 □ judge_client.py (edge), implementing 2a's Judge protocol (L111): one call per pair
   (L312), its own call config pinned per invariant 3 (L182, L313), judge_timeout_s (L54,
   L314)
-□ text_entailment_judge (D8): WARNING, needs_judge
-□ judge usage → EvalReport.judge_usage → CorpusRunRecord.judge_usage (L7); the judge's
-  version → CorpusRunRecord.judge_version (L317)
-□ test: judge timeout → errored WARNING, note returned, CRITICAL verdict unchanged
+□ text_entailment_judge (D8): WARNING, needs_judge (L310, L311)
+□ judge usage → EvalReport.judge_usage → CorpusRunRecord.judge_usage (L7, L322); the
+  judge's version → CorpusRunRecord.judge_version (L317)
+□ test: judge timeout → errored WARNING, note returned, CRITICAL verdict unchanged (L318)
 □ detect_invented_assessment: diagnosis_in_quote fires with the judge off; the judge adds
-  its WARNING with it on
-□ corpus recorded with the judge on AND off; the difference stated in the README
+  its WARNING with it on (L315 measures the live judge's)
+□ corpus recorded with the judge on AND off; the difference stated in the README (L321,
+  L325, L327)
 ```
 
 ### Phase 3 — full-stack real · `v0.3-shipped`
