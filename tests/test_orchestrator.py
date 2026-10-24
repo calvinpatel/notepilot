@@ -3,7 +3,7 @@ r"""Pins the orchestrator: call shape, derived lineage, and the summarize loop (
 Settings-at-import rule: CALL_CONFIG and PROMPT_VERSION are computed once, at import,
 from the frozen settings. Patching backend.config.settings reaches nothing in
 orchestrator.py. Patching backend.orchestrator.settings reaches only call-time reads:
-get_client's first call (then cached for the process) and summarize — never
+anthropic_client's first call (then cached for the process) and summarize — never
 these two constants. Prefer scripting the fake client over patching settings.
 
 No test pins PROMPT_VERSION's value or the prompt's text: a prompt edit is allowed and
@@ -28,7 +28,7 @@ import inspect
 import json
 import re
 import string
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final, get_args
 
@@ -53,6 +53,7 @@ from backend.orchestrator import (
     OutputTruncatedError,
     _AsyncMessages,
     _derive_prompt_version,
+    anthropic_client,
     get_client,
     summarize,
 )
@@ -248,19 +249,10 @@ def test_seam_carries_no_sampling_parameter() -> None:
     }
 
 
-@pytest.fixture
-def fresh_client_cache() -> Iterator[None]:
-    # Only the two get_client tests use this: the cache is process-wide (L78), so a client
-    # built under one test's settings must never be the one another test observes.
-    get_client.cache_clear()
-    yield
-    get_client.cache_clear()
-
-
 @pytest.mark.usefixtures("fresh_client_cache")
-def test_get_client_is_cached() -> None:
+def test_get_client_is_the_one_client() -> None:
     client = get_client()
-    assert client is get_client()  # L78
+    assert client is get_client() is anthropic_client()  # L78, L319
     assert isinstance(client, AsyncAnthropic)  # also narrows: attribute access needs no cast
 
 

@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 
 from backend.config import Settings, _dotenv_path
@@ -461,11 +461,13 @@ _ENV_EXAMPLE = Path(__file__).resolve().parent.parent / ".env.example"
 def test_env_example_shows_the_real_defaults() -> None:
     # .env.example says its commented values are the defaults, and nothing tied the two: a
     # default could move (as L184's do) and leave the example stale. Read back, not pinned:
-    # a default may change, as long as the example changes with it.
+    # a default may change, as long as the example changes with it. Each value is read as
+    # its field's type reads it: bool("False") is True, so a type() call can't read a bool.
     shown = re.findall(r"^# ([A-Z][A-Z0-9_]*)=(.*)$", _ENV_EXAMPLE.read_text(), re.M)
     assert shown, "no commented knob lines found"
     for env_name, raw in shown:
         field = Settings.model_fields.get(env_name.lower())
         assert field is not None, f"{env_name} is not a Settings field"
         default = field.default
-        assert type(default)(raw) == default, f"{env_name}={raw}, default is {default!r}"
+        read: object = TypeAdapter(field.annotation).validate_python(raw)
+        assert read == default, f"{env_name}={raw}, default is {default!r}"

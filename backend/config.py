@@ -61,17 +61,18 @@ class Settings(BaseSettings):
     # SDK's: transport failures — connection errors, timeouts, 429, 5xx (§5.2, L5).
     # Worst-case wall time per request ≈
     #     llm_timeout_s × (sdk_transport_retries + 1) × (max_validation_retries + 1)
-    # because the SDK retries timeouts and each validation attempt can take nearly a full
-    # window.
+    #     + ceil(pairs / judge_concurrency) × judge_timeout_s × (sdk_transport_retries + 1)
+    # because the SDK retries timeouts, each validation attempt can take nearly a full
+    # window, and with the judge on (L318) a note's pair calls follow summarize.
     max_validation_retries: int = Field(2, ge=0)
     sdk_transport_retries: int = Field(2, ge=0)
     llm_timeout_s: float = Field(90.0, gt=0, allow_inf_nan=False)  # L54
 
-    # The judge (§8.2; L312, L314): one call per claim pair, at most judge_concurrency of a
-    # note's calls in flight, each bounded by judge_timeout_s and retried by the SDK like
-    # summarize's. A note's judge adds, at worst, about
-    #     ceil(pairs / judge_concurrency) × judge_timeout_s × (sdk_transport_retries + 1)
-    # and a corpus run's judges multiply the calls in flight by corpus_concurrency.
+    # The judge (§8.2; L312, L314, L318): off unless judge_enabled; one call per claim pair,
+    # at most judge_concurrency of a note's calls in flight, each bounded by judge_timeout_s
+    # and retried by the SDK like summarize's (its term is in the formula above). A corpus
+    # run's judges multiply the calls in flight by corpus_concurrency.
+    judge_enabled: bool = False  # read per request, at the edge (L318)
     judge_timeout_s: float = Field(15.0, gt=0, allow_inf_nan=False)  # L54, L314
     judge_concurrency: int = Field(4, ge=1)  # L314
 

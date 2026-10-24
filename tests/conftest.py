@@ -1,5 +1,6 @@
 """Env setup that must run before any test imports backend, the hypothesis profile, the
-async-backend pin, the lexicon-table guard, and the registry fixture.
+async-backend pin, the lexicon-table guard, the registry fixture, and the client-cache
+fixture.
 
 Settings is built at import time (spec §10).
 """
@@ -71,3 +72,18 @@ def registry() -> Iterator[dict[str, Check]]:
     yield REGISTRY
     REGISTRY.clear()
     REGISTRY.update(saved)
+
+
+@pytest.fixture
+def fresh_client_cache() -> Iterator[None]:
+    """The one client's cache, cleared around a test that builds the client (L78, L319).
+
+    The cache is process-wide, so a client built under one test's settings must never be
+    the one another test observes. Imported here, not at the top, so the env setup above runs
+    before any backend import.
+    """
+    from backend.orchestrator import anthropic_client
+
+    anthropic_client.cache_clear()
+    yield
+    anthropic_client.cache_clear()

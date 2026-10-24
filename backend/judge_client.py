@@ -14,6 +14,10 @@ that call's own exception, so the check errors (L312). There is no correction tu
 
 JUDGE_VERSION is derived from everything the model is conditioned on: the system prompt, the
 tool, the call config, and the user message's form (L313). It is never bumped by hand.
+
+get_judge is api.py's Depends(get_judge) (§9.1): a judge on the one client per process when
+settings.judge_enabled, None otherwise, and a new one per call, so a judge's usage is one
+report's (L7, L318, L319).
 """
 
 import asyncio
@@ -38,7 +42,8 @@ from anthropic.types import (
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from backend.config import settings
-from backend.orchestrator import TRUNCATION_STOPS
+from backend.evals.judge import Judge
+from backend.orchestrator import TRUNCATION_STOPS, anthropic_client
 from backend.schemas import TokenUsage
 
 # Verbatim from spec §8.2 (L313): one line, which the spec wraps.
@@ -222,3 +227,11 @@ class AnthropicJudge:
         if [v.pair for v in recorded.verdicts] != [_PAIR]:
             raise JudgeOutputError("verdicts don't answer the pair sent")
         return recorded.verdicts[0].entailed
+
+
+def get_judge() -> Judge | None:
+    """A judge on the one client when settings.judge_enabled, else None (§9.1; L318, L319).
+
+    Never cached: FastAPI calls it per request, and each judge's usage belongs to one report.
+    """
+    return AnthropicJudge(anthropic_client()) if settings.judge_enabled else None

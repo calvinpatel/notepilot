@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.10** (patch — the judge's version, October 2026). Supersedes v1.9.9.
+**Spec version: v1.9.11** (patch — the route's judge, October 2026). Supersedes v1.9.10.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -737,17 +737,22 @@ resp = await client.messages.create(
   an identical request is correct there: the failure is about load, not content. That is a
   different loop from §5.4's *validation* retries, and v1.3 gives the two different names
   so nobody "enforces" invariant 16 by zeroing the wrong one.
-- **"Built once" means once per process (L78).** `get_client` is the FastAPI dependency
-  that supplies the client (§9.1). **It lives in `orchestrator.py`, beside the `LLMClient`
+- **"Built once" means once per process (L78).** `get_client` is the FastAPI dependency that
+  supplies the client (§9.1). **It lives in `orchestrator.py`, beside the `LLMClient`
   Protocol it returns (v1.3.3, L95):** the module that owns the vendor's format is the one
-  that constructs the vendor's client. It is a plain cached factory that imports nothing
-  from FastAPI — `api.py` applies `Depends(get_client)` at the route, so the orchestrator
-  stays framework-free and `api.py` never constructs a client. FastAPI calls dependencies
-  per request — so `get_client` is decorated `@functools.cache`: one `AsyncAnthropic`, one connection pool,
-  constructed on first use. Without the cache, every request builds and abandons an httpx
-  pool. Route tests override it via `dependency_overrides`; the override key is the cached
-  function object, which is what `Depends` holds. *Test:* `get_client() is get_client()`
-  (construction makes no network call; the conftest dummy key suffices, §10).
+  that constructs the vendor's client. It is a plain factory that imports nothing from
+  FastAPI — `api.py` applies `Depends(get_client)` at the route, so the orchestrator stays
+  framework-free and `api.py` never constructs a client. FastAPI calls dependencies per
+  request, so the client itself comes from `anthropic_client`, decorated `@functools.cache`:
+  one `AsyncAnthropic`, one connection pool, constructed on first use. Without the cache,
+  every request builds and abandons an httpx pool. Summarize and the judge share it, each
+  through its own seam (L319): `get_client` returns it as an `LLMClient`, and `get_judge`
+  (§8.2) builds each request's judge on it as a `JudgeLLMClient`, since `LLMClient` declares
+  exactly summarize's keywords (L74) and the judge's per-request timeout is one more (L314).
+  Route tests override `get_client` via `dependency_overrides`; the override key is the
+  function object, which is what `Depends` holds. *Test:*
+  `get_client() is get_client() is anthropic_client()` (construction makes no network call;
+  the conftest dummy key suffices, §10).
 - **The key is passed, never ambient (L77).** pydantic-settings reads `.env` into
   `Settings` but never exports it to `os.environ`, the only place the SDK looks. An
   implicit key works in a shell that happens to export it and 401s everywhere else — which
@@ -1021,8 +1026,9 @@ SDK's — §5.2, a different loop.)
   a fake returning a canned tool-use block, built from real `anthropic.types.Message`
   objects so the fake can't drift from the wire format: no network, no real key, fast,
   deterministic. *Test:* mypy over `backend/` and `tests/`, forced by binding sites on both
-  sides — `get_client() -> LLMClient` returns `AsyncAnthropic(...)`, and the fake in
-  `tests/` is bound to an `LLMClient`-typed name. Without both, mypy checks half the seam.
+  sides — `get_client() -> LLMClient` returns the `AsyncAnthropic` that `anthropic_client()`
+  builds (L319), and the fake in `tests/` is bound to an `LLMClient`-typed name. Without
+  both, mypy checks half the seam.
 - **The orchestrator is an edge adapter (v1.3, L17).** It is one of two modules allowed to
   speak Anthropic's message format (the other is `judge_client.py`, §8.2). Everything it
   hands inward is a spine type.
@@ -1878,12 +1884,13 @@ judge raises that call's own exception (L312, L313). A judge is constructed per 
 per corpus case), so its `usage` belongs to exactly one report and lands in
 `EvalReport.judge_usage` (L7). Whether the judge runs is a *parameter* —
 `run_checks(..., judge=None)` skips it — not a global read inside the domain (L49);
-`settings.judge_enabled` is read only at the edge that decides whether to construct one.
-Tests pass a fake `Judge` with canned verdicts. The pairs are the claims with a span, in
-claim order, each its text and the span read in its clause as §8.4 reads it; a note with
-none makes no call (L310). A verdict count other than the pair count raises inside the check
-rather than pair a verdict with the wrong claim, and `run_checks` reports the raise as an
-errored result (L311).
+`settings.judge_enabled` is read only at the edge that decides whether to construct one:
+`get_judge`, in `judge_client.py`, builds a new judge per request on the one client when
+it's true and gives None otherwise, never cached (L318, L319). Tests pass a fake `Judge`
+with canned verdicts. The pairs are the claims with a span, in claim order, each its text
+and the span read in its clause as §8.4 reads it; a note with none makes no call (L310). A
+verdict count other than the pair count raises inside the check rather than pair a verdict
+with the wrong claim, and `run_checks` reports the raise as an errored result (L311).
 
 The judge's call, as 2c.3's probe measured it (L313). The system prompt is one line; the
 block below wraps it, and each break is a space.
@@ -2976,6 +2983,16 @@ are exactly `{"note_id", "note", "report", "metadata"}` and a span that offsets 
 padded paste; a test that registers its own checks asserts the route checks the note it
 returns, against the exact paste, in production mode, with no judge.
 
+**Phase 2c's route adds the judge (L318).** `get_judge` supplies it: an `AnthropicJudge` on
+the one client when `settings.judge_enabled`, None otherwise (§8.2, L319), so with the
+default the route makes no judge call and selects no judged check. A judge that errors or
+times out errors its own WARNING and nothing else (invariant 7): the note returns, and the
+CRITICAL results are those of a run without it. Its `APITimeoutError` never reaches §9.4's
+504 handler, because `run_checks` holds it. *Test:* route tests override `get_judge` with
+None unless they install a judge; one installs a judge and finds the judged check selected
+and its usage in the report, and another installs one whose call times out and finds the
+note returned, the judged check errored, and the CRITICAL results unchanged.
+
 ### 9.2 Async, justified (amended v1.2)
 
 `await` the I/O-bound steps: the LLM call (seconds) and, when enabled, the judge's
@@ -3262,6 +3279,12 @@ This layer is where the instinct is to coast (the moat is elsewhere). Don't. Rev
 interview; the clean route, translated errors, health check, pooled connections, and real
 tests get me trusted.
 
+**What a response doesn't name (L320).** With the judge on, a response's judged findings
+carry no `JUDGE_VERSION`: `EvalReport` is the domain's and reads nothing from the edge
+(invariant 1), and §9.1's response has no place for it. Nothing persists a response until
+phase 3, whose milestone holds `NoteRecord.judge_version` and whether the response carries
+it (L57).
+
 ### 9.10 The frontend contract (v1.2 — previously a directory name)
 
 `frontend/` had a one-line description and a promise ("the frontend's type
@@ -3340,7 +3363,8 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   `llm_timeout_s`, `judge_timeout_s` (L54, L314); `fuzzy_score_cutoff`; `min_input_chars`;
   `min_quote_content_tokens` (D15; default 2, L161) — the cutoff and the token minimum
   reach the domain only through `settings.checks_config()`, called at the edge (L187);
-  `judge_enabled`; `judge_concurrency` (`ge=1`, default 4, L314); `persist_enabled`;
+  `judge_enabled` (default false, read per request by `get_judge`, L318);
+  `judge_concurrency` (`ge=1`, default 4, L314); `persist_enabled`;
   `corpus_concurrency` (`ge=1`, default 1, L209);
   `corpus_repeats` (D11, `ge=1`, default 3);
   `daily_token_budget`, `max_request_tokens` (L56); `rate_limit`; `forwarded_allow_ips`
@@ -3533,8 +3557,9 @@ notepilot/
 │   ├── tracebacks.py       ← DOMAIN. imports nothing. L69's frames as file:line:function (L112)
 │   ├── config.py           ← operational knobs (pydantic-settings)
 │   ├── orchestrator.py     ← EDGE. raw text → SummarizationResult; the LLMClient protocol ·
-│   │                          get_client (L95)
+│   │                          anthropic_client · get_client (L95, L319)
 │   ├── judge_client.py     ← EDGE (phase 2c). implements evals' Judge protocol over the API
+│   │                          · get_judge (L318)
 │   ├── grounding.py        ← DOMAIN. SOAPNoteDraft → SOAPNote (pure, the ladder)
 │   ├── clinical/           ← DOMAIN. imports nothing from the spine (L65)
 │   │   ├── extract.py      ← extractors + their result types (sanctioned) — imports ONLY lexicons.py

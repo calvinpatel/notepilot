@@ -3,8 +3,8 @@
 EDGE adapter (spec §0). Anthropic's message format appears here and in
 judge_client.py, nowhere else; everything handed inward is a spine type. No
 FastAPI import: api.py applies Depends(get_client). LLMClient is the typed seam
-that both AsyncAnthropic and the test fake satisfy; get_client builds the real
-client once per process.
+that both AsyncAnthropic and the test fake satisfy; anthropic_client builds the
+real client once per process, and get_client hands it out as an LLMClient.
 
 summarize() returns a schema-valid draft with its RunMetadata, or raises an
 OrchestratorError subclass carrying the TokenUsage spent so far, failed
@@ -226,17 +226,26 @@ class LLMClient(Protocol):
 
 
 @functools.cache
-def get_client() -> LLMClient:
+def anthropic_client() -> AsyncAnthropic:
     """One AsyncAnthropic per process (L78); key passed, never ambient (L77); no FastAPI (L95).
 
-    For api.py's Depends(get_client) (§9.1): the cached function object is the override key.
-    Settings are read here, on first call. Construction makes no network call.
+    Summarize and the judge share it, each through its own seam (L319): get_client types it
+    as an LLMClient, and judge_client's get_judge as a JudgeLLMClient. Settings are read
+    here, on first call. Construction makes no network call.
     """
     return AsyncAnthropic(
         api_key=settings.anthropic_api_key.get_secret_value(),
         timeout=settings.llm_timeout_s,
         max_retries=settings.sdk_transport_retries,
     )
+
+
+def get_client() -> LLMClient:
+    """The one client, as summarize's seam: for api.py's Depends(get_client) (§9.1, L319).
+
+    The function object is the override key route tests replace.
+    """
+    return anthropic_client()
 
 
 # --- the loop (§5.4; L12, L13, L53, L97) ---------------------------------------------
@@ -295,7 +304,7 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
             # L53: the correction carries the model's output back to the model, so the
             # input stays in; include_input=False is for log lines, which never see this.
             last_error = e
-            messages += [
+            correction: list[MessageParam] = [
                 {"role": "assistant", "content": resp.content},
                 {
                     "role": "user",
@@ -311,6 +320,7 @@ async def summarize(raw_text: str, *, client: LLMClient) -> SummarizationResult:
                     ],
                 },
             ]
+            messages += correction
             continue
 
         # Outside the try (L12): a bug building metadata is OUR error, never fed back to the

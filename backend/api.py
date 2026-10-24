@@ -73,8 +73,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.config import settings
+from backend.evals.judge import Judge
 from backend.evals.runner import run_checks
 from backend.grounding import ground
+from backend.judge_client import get_judge
 from backend.orchestrator import LLMClient, ModelOutputError, get_client, summarize
 from backend.schemas import EvalReport, RunMetadata, SOAPNote
 from backend.tracebacks import format_frames
@@ -202,19 +204,21 @@ class SummarizeResponse(BaseModel):
 
 @app.post("/summarize")
 async def summarize_endpoint(
-    req: SummarizeRequest, client: Annotated[LLMClient, Depends(get_client)]
+    req: SummarizeRequest,
+    client: Annotated[LLMClient, Depends(get_client)],
+    judge: Annotated[Judge | None, Depends(get_judge)],
 ) -> SummarizeResponse:
     """Composition root (§9.1): wires the pipeline in order; no logic lives here.
 
-    Phase 2a's route (L166): §9.1's without a judge, a budget reservation, or persist.
-    run_checks gets no judge, so it selects no judged check. note_id names no row, since
-    nothing is persisted (§9.10, L58).
+    Phase 2c's route (L166, L318): §9.1's without a budget reservation or persist. The judge
+    is get_judge's, None unless settings.judge_enabled; run_checks selects the judged check
+    only with one. note_id names no row, since nothing is persisted (§9.10, L58).
     """
     note_id = uuid4()
     result = await summarize(req.raw_text, client=client)
     config = settings.checks_config()  # L187: built here, at the edge, and passed inward
     note = ground(result.draft, req.raw_text, config=config)  # spans index the exact paste (L87)
-    report = await run_checks(note, req.raw_text, mode="production", config=config)
+    report = await run_checks(note, req.raw_text, mode="production", config=config, judge=judge)
     return SummarizeResponse(note_id=note_id, note=note, report=report, metadata=result.metadata)
 
 

@@ -1,4 +1,5 @@
-"""Pins the judge's client: call shape, derived lineage, and one call per pair (§8.2; L312-L314).
+"""Pins the judge's client: call shape, derived lineage, one call per pair, and get_judge (§8.2,
+§9.1; L312-L314, L318, L319).
 
 Settings-at-import rule, as in test_orchestrator.py: JUDGE_CALL_CONFIG and JUDGE_VERSION are
 computed once, at import. Patching backend.judge_client.settings reaches only call-time reads:
@@ -35,7 +36,9 @@ from backend.judge_client import (
     _user_message,
     _Verdict,
     _Verdicts,
+    get_judge,
 )
+from backend.orchestrator import anthropic_client
 from backend.schemas import ClinicalClaim, Severity, SOAPNote, TokenUsage
 from tests.fakes import CHECKS_CONFIG, FakeJudgeClient, text_message, tool_use_message
 
@@ -344,3 +347,24 @@ async def test_a_failed_call_errors_the_check_and_its_log_names_the_calls_type(
     (result,) = [r for r in report.results if r.check == "text_entailment_judge"]
     assert (result.passed, result.errored, result.severity) == (False, True, Severity.WARNING)
     assert "check=text_entailment_judge exc_type=_CallFailed " in caplog.text
+
+
+# --- get_judge: the route's judge, on the one client (§9.1; L78, L318, L319) ------------------
+
+
+@pytest.mark.usefixtures("fresh_client_cache")
+def test_get_judge_builds_a_new_judge_on_the_one_client_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Non-default: judge_enabled is False unless set
+    monkeypatch.setattr("backend.judge_client.settings", Settings(judge_enabled=True))
+    judge = get_judge()
+    assert isinstance(judge, AnthropicJudge)
+    assert judge._client is anthropic_client()  # L319: the client summarize uses
+    assert judge.usage == TokenUsage()
+    assert get_judge() is not judge  # never cached: a judge's usage is one report's (L7)
+
+
+def test_get_judge_is_none_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("backend.judge_client.settings", Settings(judge_enabled=False))
+    assert get_judge() is None

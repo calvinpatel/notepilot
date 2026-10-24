@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,39 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.9.11 — the route's judge (patch)
+
+Theme: 2c's fifth step puts the judge in the route. §9.1 drew `Depends(get_judge)` and
+nothing defined it; the one client of L78 can't reach the judge through summarize's seam;
+and a judged response names no judge version. Cal approved each fill and the resolution on
+Oct 23, before the code that depends on them, which lands with them in one commit. No
+invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L318 §8.2, §9.1, §10, §13 — the judge in the route.** Fill: §9.1 drew
+  `Depends(get_judge)` and §8.2 said `judge_enabled` is read at the edge, and nothing
+  defined `get_judge`, where it lives, or how often it builds a judge. It lives in
+  `judge_client.py`, beside the client it builds, and builds a new judge per request, never
+  cached, so each judge's usage is one report's (L7): on the one client when `judge_enabled`
+  (default false), None otherwise. A judge's error or timeout errors its WARNING alone
+  (invariant 7); its `APITimeoutError` stays inside `run_checks` and never reaches §9.4's
+  504. Route tests override `get_judge` with None unless they install a judge, so an
+  exported `JUDGE_ENABLED` can't reach the network. `.env.example` shows the knob, and its
+  read-back test reads each value as its field's type reads it: `bool("False")` is True, so
+  a `type()` call couldn't read a bool (measured).
+- **L319 §5.2, §5.5, §13 — one client behind two seams.** Conflict: L78 builds one
+  `AsyncAnthropic` per process, through `get_client`, typed `LLMClient`, which declares
+  exactly summarize's keywords (L74); the judge's seam adds a per-request `timeout` (L314),
+  so `get_client`'s client can't be handed to the judge (mypy, measured). L78 wins with both
+  seams kept: `anthropic_client` builds and caches the one client, `get_client` returns it
+  as an `LLMClient`, and `get_judge` hands it to the judge as a `JudgeLLMClient`. Each
+  accessor stays a typed binding site (§5.5).
+- **L320 §9.9 — a response doesn't name the judge's version.** Fill: with the judge on, a
+  response's judged findings carry no `JUDGE_VERSION`. `EvalReport` is the domain's and
+  can't read the edge, and §9.1's response has no place for it. Nothing persists a response
+  until phase 3, so §9.9 states the gap, and phase 3's milestone holds
+  `NoteRecord.judge_version` and whether the response carries it (L57).
 
 ## v1.9.10 — the judge's version (patch)
 

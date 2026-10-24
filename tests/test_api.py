@@ -1,5 +1,6 @@
-"""Pins the /summarize HTTP boundary: its input, its error bodies, and its log lines (spec
-§9.1, §9.4, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99, L166).
+"""Pins the /summarize HTTP boundary: its input, its judge, its error bodies, and its log lines
+(spec §9.1, §9.4, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99, L166,
+L318).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -7,8 +8,9 @@ nothing: every 500 test asserts its own backend.api log line. An autouse fixture
 get_client with an EMPTY-script FakeLLMClient; a test that reaches the model without
 installing its own script fails loudly on the fake's unscripted-call guard instead of
 building a real client. The guard fails through pytest.fail, a BaseException that
-`except Exception` can't swallow, so the catch-all can't turn a forgotten script into a
-500 a test could pass on.
+`except Exception` can't swallow, so the catch-all can't turn a forgotten script into a 500
+a test could pass on. The same fixture overrides get_judge with None, so no test reaches a
+judge it didn't install, whatever JUDGE_ENABLED the shell exports.
 
 Logging tests call caplog.set_level(logging.DEBUG): under pytest the root logger sits at
 WARNING. Sentinel scans read caplog.text, every captured record as rendered, exc_info
@@ -24,7 +26,7 @@ import logging
 import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Final, NamedTuple
+from typing import Any, Final, NamedTuple
 from uuid import UUID
 
 import httpx2
@@ -49,12 +51,29 @@ from starlette.types import Message as ASGIMessage
 
 from backend.api import CatchAllMiddleware, RequestIdMiddleware, SummarizeResponse, app
 from backend.config import Settings, settings
+from backend.evals.checks import clause_text
 from backend.evals.judge import Judge
 from backend.evals.registry import REGISTRY, Check, CheckFn, Finding, register_check
 from backend.evals.runner import CHECKS_VERSION
+from backend.grounding import ground
+from backend.judge_client import AnthropicJudge, _user_message, get_judge
 from backend.orchestrator import PROMPT_VERSION, OrchestratorError, get_client
-from backend.schemas import ChecksConfig, EvalCase, Severity, SOAPNote, TokenUsage
-from tests.fakes import FakeLLMClient, text_message, tool_use_message
+from backend.schemas import (
+    ChecksConfig,
+    EvalCase,
+    Severity,
+    SOAPNote,
+    SOAPNoteDraft,
+    TokenUsage,
+)
+from tests.fakes import (
+    FakeJudge,
+    FakeJudgeClient,
+    FakeLLMClient,
+    entail_all_but,
+    text_message,
+    tool_use_message,
+)
 from tests.fresh import run_fresh
 
 # Planted inside raw_text as a VALUE (L53): the paste, which must reach neither a body nor a
@@ -98,10 +117,11 @@ Installer = Callable[[Sequence[Message | Exception]], FakeLLMClient]
 
 @pytest.fixture(autouse=True)
 def install_fake() -> Iterator[Installer]:
-    """Overrides get_client for every test; restores the prior overrides on the way out.
+    """Overrides get_client and get_judge for every test; restores the prior overrides after.
 
     Starts with an EMPTY script: a test that reaches the model without installing its own
-    fails on the fake's unscripted-call guard, never by building a real client.
+    fails on the fake's unscripted-call guard, never by building a real client. The judge is
+    None until a test installs one (L318).
     """
     prior = dict(app.dependency_overrides)
 
@@ -111,6 +131,7 @@ def install_fake() -> Iterator[Installer]:
         return fake
 
     install([])
+    app.dependency_overrides[get_judge] = lambda: None
     try:
         yield install
     finally:
@@ -216,6 +237,60 @@ def test_route_checks_the_note_it_returns_against_the_exact_paste(
     assert raw_text == GROUNDED_PASTE  # L87: never stripped
     assert case is None
     assert config == settings.checks_config()  # L187: built at the edge, from settings
+
+
+# --- the judge in the route (§9.1, §14; invariant 7; L318) ------------------------------
+
+
+def test_route_hands_get_judges_judge_to_the_checks(
+    client: TestClient, install_fake: Installer
+) -> None:
+    # L318: with a judge, production mode selects the judged check, and the report carries
+    # the judge's usage (L7)
+    judge = FakeJudge(
+        usage=TokenUsage(input_tokens=7, output_tokens=3), script=entail_all_but("fact-1")
+    )
+    app.dependency_overrides[get_judge] = lambda: judge
+    install_fake([tool_use_message(VALID_INPUT)])
+    report = client.post("/summarize", json={"raw_text": GROUNDED_PASTE}).json()["report"]
+    assert "text_entailment_judge" in report["checks_run"]
+    (judged,) = [r for r in report["results"] if r["check"] == "text_entailment_judge"]
+    assert (judged["severity"], judged["passed"], judged["claim_ids"]) == ("warning", False, [0])
+    assert report["judge_usage"] == {"input_tokens": 7, "output_tokens": 3}
+    assert [[text for text, _ in call] for call in judge.calls] == [["fact-1"]]
+
+
+def _critical(body: dict[str, Any]) -> list[dict[str, Any]]:
+    return [r for r in body["report"]["results"] if r["severity"] == "critical"]
+
+
+def test_a_judge_timeout_errors_its_check_and_the_note_returns(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    # §14, invariant 7: a judge that times out errors its WARNING alone; the note returns, and
+    # the CRITICAL results are a run's without the judge. The real APITimeoutError on purpose:
+    # the app maps it to 504 (§9.4), and a judge's must never reach that handler.
+    caplog.set_level(logging.DEBUG)
+    install_fake([tool_use_message(VALID_INPUT), tool_use_message(VALID_INPUT)])
+    off = client.post("/summarize", json={"raw_text": GROUNDED_PASTE}).json()
+    draft = SOAPNoteDraft.model_validate(VALID_INPUT)
+    (claim,) = ground(draft, GROUNDED_PASTE, config=settings.checks_config()).claims
+    clause = clause_text(claim, GROUNDED_PASTE)
+    assert clause is not None
+    judge_client = FakeJudgeClient({_user_message(claim.text, clause): _timeout_error()})
+    app.dependency_overrides[get_judge] = lambda: AnthropicJudge(judge_client)
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
+    assert response.status_code == 200
+    on = response.json()
+    assert on["note"] == off["note"]
+    (judged,) = [r for r in on["report"]["results"] if r["check"] == "text_entailment_judge"]
+    assert (judged["severity"], judged["passed"], judged["errored"]) == ("warning", False, True)
+    assert _critical(on) == _critical(off)
+    assert on["report"]["all_critical_passed"] is off["report"]["all_critical_passed"] is True
+    assert len(judge_client.messages.calls) == 1
+    assert "check=text_entailment_judge exc_type=APITimeoutError " in caplog.text
+    assert "upstream_timeout" not in caplog.text
+    assert CAUSE_SENTINEL not in caplog.text  # invariant 19: frames only, never the cause
 
 
 def test_response_model_is_the_edge_shape() -> None:
