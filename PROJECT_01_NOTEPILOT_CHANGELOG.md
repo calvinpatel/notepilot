@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,57 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.9.13 — 2c's runs (patch)
+
+Theme: 2c's close measures the judge live: a smoke run through the app with the judge on,
+then the corpus run twice at `f2b2363`, with the judge off (the re-baseline) and on.
+Recorded as v1.9.7 recorded v1.9's runs (L308, L309), with what the judged run's labels and
+its record's shape showed. Cal labeled the judged run's claims on Oct 23. No invariant
+moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L324 §14 — 2c's smoke run.** Fill: §14 repeats the smoke run at a phase close that
+  changes the request shape (L81), and the judge's call is new. Preflight at `f2b2363`:
+  `settings.model` is `claude-haiku-5-5`, `PROMPT_VERSION` a99d6d205d0e, `JUDGE_VERSION`
+  87fd74dbdba8, `CHECKS_VERSION` a7da5c8c930b, the SDK 1.9.0, every knob at its default but
+  the key and `judge_enabled`, and `models.retrieve` reports `max_tokens` 128,000, matching
+  `model_max_output_tokens` (L85). v0.1-spine's encounter (943 chars) through `GET /`, with
+  the judge on: one validation attempt, 1,925 input and 1,075 output tokens; 21 claims, each
+  grounded clean; 22 upstream calls, all 200, summarize's and one judge call per claim with
+  a span; the judge's 20,773 input and 1,029 output tokens, 49 per call; 13 checks ran, none
+  errored or fired, and the judge entailed every claim. The request took 9.52 s, the judge's
+  calls about 5.7 s of it, so summarize's call ran about 280 output tokens a second: L198's
+  bound stands.
+- **L325 §8.7, §14 — 2c's corpus runs.** Fill: §14 records the corpus with the judge on and
+  off. Both runs at `f2b2363` on a clean tree, `corpus_version` 040ccf7c0d67. With the judge
+  off, the re-baseline: all 72 repeats pass, each in one validation attempt, the four
+  metrics 1.0 but `fidelity_caught`, which has no denominator, and no case is flaky; 115,251
+  input and 15,535 output tokens. With the judge on, the same verdicts and metrics;
+  summarize's 115,251 and 15,521 tokens, and the judge's 292 calls, one per claim with a
+  span, 288,072 input and 14,308 output tokens (49 per call). The judged check never errored
+  and fired on one repeat (`fidelity_nsaid_intolerance`, repeat 0); the run's drafts,
+  replayed without the judge, fire everything else the run fired, so that repeat is the
+  judge's whole difference. Between the two runs' drafts, `quote_informativeness` fired on 2
+  and 3 repeats of `fidelity_no_htn_urgency`. Both records replay as they ran under today's
+  checks and under v1.9's (`6870541`), so 2c's checks moved no verdict. Entry 36's scan of
+  both runs' 292 claims finds no side charted after its site and none joined by "/", "&", or
+  "L, R"; `laterality_consistency` fired on no repeat.
+- **L326 §8.8 — a judged run names the repeats the judge fired on, not the claims.** Fill:
+  §8.8 states a cost the judged run measured. A row records the checks that fired, not their
+  claims; a replay recovers a deterministic check's claims for free (§11, L294), but the
+  judge's verdicts don't replay. The judged run's one flagged repeat holds five claims, and
+  the record can't say which the judge rejected. The deferred-amendments issue holds the
+  decision (entry 41).
+- **L327 §8.8 — the judge on a real run.** Fill: §8.8 measured the judge only in the probe.
+  Cal labeled the judged run's 118 distinct (claim, clause) pairs against the judge's own
+  rule, shuffled, with no verdict shown. He labels one not entailed, "Tylenol 1 g PO TID as
+  needed" citing "Tylenol 1 g tid prn", a supplied route no deterministic check reads (entry
+  38), and it sits in the one repeat the judge flagged; the judge passed every claim of the
+  other 71 repeats, and he labels each entailed. That one label wasn't blind: the design
+  room had named the claim as the judge's likely rejection before he labeled. One labeler,
+  the author, and a run in which 89 of the 118 claims copy their clause: the probe's
+  adversarial pairs remain the harder test.
 
 ## v1.9.12 — a judged corpus run (patch)
 

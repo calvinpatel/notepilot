@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.9.12** (patch — a judged corpus run, October 2026). Supersedes v1.9.11.
+**Spec version: v1.9.13** (patch — 2c's runs, October 2026). Supersedes v1.9.12.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -855,7 +855,8 @@ and both records' 144 repeats all pass (measured). Live on v1.8's code, all 72 r
 (L284): the model still splits the plan off, and replayed under v1.7's checks its drafts
 fail the same 9, so the checks moved the number, not the drafts. Live on v1.9's code, all 72
 pass again (L309): this run's drafts replay unmoved under v1.8's checks, and v1.8's under
-v1.9's.
+v1.9's. Live on 2c's code, with the judge off and on, all 72 pass again (L325), and both
+runs' drafts replay unmoved under v1.9's checks.
 
 ### 5.4 The boundary: validate, and self-correct
 
@@ -2886,18 +2887,28 @@ know, stated plainly (v1.3):
   longer afebrile" passes every check, since `quote_informativeness` exempts the word as it
   exempts NKDA (measured). Read as negated instead, the word would flip inside every negated
   list ("denies chills, afebrile"), which is everyday charting.
-- **Judge quality** (L315). Measured once, in 2c.3's probe, against labels the author wrote,
-  never against a clinician's, three repeats each. On the 290 pairs of v1.9's record and the
-  29 of the injected cases, it rejected no pair the author labels entailed, and it rejected
-  each of the 10 injected unsupported claims, the invented assessment among them, 3 of 3. On
-  62 adversarial pairs, 173 of its 186 verdicts agree with the labels. It passes a dropped
-  "history of" ("Myocardial infarction" citing "Hx of MI 2018"), which no deterministic
-  check reads in production mode either (entry 39), and a unit supplied for a drug the
-  lexicon doesn't name ("Atorvastatin 40 mg nightly" citing "atorvastatin 40 nightly", entry
-  40), each 3 of 3. It rejects a dropped frequency ("Metoprolol increased to 50 mg" citing
-  "Increase metoprolol to 50 mg daily") and a side charted after its site ("Right hip pain"
-  citing "Knee & hip pain, R side"), each 3 of 3, and its verdict on one pair ("20
-  pack-year") flipped once in three.
+- **Judge quality** (L315, L327). Measured against labels the author wrote, never against a
+  clinician's: in 2c.3's probe, three repeats each, and on 2c's judged corpus run. In the
+  probe, on the 290 pairs of v1.9's record and the 29 of the injected cases, it rejected no
+  pair the author labels entailed, and it rejected each of the 10 injected unsupported
+  claims, the invented assessment among them, 3 of 3. On 62 adversarial pairs, 173 of its
+  186 verdicts agree with the labels. It passes a dropped "history of" ("Myocardial
+  infarction" citing "Hx of MI 2018"), which no deterministic check reads in production mode
+  either (entry 39), and a unit supplied for a drug the lexicon doesn't name ("Atorvastatin
+  40 mg nightly" citing "atorvastatin 40 nightly", entry 40), each 3 of 3. It rejects a
+  dropped frequency ("Metoprolol increased to 50 mg" citing "Increase metoprolol to 50 mg
+  daily") and a side charted after its site ("Right hip pain" citing "Knee & hip pain, R
+  side"), each 3 of 3, and its verdict on one pair ("20 pack-year") flipped once in three.
+  On the judged run (L325), it flagged one of 72 repeats. Of the run's 118 distinct claims
+  the author labels one not entailed, a supplied route ("Tylenol 1 g PO TID as needed"
+  citing "Tylenol 1 g tid prn"), and it sits in that repeat; the judge passed every claim of
+  the other 71, all of which the author labels entailed. The author labeled 117 of the 118
+  blind; that one wasn't.
+- **A judged run names the repeats the judge fired on, not the claims** (L326). A row
+  records the checks that fired, not their claims. A replay recovers a deterministic check's
+  claims for free (§11), but the judge's verdicts don't replay, so a judged run can't say
+  which claim the judge rejected: the judged run's one flagged repeat holds five claims. The
+  deferred-amendments issue holds the decision (entry 41).
 - **The judge's usage, a floor** (L316). `judge_usage` sums the replies that came back. A
   call cancelled when another of its note's calls fails, and an attempt that times out
   before the SDK retries it, add nothing, whatever the API bills for them.
