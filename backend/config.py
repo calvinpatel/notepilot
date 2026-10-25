@@ -2,9 +2,11 @@
 
 Every field declares its domain (L77). `max_output_tokens` is a read-only property derived
 from `max_input_chars` and `output_tokens_per_input_char` (L94), checked against the model's
-declared output ceiling at construction (L16, L72). Four boot checks beyond the fields'
+declared output ceiling at construction (L16, L72). Five boot checks beyond the fields'
 bounds, each a validation error: the derived output ceiling, the input bounds, runs_path's
-.jsonl name (L232), and a judge timeout below summarize's (L314).
+.jsonl name (L232), a judge timeout below summarize's (L314), and, with persist_enabled, a
+database_url on the asyncpg driver (L341). A boot error names its rule, never the input,
+which holds the key and the database password (L341).
 
 Tests run with dotenv disabled; see tests/conftest.py.
 """
@@ -33,11 +35,16 @@ def _dotenv_path(env: Mapping[str, str]) -> Path | None:
 
 class Settings(BaseSettings):
     # frozen: a mutable settings object could bypass the boot checks after construction.
-    model_config = SettingsConfigDict(env_file=_dotenv_path(os.environ), frozen=True)
+    # hide_input_in_errors (L341): a failed check's message would otherwise end with the raw
+    # input, the key and the database URL's password among it (invariant 19).
+    model_config = SettingsConfigDict(
+        env_file=_dotenv_path(os.environ), frozen=True, hide_input_in_errors=True
+    )
 
-    # min_length=1 and nothing else, ever. A failed constraint prints input_value in the
-    # boot traceback, so any check that can reject a non-empty key would leak it into logs
-    # (invariant 19). min_length=1 can only reject "".
+    # min_length=1 and nothing else, ever. hide_input_in_errors keeps the input out of an
+    # error's message, but errors() still carries it, so a check that can reject a non-empty
+    # key could leak it wherever errors() were logged (invariant 19). min_length=1 can only
+    # reject "".
     anthropic_api_key: SecretStr = Field(min_length=1)  # required (L77)
 
     # A pinned model id (L84) — never an alias, never validated with a date regex. Its
@@ -91,6 +98,11 @@ class Settings(BaseSettings):
     corpus_repeats: int = Field(3, ge=1)
     corpus_concurrency: int = Field(1, ge=1)
     runs_path: Path = Path("backend/evals/runs/corpus_runs.jsonl")
+
+    # Persistence (§9.5, §9.6): off unless persist_enabled, as the public demo runs it (§9.8).
+    # database_url is the asyncpg DSN, a secret because it carries the password (L341).
+    persist_enabled: bool = False
+    database_url: SecretStr | None = None
 
     def checks_config(self) -> ChecksConfig:
         """The verdict knobs, for the edge to pass inward: the domain reads no settings (L187)."""
@@ -165,5 +177,28 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _database_url_when_persisting(self) -> Self:
+        """persist_enabled needs a database_url on the asyncpg driver (§9.8, L341).
 
-settings = Settings()
+        Without one, persist() would fail on every request, logged and swallowed (§9.6).
+        Neither message shows the URL: it carries the password.
+        """
+        if not self.persist_enabled:
+            return self
+        if self.database_url is None:
+            raise PydanticCustomError(
+                "database_url_missing",
+                "persist_enabled needs database_url; set it, or leave persist_enabled off",
+                {},
+            )
+        if not self.database_url.get_secret_value().startswith("postgresql+asyncpg://"):
+            raise PydanticCustomError(
+                "database_url_not_asyncpg",
+                "database_url must name the postgresql+asyncpg:// driver (§9.8)",
+                {},
+            )
+        return self
+
+
+settings = Settings.model_validate({})

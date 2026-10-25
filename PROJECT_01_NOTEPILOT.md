@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.2** (patch — v1.10's runs, October 2026). Supersedes v1.10.1.
+**Spec version: v1.10.3** (patch — persistence's settings, October 2026). Supersedes
+v1.10.2.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3500,7 +3501,8 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   `min_quote_content_tokens` (D15; default 2, L161) — the cutoff and the token minimum
   reach the domain only through `settings.checks_config()`, called at the edge (L187);
   `judge_enabled` (default false, read per request by `get_judge`, L318);
-  `judge_concurrency` (`ge=1`, default 4, L314); `persist_enabled`;
+  `judge_concurrency` (`ge=1`, default 4, L314); `persist_enabled` (default false, §9.8)
+  and `database_url` (a `SecretStr`, None unless set: the asyncpg DSN, L341);
   `corpus_concurrency` (`ge=1`, default 1, L209);
   `corpus_repeats` (D11, `ge=1`, default 3);
   `daily_token_budget` (None unless set: no cap, L332), `max_request_tokens` (L56);
@@ -3518,7 +3520,12 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   name a `.jsonl` file (L232): a run writes its record there last, after the spend, so a bad
   path must fail at boot. A third rejects `judge_timeout_s >= llm_timeout_s` (L314): the
   judge's call is the shorter one (L54). A fourth rejects `judge_enabled` with
-  `daily_token_budget` set (L332): the route never judges under a budget.
+  `daily_token_budget` set (L332): the route never judges under a budget. With
+  `persist_enabled` on, another requires a `database_url` on the `postgresql+asyncpg://`
+  driver (L341): without one, `persist()` would fail on every request, logged and
+  swallowed (§9.6). `Settings` hides its input in validation errors (L341): a failed
+  check's message would otherwise end with the raw input, and a URL from `.env` arrives
+  raw, password and all; `errors()` still carries it.
   `ChecksConfig` (§4.2) re-declares its two fields'
   bounds, so a config built in a test can't go out of range either; a test pins the two
   copies equal (L187). `CorpusRunRecord`'s `repeats` and `concurrency` declare the two
@@ -3528,8 +3535,10 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   `ANTHROPIC_API_KEY` before anything imports `backend`; CI needs no secret, because no test
   reaches the network. *Test:* a missing key, a negative retry count,
   `min_input_chars >= max_input_chars`, a `runs_path` that isn't a `.jsonl` file, a
-  `judge_timeout_s` not below `llm_timeout_s`, and `judge_enabled` with a
-  `daily_token_budget` each raise at `Settings()` construction.
+  `judge_timeout_s` not below `llm_timeout_s`, `judge_enabled` with a `daily_token_budget`,
+  and `persist_enabled` without a `database_url` or with one off the asyncpg driver each
+  raise at `Settings()` construction, and a failed check's message shows no database
+  password.
 - **Degenerate input (v1.3, L55, L58) — three paths, not one.** A paste whose content
   (stripped length, L87) is shorter than `min_input_chars` → 422 at the route (v1.2's
   example, "hello," never reached the pipeline; this is where it was rejected). A long

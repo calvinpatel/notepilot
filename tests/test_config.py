@@ -1,4 +1,4 @@
-"""Pins config wiring (spec §10; L209, L232, L233, L314).
+"""Pins config wiring (spec §10; L209, L232, L233, L314, L341).
 
 Settings is built at import time, so test_dotenv_disabled_under_pytest sees the
 environment conftest set before backend was first imported. _dotenv_path is pure,
@@ -70,6 +70,8 @@ def _settings(
     runs_path: Path = _RUNS_PATH,
     model: str = "model-id-1",
     anthropic_api_key: SecretStr = _DUMMY_KEY,
+    persist_enabled: bool = False,
+    database_url: SecretStr | None = None,
 ) -> Settings:
     return Settings(
         anthropic_api_key=anthropic_api_key,
@@ -88,6 +90,8 @@ def _settings(
         corpus_repeats=corpus_repeats,
         corpus_concurrency=corpus_concurrency,
         runs_path=runs_path,
+        persist_enabled=persist_enabled,
+        database_url=database_url,
     )
 
 
@@ -322,6 +326,67 @@ def test_judge_timeout_below_llm_timeout_accepted() -> None:
     assert (s.judge_timeout_s, s.llm_timeout_s) == (29.5, 30.0)
 
 
+# --- persistence: off by default, and a database_url when on (§9.8, §10; L341) --------
+
+_ASYNCPG_URL = SecretStr("postgresql+asyncpg://localhost/notepilot_test")
+
+
+def test_persistence_is_off_and_unaddressed_by_default() -> None:
+    fields = Settings.model_fields
+    assert (fields["persist_enabled"].default, fields["database_url"].default) == (False, None)
+
+
+def test_persisting_without_a_database_url_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(persist_enabled=True)
+    (err,) = exc.value.errors()
+    assert err["type"] == "database_url_missing"
+    assert err["loc"] == ()
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["postgresql://localhost/notepilot_test", "sqlite+aiosqlite:///notes.db"],
+    ids=["sync-driver", "another-database"],
+)
+def test_a_database_url_off_the_asyncpg_driver_rejected(url: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(persist_enabled=True, database_url=SecretStr(url))
+    (err,) = exc.value.errors()
+    assert err["type"] == "database_url_not_asyncpg"
+    assert err["loc"] == ()
+
+
+def test_an_asyncpg_database_url_accepted_and_masked() -> None:
+    s = _settings(persist_enabled=True, database_url=_ASYNCPG_URL)
+    assert s.database_url == _ASYNCPG_URL
+    assert "notepilot_test" not in repr(s)
+
+
+def test_a_database_url_goes_unread_while_persistence_is_off() -> None:
+    # Nothing connects with persistence off, so a URL left in .env can't stop a boot.
+    s = _settings(database_url=SecretStr("postgresql://localhost/notepilot_test"))
+    assert s.persist_enabled is False
+
+
+def test_a_boot_error_shows_no_database_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    # L341: a failed check's message ends with its raw input, and a URL from .env or the
+    # environment arrives raw, so without hide_input_in_errors the password would print
+    # (measured). Each knob's env var goes first, so none adds or masks an error.
+    for name in Settings.model_fields:
+        if name != "anthropic_api_key":
+            monkeypatch.delenv(name.upper(), raising=False)
+    password = "pw-sentinel-91c2"
+    url = f"postgresql+asyncpg://u:{password}@h/d"
+    with pytest.raises(ValidationError) as exc:
+        Settings.model_validate(
+            {"max_input_chars": 10, "persist_enabled": True, "database_url": url}
+        )
+    (err,) = exc.value.errors()
+    assert err["type"] == "input_bounds_inverted"
+    assert password not in str(exc.value)
+
+
 # --- max_output_tokens: derived, checked against the ceiling (L16, L72, L94) ------
 
 
@@ -388,7 +453,7 @@ def test_api_key_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in Settings.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)
     with pytest.raises(ValidationError) as exc:
-        Settings()
+        Settings.model_validate({})
     (err,) = exc.value.errors()
     assert err["type"] == "missing"
     assert err["loc"] == ("anthropic_api_key",)
@@ -452,7 +517,7 @@ def test_defaults_construct(monkeypatch: pytest.MonkeyPatch) -> None:
     # Values are deliberately not asserted: that would be a change detector.
     for name in _KNOB_ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
-    Settings()
+    Settings.model_validate({})
 
 
 _ENV_EXAMPLE = Path(__file__).resolve().parent.parent / ".env.example"
