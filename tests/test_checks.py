@@ -1,6 +1,6 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.2, §8.4; D6,
 D8-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306,
-L307, L310, L311)."""
+L307, L310, L311, L338)."""
 
 from collections.abc import Callable
 
@@ -595,7 +595,7 @@ def test_presence_and_status_split_one_error_into_one_finding(
     assert _named(check_med_status_consistency(note, raw, config=CHECKS_CONFIG)) == status
 
 
-# --- laterality_consistency (§8.4, L285, L286, L306) -------------------------------------
+# --- laterality_consistency (§8.4, L285, L286, L306, L338) -------------------------------
 
 
 def test_laterality_consistency_is_a_reference_free_critical_check() -> None:
@@ -655,6 +655,14 @@ def test_laterality_consistency_is_a_reference_free_critical_check() -> None:
             ["knee pain: left in the claim, right in its source span"],
         ),
         ("Right-sided chest pain", "Chest pain on the left", []),
+        # §8.8's costs (L338): a corrected side passes the side taken back, and a finding
+        # shared by "also" fires on the faithful side
+        ("Right knee swelling", "Right knee swelling, I mean left knee swelling", []),
+        (
+            "Right knee swollen",
+            "Left knee swollen, right knee also",
+            ["knee swollen: right in the claim, left in its source span"],
+        ),
     ],
 )
 def test_laterality_consistency_compares_sides_at_a_site_both_name(

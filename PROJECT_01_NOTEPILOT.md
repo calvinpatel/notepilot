@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10** (minor — before the deploy, October 2026). Supersedes v1.9.14.
+**Spec version: v1.10.1** (patch — two laterality costs, October 2026). Supersedes v1.10.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2846,6 +2846,15 @@ know, stated plainly (v1.3):
   consolidation" or "RLE edema", and a "right lower lobe" one by "RLQ tenderness"
   (measured). No case labels one yet; the deferred-amendments issue holds the fix (entry
   37).
+  A side the speaker corrects reads both sides at its site, so a claim keeping the side
+  taken back passes: "Right knee swelling" citing "Right knee swelling, I mean left knee
+  swelling" or "Right knee swollen" citing "right knee, sorry, scratch that, it's the left
+  knee" fires nothing, a silent wrong-site claim (measured, L338); the deferred-amendments
+  issue holds it (entry 43). A finding shared by "also" or "too" stays at the first side's
+  two-word site, so a faithful "Right knee swollen" citing "Left knee swollen, right knee
+  also" fires `laterality_consistency`, a false CRITICAL, as does one citing "Left knee
+  swollen, correction, right knee" (measured, L338); the deferred-amendments issue holds it
+  (entry 44).
 - **A quote that borrows from its clause** (L261). The claim-local family reads a span in
   its clause, so a quote naming no drug passes `drug_in_quote` when its clause names one:
   "Resume metformin in 48 hours" citing "resume in 48 hours" in "Metformin held for CT with

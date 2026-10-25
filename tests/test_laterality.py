@@ -1,7 +1,7 @@
 """extract_laterality: a side and the site after it (L285, L304, L305).
 
-The fills L304 and L305 make, and the costs §8.8 states (L306), are pinned here; the check
-that reads these sides lands in its own commit (L286).
+The fills L304 and L305 make, and the costs §8.8 states (L306, L338), are pinned here; the
+check that reads these sides lands in its own commit (L286).
 """
 
 import pytest
@@ -60,6 +60,18 @@ type _Sides = dict[str, set[Side]]
         ("Left & right knee pain", {"knee pain": {"right"}}, {"knee": {"right"}}),
         ("L, R knee pain", {"knee pain": {"right"}}, {"knee": {"right"}}),
         ("Chest pain on the left", {}, {}),
+        # §8.8's costs (L338): a corrected side reads both sides at its site, and a finding
+        # shared by "also" stays at the first side's two-word site
+        (
+            "Right knee swelling, I mean left knee swelling",
+            {"knee swelling": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Left knee swollen, right knee also",
+            {"knee swollen": {"left"}, "knee also": {"right"}},
+            {"knee": {"left", "right"}},
+        ),
         # §8.8 (L285): no table lists these
         ("Edema L>R, both knees swollen, OD pain", {}, {}),
     ],
