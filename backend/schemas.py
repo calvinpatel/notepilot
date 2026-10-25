@@ -155,6 +155,7 @@ class EvalReport(BaseModel):
     checks_version: str  # L45
     judge_usage: TokenUsage = Field(default_factory=TokenUsage)  # L7
     checks_config: ChecksConfig  # L334: as run_checks was handed it (L187); defined below
+    judge_version: str | None  # L336: the judge's own version (§8.2), None when no judge ran
 
     @property
     def critical_results(self) -> list[EvalResult]:

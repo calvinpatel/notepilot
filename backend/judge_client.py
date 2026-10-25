@@ -181,11 +181,15 @@ class _Verdicts(BaseModel):
 
 
 class AnthropicJudge:
-    """Satisfies evals' Judge (L111); usage sums the calls it has made that returned (L7)."""
+    """Satisfies evals' Judge (L111); usage sums the calls it has made that returned (L7).
+
+    Its version is JUDGE_VERSION, which a report it judged names (L336).
+    """
 
     def __init__(self, client: JudgeLLMClient) -> None:
         self._client = client
         self.usage = TokenUsage()
+        self.version = JUDGE_VERSION
 
     async def entailment(self, pairs: Sequence[tuple[str, str]]) -> list[bool]:
         """One verdict per pair, in order: one call each, judge_concurrency at once (L312)."""

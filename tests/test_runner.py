@@ -204,6 +204,15 @@ async def test_the_report_carries_the_config_it_was_handed(registry: dict[str, C
     assert report.checks_config == config
 
 
+@pytest.mark.anyio
+async def test_the_report_names_the_judge_that_judged_it(registry: dict[str, Check]) -> None:
+    # L336: the judge's own version, stamped as its usage is (L7); None without a judge
+    judge = FakeJudge(version="judge-version-1")
+    judged = await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG, judge=judge)
+    unjudged = await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
+    assert (judged.judge_version, unjudged.judge_version) == ("judge-version-1", None)
+
+
 # --- fail-closed (invariant 12) -----------------------------------------------
 
 
@@ -383,6 +392,7 @@ def _report(results: list[EvalResult], ran: set[str] | None = None) -> EvalRepor
         checks_run=checks_run,
         checks_version="version-1",
         checks_config=CHECKS_CONFIG,
+        judge_version=None,
     )
 
 

@@ -383,6 +383,7 @@ type JudgeScript = Callable[[Sequence[tuple[str, str]]], list[bool]]
 @dataclass
 class FakeJudge:
     usage: TokenUsage = field(default_factory=TokenUsage)
+    version: str = "fake-judge-version"  # never JUDGE_VERSION, so a stamp of the constant shows
     script: JudgeScript | None = None
     calls: list[list[tuple[str, str]]] = field(default_factory=list)
 

@@ -11,6 +11,7 @@ from backend.schemas import TokenUsage
 
 class Judge(Protocol):
     usage: TokenUsage  # what this judge's calls have cost (L7)
+    version: str  # what a report this judge judged names (L336)
 
     async def entailment(self, pairs: Sequence[tuple[str, str]]) -> list[bool]:
         """One verdict per (text, span) pair, in order: is the text entailed by the span?"""

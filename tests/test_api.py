@@ -189,6 +189,7 @@ def test_happy_path_returns_note_report_and_metadata(
     assert report["all_critical_passed"] is True  # the verdict travels with the report (L102)
     assert report["judge_usage"] == {"input_tokens": 0, "output_tokens": 0}  # no judge (L7)
     assert report["checks_config"] == settings.checks_config().model_dump()  # L334
+    assert report["judge_version"] is None  # L336: no judge
     assert body["metadata"]["model"] == settings.model
     assert body["metadata"]["prompt_version"] == PROMPT_VERSION
     assert body["metadata"]["usage"] == {"input_tokens": 123, "output_tokens": 456}
@@ -247,7 +248,7 @@ def test_route_hands_get_judges_judge_to_the_checks(
     client: TestClient, install_fake: Installer
 ) -> None:
     # L318: with a judge, production mode selects the judged check, and the report carries
-    # the judge's usage (L7)
+    # the judge's usage (L7) and its version (L336)
     judge = FakeJudge(
         usage=TokenUsage(input_tokens=7, output_tokens=3), script=entail_all_but("fact-1")
     )
@@ -258,6 +259,7 @@ def test_route_hands_get_judges_judge_to_the_checks(
     (judged,) = [r for r in report["results"] if r["check"] == "text_entailment_judge"]
     assert (judged["severity"], judged["passed"], judged["claim_ids"]) == ("warning", False, [0])
     assert report["judge_usage"] == {"input_tokens": 7, "output_tokens": 3}
+    assert report["judge_version"] == judge.version
     assert [[text for text, _ in call] for call in judge.calls] == [["fact-1"]]
 
 

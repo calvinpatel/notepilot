@@ -236,7 +236,9 @@ async def test_settings_wire_the_model_the_timeout_and_the_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Non-defaults, so a hard-coded value or a missing semaphore changes what's observed.
-    patched = Settings(model="model-id-patched", judge_timeout_s=7.5, judge_concurrency=2)
+    patched = Settings.model_validate(
+        {"model": "model-id-patched", "judge_timeout_s": 7.5, "judge_concurrency": 2}
+    )
     monkeypatch.setattr("backend.judge_client.settings", patched)
     pairs = [(f"claim {i}", f"source {i}") for i in range(5)]
     fake = FakeJudgeClient({_user_message(*p): _verdict(True) for p in pairs})
@@ -301,7 +303,9 @@ async def test_a_failed_call_cancels_the_notes_pending_calls_and_raises_itself(
 ) -> None:
     # L312: fail closed. One call waits, one fails, and one is queued behind the cap of 2;
     # the failure frees a place, so the queued one may start before it's cancelled (measured).
-    monkeypatch.setattr("backend.judge_client.settings", Settings(judge_concurrency=2))
+    monkeypatch.setattr(
+        "backend.judge_client.settings", Settings.model_validate({"judge_concurrency": 2})
+    )
     waits, fails, queued = (("claim a", "a"), ("claim b", "b"), ("claim c", "c"))
     failure = _CallFailed()
     fake = FakeJudgeClient(
@@ -357,14 +361,19 @@ def test_get_judge_builds_a_new_judge_on_the_one_client_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Non-default: judge_enabled is False unless set
-    monkeypatch.setattr("backend.judge_client.settings", Settings(judge_enabled=True))
+    monkeypatch.setattr(
+        "backend.judge_client.settings", Settings.model_validate({"judge_enabled": True})
+    )
     judge = get_judge()
     assert isinstance(judge, AnthropicJudge)
     assert judge._client is anthropic_client()  # L319: the client summarize uses
     assert judge.usage == TokenUsage()
+    assert judge.version == JUDGE_VERSION  # L336: what a report it judges names
     assert get_judge() is not judge  # never cached: a judge's usage is one report's (L7)
 
 
 def test_get_judge_is_none_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("backend.judge_client.settings", Settings(judge_enabled=False))
+    monkeypatch.setattr(
+        "backend.judge_client.settings", Settings.model_validate({"judge_enabled": False})
+    )
     assert get_judge() is None

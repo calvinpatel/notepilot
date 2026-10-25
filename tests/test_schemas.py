@@ -293,6 +293,7 @@ def _report(*results: EvalResult) -> EvalReport:
         checks_run=frozenset({"check-1"}),
         checks_version="hash-1",
         checks_config=ChecksConfig(fuzzy_score_cutoff=90.0, min_quote_content_tokens=2),
+        judge_version=None,
     )
 
 
@@ -374,11 +375,31 @@ def test_judge_usage_defaults_to_zero() -> None:
 
 def test_eval_report_requires_its_checks_config() -> None:
     # L334: a report names the knobs it was checked under, with no default to fall back on
-    data = {"results": [], "checks_run": [], "checks_version": "hash-1"}
+    data: dict[str, object] = {
+        "results": [],
+        "checks_run": [],
+        "checks_version": "hash-1",
+        "judge_version": None,
+    }
     with pytest.raises(ValidationError) as exc:
         EvalReport.model_validate(data)
     (err,) = exc.value.errors()
     assert (err["type"], err["loc"]) == ("missing", ("checks_config",))
+
+
+def test_eval_report_requires_its_judge_version() -> None:
+    # L336: None says no judge ran, so it is stated, never defaulted
+    config = {"fuzzy_score_cutoff": 90.0, "min_quote_content_tokens": 2}
+    data: dict[str, object] = {
+        "results": [],
+        "checks_run": [],
+        "checks_version": "hash-1",
+        "checks_config": config,
+    }
+    with pytest.raises(ValidationError) as exc:
+        EvalReport.model_validate(data)
+    (err,) = exc.value.errors()
+    assert (err["type"], err["loc"]) == ("missing", ("judge_version",))
 
 
 # --- the case contract (§4.2, §8.5; L9, L42, L103) ------------------------------
