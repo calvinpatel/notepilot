@@ -80,7 +80,7 @@ async def run_checks(
 
     Selected: every check in ci mode, the reference-free ones in production, and a judged
     check only when a judge is given (L49). Every check gets the config (L190), which the
-    caller builds at the edge (L187).
+    caller builds at the edge (L187), and the report carries it (L334).
     """
     selected = [
         c
@@ -128,6 +128,7 @@ async def run_checks(
         checks_run=frozenset(c.name for c in selected),
         checks_version=CHECKS_VERSION,
         judge_usage=judge.usage if judge is not None else TokenUsage(),
+        checks_config=config,
     )
 
 

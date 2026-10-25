@@ -41,7 +41,7 @@ from backend.schemas import (
     SummarizationResult,
     TokenUsage,
 )
-from tests.fakes import CHECKS_CONFIG, FakeJudge
+from tests.fakes import CHECKS_CONFIG, FakeJudge, checks_config_with
 
 _C, _W = Severity.CRITICAL, Severity.WARNING
 RAW = "raw text"
@@ -194,6 +194,14 @@ async def test_the_report_carries_the_judges_usage_and_checks_version(
     unjudged = await run_checks(_note(), RAW, mode="production", config=CHECKS_CONFIG)
     assert (judged.judge_usage, unjudged.judge_usage) == (usage, TokenUsage())  # L7
     assert judged.checks_version == CHECKS_VERSION  # L45
+
+
+@pytest.mark.anyio
+async def test_the_report_carries_the_config_it_was_handed(registry: dict[str, Check]) -> None:
+    # L334: the knobs that decided the verdicts, as the caller built them at the edge (L187)
+    config = checks_config_with(fuzzy_score_cutoff=95.0, min_quote_content_tokens=3)
+    report = await run_checks(_note(), RAW, mode="production", config=config)
+    assert report.checks_config == config
 
 
 # --- fail-closed (invariant 12) -----------------------------------------------
@@ -357,24 +365,25 @@ def _fidelity() -> EvalCase:
     return EvalCase(id="fidelity-1", species="fidelity", raw_text=RAW, trap="dropped")
 
 
-def _fired(check: str, severity: Severity) -> EvalResult:
-    return EvalResult(check=check, severity=severity, passed=False, detail="detail-1")
+def _fired(check: str, severity: Severity, *claim_ids: int) -> EvalResult:
+    return EvalResult(
+        check=check, severity=severity, passed=False, detail="detail-1", claim_ids=claim_ids
+    )
 
 
 def _clean_result(check: str, severity: Severity) -> EvalResult:
     return EvalResult(check=check, severity=severity, passed=True)
 
 
-def _fired_on(check: str, severity: Severity, *claim_ids: int) -> EvalResult:
-    return EvalResult(
-        check=check, severity=severity, passed=False, detail="detail-1", claim_ids=claim_ids
-    )
-
-
 def _report(results: list[EvalResult], ran: set[str] | None = None) -> EvalReport:
     """checks_run defaults to the checks the results name, as run_checks reports it."""
     checks_run = frozenset(ran if ran is not None else {r.check for r in results})
-    return EvalReport(results=results, checks_run=checks_run, checks_version="version-1")
+    return EvalReport(
+        results=results,
+        checks_run=checks_run,
+        checks_version="version-1",
+        checks_config=CHECKS_CONFIG,
+    )
 
 
 # §8.7's verdict table, row by row, then the edges its prose states
@@ -494,8 +503,8 @@ def test_case_result_names_the_claims_each_fired_check_fired_on() -> None:
     # L335: each fired check to its claims, sorted and once each, [] for a note-level finding;
     # a passed or errored check is absent
     results = [
-        _fired_on("contra", _C, 8, 1),
-        _fired_on("contra", _C, 1),
+        _fired("contra", _C, 8, 1),
+        _fired("contra", _C, 1),
         _fired("note", _W),
         _clean_result("drug", _C),
         _errored("crash", _W),

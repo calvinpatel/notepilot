@@ -188,6 +188,7 @@ def test_happy_path_returns_note_report_and_metadata(
     assert report["checks_version"] == CHECKS_VERSION
     assert report["all_critical_passed"] is True  # the verdict travels with the report (L102)
     assert report["judge_usage"] == {"input_tokens": 0, "output_tokens": 0}  # no judge (L7)
+    assert report["checks_config"] == settings.checks_config().model_dump()  # L334
     assert body["metadata"]["model"] == settings.model
     assert body["metadata"]["prompt_version"] == PROMPT_VERSION
     assert body["metadata"]["usage"] == {"input_tokens": 123, "output_tokens": 456}
@@ -381,7 +382,7 @@ def test_min_input_chars_is_read_at_call_time(
     # A non-default value on purpose (the test_orchestrator precedent): at the default, a
     # literal equal to it would change nothing observable. The guard reads settings at call
     # time, unlike max_length (test_max_input_chars_boundary_accepted).
-    patched = Settings(min_input_chars=40)
+    patched = Settings.model_validate({"min_input_chars": 40})
     assert patched.min_input_chars != settings.min_input_chars
     monkeypatch.setattr("backend.api.settings", patched)
     install_fake([_decoy()])

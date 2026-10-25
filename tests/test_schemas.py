@@ -289,7 +289,10 @@ def _result(severity: Severity, *, passed: bool, errored: bool = False) -> EvalR
 
 def _report(*results: EvalResult) -> EvalReport:
     return EvalReport(
-        results=list(results), checks_run=frozenset({"check-1"}), checks_version="hash-1"
+        results=list(results),
+        checks_run=frozenset({"check-1"}),
+        checks_version="hash-1",
+        checks_config=ChecksConfig(fuzzy_score_cutoff=90.0, min_quote_content_tokens=2),
     )
 
 
@@ -367,6 +370,15 @@ def test_all_critical_passed_is_serialized() -> None:
 
 def test_judge_usage_defaults_to_zero() -> None:
     assert _report().judge_usage == TokenUsage()
+
+
+def test_eval_report_requires_its_checks_config() -> None:
+    # L334: a report names the knobs it was checked under, with no default to fall back on
+    data = {"results": [], "checks_run": [], "checks_version": "hash-1"}
+    with pytest.raises(ValidationError) as exc:
+        EvalReport.model_validate(data)
+    (err,) = exc.value.errors()
+    assert (err["type"], err["loc"]) == ("missing", ("checks_config",))
 
 
 # --- the case contract (§4.2, §8.5; L9, L42, L103) ------------------------------

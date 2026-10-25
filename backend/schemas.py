@@ -154,6 +154,7 @@ class EvalReport(BaseModel):
     checks_run: frozenset[str]  # L44: what was selected, so "didn't run" isn't "didn't fire"
     checks_version: str  # L45
     judge_usage: TokenUsage = Field(default_factory=TokenUsage)  # L7
+    checks_config: ChecksConfig  # L334: as run_checks was handed it (L187); defined below
 
     @property
     def critical_results(self) -> list[EvalResult]:
