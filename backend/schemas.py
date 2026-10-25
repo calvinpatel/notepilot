@@ -259,6 +259,9 @@ class CaseResult(BaseModel):
     fired_critical: list[str]  # L224: those with a CRITICAL result, a finding not lowered (L38)
     missing_expected: list[str]  # expected_flags that did not fire
     unexpected_fired: list[str]  # fired but not expected, every severity: watched, not gated
+    # L335: each fired check to the claims it fired on, sorted, [] for a note-level finding;
+    # None where nothing was recorded (a crash, or a record written before the field)
+    fired_claim_ids: dict[str, list[int]] | None = None
     usage: TokenUsage | None  # L186: summarize's, every attempt
     validation_attempts: int | None = Field(ge=1)  # None with usage (L212)
     summarize_wall_s: float = Field(ge=0, allow_inf_nan=False)  # L201
@@ -282,6 +285,15 @@ class CaseResult(BaseModel):
     def _a_clean_row_replays(self) -> Self:  # L226: summarize returned both
         if self.error is None and (self.draft is None or self.usage is None):
             raise ValueError("a case without an error keeps its draft and its cost")
+        return self
+
+    @model_validator(mode="after")
+    def _claim_ids_name_the_fired_checks(self) -> Self:  # L335
+        ids = self.fired_claim_ids
+        if ids is not None and (
+            sorted(ids) != self.fired_checks or any(v != sorted(set(v)) for v in ids.values())
+        ):
+            raise ValueError("fired_claim_ids names each fired check's claims, sorted")
         return self
 
 

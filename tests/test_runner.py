@@ -365,6 +365,12 @@ def _clean_result(check: str, severity: Severity) -> EvalResult:
     return EvalResult(check=check, severity=severity, passed=True)
 
 
+def _fired_on(check: str, severity: Severity, *claim_ids: int) -> EvalResult:
+    return EvalResult(
+        check=check, severity=severity, passed=False, detail="detail-1", claim_ids=claim_ids
+    )
+
+
 def _report(results: list[EvalResult], ran: set[str] | None = None) -> EvalReport:
     """checks_run defaults to the checks the results name, as run_checks reports it."""
     checks_run = frozenset(ran if ran is not None else {r.check for r in results})
@@ -484,6 +490,23 @@ def test_case_result_takes_its_status_from_case_verdict(
     assert case_result(case, 0, report, _summarized(), summarize_wall_s=1.0).status == status
 
 
+def test_case_result_names_the_claims_each_fired_check_fired_on() -> None:
+    # L335: each fired check to its claims, sorted and once each, [] for a note-level finding;
+    # a passed or errored check is absent
+    results = [
+        _fired_on("contra", _C, 8, 1),
+        _fired_on("contra", _C, 1),
+        _fired("note", _W),
+        _clean_result("drug", _C),
+        _errored("crash", _W),
+    ]
+    row = case_result(_fidelity(), 0, _report(results), _summarized(), summarize_wall_s=1.0)
+    assert row.fired_claim_ids == {"contra": [1, 8], "note": []}
+    report = _report([_clean_result("drug", _C)])
+    clean = case_result(_fidelity(), 0, report, _summarized(), summarize_wall_s=1.0)
+    assert clean.fired_claim_ids == {}
+
+
 def test_a_lowered_finding_fires_but_not_at_critical() -> None:
     # L224: diagnosis_in_quote's downgrade is a CRITICAL check's WARNING finding
     report = _report([_fired("diagnosis", _W)])
@@ -514,6 +537,7 @@ def test_errored_case_is_failed_with_its_code_and_every_expected_flag_missing(
     assert row.missing_expected == ["contra", "drug"]
     assert row.fired_checks == row.fired_critical == row.unexpected_fired == []
     assert row.errored_checks == []
+    assert row.fired_claim_ids is None  # L335: no check result reached the row
     assert (row.usage, row.validation_attempts, row.draft) == (usage, attempts, draft)
     assert row.summarize_wall_s == 0.5
 
@@ -725,6 +749,14 @@ async def write_replay_snapshot() -> None:
         rows = ",\n".join(f"    {json.dumps(list(row))}" for row in await _replay(record))
         blocks.append(f"  {json.dumps(key)}: [\n{rows}\n  ]")
     _REPLAY_SNAPSHOT.write_text("{\n" + ",\n".join(blocks) + "\n}\n", encoding="utf-8")
+
+
+def test_the_judged_run_before_fired_claim_ids_reads_none_for_its_flagged_repeat() -> None:
+    # L335: f2b2363's judged run predates the field, so its one flagged repeat reads "not
+    # recorded", not "the judge fired on no claim" (L326)
+    (judged,) = [r for _, r in _records() if r.judge_enabled and r.git_sha.startswith("f2b2363")]
+    (row,) = [x for x in judged.cases if "text_entailment_judge" in x.fired_checks]
+    assert (row.case_id, row.repeat, row.fired_claim_ids) == ("fidelity_nsaid_intolerance", 0, None)
 
 
 @pytest.mark.anyio

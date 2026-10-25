@@ -45,7 +45,14 @@ from backend.schemas import (
     SummarizationResult,
     TokenUsage,
 )
-from tests.fakes import FakeJudge, KeyedFakeLLMClient, entail_all, text_message, tool_use_message
+from tests.fakes import (
+    FakeJudge,
+    KeyedFakeLLMClient,
+    entail_all,
+    entail_all_but,
+    text_message,
+    tool_use_message,
+)
 
 MESSAGE_SENTINEL: Final = "sentinel-msg-3c9e"
 CAUSE_SENTINEL: Final = "sentinel-cause-81d4"
@@ -316,6 +323,24 @@ async def test_the_judge_is_built_per_case_and_a_raise_building_it_loses_one_row
     assert [r.status for r in record.cases].count("passed") == 2
     assert (record.judge_enabled, record.judge_version) == (True, JUDGE_VERSION)  # L317
     assert record.judge_usage == TokenUsage(input_tokens=4, output_tokens=2)
+
+
+@pytest.mark.anyio
+async def test_a_judged_row_names_the_claim_the_judge_fired_on(
+    run_settings: Callable[..., Settings],
+    lineage: Callable[[KeyedFakeLLMClient], list[str]],
+) -> None:
+    # L335: the judge's verdicts don't replay (L326), so its row keeps the claim it rejected
+    run_settings(corpus_repeats=1)
+    client = KeyedFakeLLMClient({_raw("a"): [_ok()]})
+    lineage(client)
+    judge = FakeJudge(script=entail_all_but("Lungs clear"))
+    record = await score_corpus([_case("a")], client=client, judge_factory=lambda: judge)
+    (row,) = record.cases
+    assert (row.fired_checks, row.fired_claim_ids) == (
+        ["text_entailment_judge"],
+        {"text_entailment_judge": [1]},
+    )
 
 
 @pytest.mark.anyio

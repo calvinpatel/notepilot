@@ -161,7 +161,8 @@ def case_result(
 ) -> CaseResult:
     """One repeat's row when summarize returned and the checks ran (§8.7).
 
-    The status is case_verdict's. Each list of check names is sorted (L228).
+    The status is case_verdict's. Each list of check names is sorted (L228), and each fired
+    check maps to the claims it fired on, sorted (L335).
     """
     expected = set(case.expected_flags)
     fired_results = [r for r in report.results if not r.passed and not r.errored]
@@ -182,6 +183,10 @@ def case_result(
         summarize_wall_s=summarize_wall_s,
         draft=result.draft,
         errored_checks=sorted({r.check for r in report.results if r.errored}),
+        fired_claim_ids={
+            c: sorted({i for r in fired_results if r.check == c for i in r.claim_ids})
+            for c in sorted(fired)
+        },
     )
 
 
@@ -197,9 +202,9 @@ def errored_case(
 ) -> CaseResult:
     """One repeat's row when the pipeline failed: failed, with the error's code (L205, L53).
 
-    No check result reached the row, so it names no fired or errored check, and every
-    expected flag is missing (L228). The cost and the draft are whatever survived (L186,
-    L203).
+    No check result reached the row, so it names no fired or errored check, records no claim
+    ids (L335), and every expected flag is missing (L228). The cost and the draft are
+    whatever survived (L186, L203).
     """
     return CaseResult(
         case_id=case.id,

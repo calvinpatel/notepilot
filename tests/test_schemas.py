@@ -680,6 +680,42 @@ def test_case_result_without_an_error_keeps_its_draft_and_cost(lost: dict[str, o
     assert _row_error(data) == "Value error, a case without an error keeps its draft and its cost"
 
 
+def test_case_result_records_no_claim_ids_by_default() -> None:
+    # L335: a row written before the field loads, reading nothing recorded
+    assert CaseResult.model_validate(_row()).fired_claim_ids is None
+
+
+@pytest.mark.parametrize(
+    ("fired", "claim_ids"),
+    [([], {}), (["a", "b"], {"a": [0, 2], "b": []})],
+    ids=["none-fired", "claims-and-note-level"],
+)
+def test_case_result_accepts_claim_ids_for_exactly_the_fired_checks(
+    fired: list[str], claim_ids: dict[str, list[int]]
+) -> None:
+    row = CaseResult.model_validate(_row(fired_checks=fired, fired_claim_ids=claim_ids))
+    assert row.fired_claim_ids == claim_ids
+
+
+@pytest.mark.parametrize(
+    ("fired", "claim_ids"),
+    [
+        (["a", "b"], {"a": [0]}),
+        (["a"], {"a": [0], "b": [1]}),
+        (["a"], {"a": [2, 0]}),
+        (["a"], {"a": [0, 0]}),
+    ],
+    ids=["a-fired-check-missing", "a-check-that-didnt-fire", "unsorted", "repeated"],
+)
+def test_case_result_rejects_claim_ids_other_than_the_fired_checks_sorted(
+    fired: list[str], claim_ids: dict[str, list[int]]
+) -> None:
+    data = _row(fired_checks=fired, fired_claim_ids=claim_ids)
+    assert _row_error(data) == (
+        "Value error, fired_claim_ids names each fired check's claims, sorted"
+    )
+
+
 _RATES = (
     "detection_recall",
     "control_specificity",
