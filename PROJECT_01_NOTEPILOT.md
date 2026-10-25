@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.1** (patch — two laterality costs, October 2026). Supersedes v1.10.
+**Spec version: v1.10.2** (patch — v1.10's runs, October 2026). Supersedes v1.10.1.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -892,7 +892,8 @@ and both records' 144 repeats all pass (measured). Live on v1.8's code, all 72 r
 fail the same 9, so the checks moved the number, not the drafts. Live on v1.9's code, all 72
 pass again (L309): this run's drafts replay unmoved under v1.8's checks, and v1.8's under
 v1.9's. Live on 2c's code, with the judge off and on, all 72 pass again (L325), and both
-runs' drafts replay unmoved under v1.9's checks.
+runs' drafts replay unmoved under v1.9's checks. Live on v1.10's code, with the judge off,
+all 72 pass again (L340): its drafts replay unmoved under 2c's checks, 2c's under v1.10's.
 
 **The encounter is the whole user message (L329).** The paste reaches the model as the user
 message, undelimited, so a line in it that addresses the model reads like an instruction.
@@ -908,7 +909,8 @@ own guess stayed in S, a visit stating no assessment got none, and "Likely pneum
 its hedge. `<encounter>` tags and a plain-text document block were probed beside it and
 dropped: a pasted `</encounter>` broke out of the tags 2 of 3, and the document block lost a
 sulfa allergy charted "for the scribe" 2 of 3, which `allergy_preserved` caught at CRITICAL.
-The message is unchanged, and its form joins `PROMPT_VERSION` (§5.4). *Test:* the prompt
+The message is unchanged, and its form joins `PROMPT_VERSION` (§5.4). Live, the rule adds
+116 input tokens to every call (L339) and moved no corpus verdict (L340). *Test:* the prompt
 carries the rule, first under RULES.
 
 ### 5.4 The boundary: validate, and self-correct
@@ -3819,8 +3821,10 @@ the request shape is unchanged (L179): the response and the page are new, and re
 output meets `ground()` and `run_checks` for the first time. The tag records what it
 renders; a finding it shows is recorded, not fixed. 2b's close runs none (L250): the request
 shape is unchanged since v1.4's smoke run, and the baseline's 72 calls ran on it. 2c's close
-runs one with the judge on (L324): the judge's call is a new request shape. No automated
-test, by design: the annotated tag is the record, audited alongside the lines above.
+runs one with the judge on (L324): the judge's call is a new request shape. Between closes,
+a revision that moves `PROMPT_VERSION` runs one too, recorded in its patch: v1.7's (L259),
+and v1.10's with the judge off (L339). No automated test, by design: the annotated tag is
+the record, audited alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 

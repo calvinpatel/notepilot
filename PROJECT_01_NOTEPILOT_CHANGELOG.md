@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,44 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.10.2 — v1.10's runs (patch)
+
+Theme: v1.10's live measurement, recorded as v1.9.13 recorded 2c's (L324, L325): a smoke run
+through the app, since the rule and the message form moved `PROMPT_VERSION`, then the
+re-baseline on `2dde6d7`, v1.10's code complete, both with the judge off, as the deploy runs
+it (L332). No invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L339 §5.3, §14 — v1.10's smoke run.** Fill: §14 runs one at a change of request shape
+  (L81), and v1.10's rule and message form are one, `PROMPT_VERSION` moving from
+  a99d6d205d0e to 306bbaa5126a, as v1.7's prompt was (L259). Preflight on `2dde6d7`, a clean
+  tree: `settings.model` is `claude-haiku-5-5`, matching the pin; the SDK 1.9.0;
+  `models.retrieve` reports `max_tokens` 128,000, matching `model_max_output_tokens` (L85);
+  the judge off, and every other knob but the key at its default. v0.1-spine's encounter
+  (943 chars) through `GET /` on Oct 25: one upstream call, 200; `validation_attempts` 1,
+  2,041 input and 1,120 output tokens; 3.98 s end to end, about 281 output tokens a second,
+  so L198's bound stands. 20 claims, each grounded clean; 12 checks ran, none errored or
+  fired; the report names its checks config (L334) and no judge (L336). Against 2c's smoke
+  run on the same encounter (L324), input rose by 116 tokens: the encounter, the tool, and
+  the message form are unchanged, so that is the rule's own cost on every call. The note
+  merged two plan claims into one and reworded two others, and it quotes every character
+  2c's did. Chrome's devtools probe drew a 404 again, logged by structure only.
+- **L340 §5.3 — v1.10's re-baseline: all 72 repeats pass.** Measured: one run on `2dde6d7`,
+  `git_dirty` false, `prompt_version` 306bbaa5126a, `checks_version` fa2e82a308bc,
+  `corpus_version` 040ccf7c0d67, the judge off, 72 repeats, each in one validation attempt.
+  Detection recall 1.0, control specificity 1.0, model fidelity 1.0, `fidelity_caught` None,
+  pass rate 1.0, no flaky case; 123,603 input and 15,628 output tokens, the input 8,352 more
+  than 2c's judge-off run's (L325), 116 a call; 295 claims to its 292. Each repeat fires the
+  same checks as in 2c's judge-off run, and the verdicts hold both ways: this run's drafts
+  replay unmoved under 2c's checks, and 2c's under v1.10's. Every row names its fired
+  checks' claims (L335). Read for the carried entries' triggers: no repeat retried a
+  validation (entry 2); its 295 claims re-ground with no flag and no fuzzy score (entry 15);
+  and its drafts chart none of the extraction entries' shapes (31 to 36, 38 to 40, 43, 44;
+  37 reads a case's labels, and the corpus is unchanged), where the stop verbs in nine
+  distinct claims each govern their own drug, not entry 33's shape, and no claim's route
+  differs from its quote's (entry 38). The record lands with the README's before and after
+  (D5).
 
 ## v1.10.1 — two laterality costs (patch)
 
