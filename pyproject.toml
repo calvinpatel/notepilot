@@ -44,6 +44,10 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "RUF100"]
 
+# alembic/ at the root (§13, D3) would make ruff file the installed alembic as first-party.
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]
+
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]

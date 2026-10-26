@@ -91,7 +91,7 @@ def fresh_client_cache() -> Iterator[None]:
     anthropic_client.cache_clear()
 
 
-# The database tests (spec §11, L345). TEST_DATABASE_URL names a Postgres the tests may empty:
+# The database tests (spec §11; L345, L346). TEST_DATABASE_URL names a Postgres the tests may empty:
 # never a setting and never .env, so no test can reach the app's own database. Unset, the
 # tests that need it skip, unless NOTEPILOT_REQUIRE_DB is "1" (CI), where they fail instead.
 @pytest.fixture
@@ -106,21 +106,20 @@ def db_url() -> str:
 
 @pytest.fixture
 async def db_sessions(db_url: str) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """A session factory on the test database, its tables dropped and rebuilt from the model.
+    """A session factory on the test database, emptied and migrated to head (L346).
 
-    Rebuilt, not emptied: create_all leaves an existing table as it is, so a model change would
-    meet the last run's schema. The model builds the tables until Alembic's migration does
-    (phase 3). Imported here, not at the top, so the env setup above runs before any backend
-    import.
+    Emptied, not migrated in place: an earlier run's schema, a model-built table included,
+    would otherwise meet the migration. Imported here, not at the top, so the env setup above
+    runs before any backend import.
     """
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from backend.db import Base
+    from tests.database import migrate, reset
 
     engine = create_async_engine(db_url, hide_parameters=True)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(reset)
+        await conn.run_sync(migrate)
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:

@@ -39,5 +39,5 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy backend/ tests/
+      - run: uv run mypy backend/ tests/ alembic/
       - run: uv run pytest

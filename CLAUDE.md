@@ -122,8 +122,10 @@ uv run pytest                    # unit + injected corpus + integration —
                                  #   TEST_DATABASE_URL (§11, L345), and skip without it
 uv run pytest tests/ -x -q       # fast fail during TDD loops
 uv run ruff check . && uv run ruff format --check .   # lint + format; clean before commit
-uv run mypy backend/ tests/      # strict (L91); tests/ holds the fake side of the
-                                 #   LLMClient seam (§5.5, L74)
+uv run mypy backend/ tests/ alembic/   # strict (L91); tests/ holds the fake side of
+                                       #   the LLMClient seam (§5.5, L74)
+uv run alembic upgrade head      # migrate the app's database (DATABASE_URL, §9.8, L346);
+                                 #   the tests migrate their own
 uv run uvicorn backend.api:app --reload  # local app. ⚠️ every summarize is a REAL API
                                          # call: the phase-close smoke run (§14, L81)
                                          # only with Cal's go-ahead.
