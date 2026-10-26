@@ -113,6 +113,8 @@ uv run pytest               # unit + integration (no API calls)
 uv run ruff check .         # lint
 ```
 
+The database tests need a Postgres 16 they may empty: set `TEST_DATABASE_URL`, for example to `postgresql+asyncpg://localhost/notepilot_test`. Without it, they skip.
+
 ## Author
 
 Calvin Patel — [calvinpatel.dev](https://calvinpatel.dev) · [GitHub](https://github.com/calvinpatel)

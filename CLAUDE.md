@@ -118,7 +118,8 @@ complete.)*
 uv sync --locked                 # install/sync env (uv owns .venv; never pip install)
 uv add <pkg> / uv add --dev <pkg>
 uv run pytest                    # unit + injected corpus + integration —
-                                 #   deterministic, free
+                                 #   deterministic, free; the database tests need
+                                 #   TEST_DATABASE_URL (§11, L345), and skip without it
 uv run pytest tests/ -x -q       # fast fail during TDD loops
 uv run ruff check . && uv run ruff format --check .   # lint + format; clean before commit
 uv run mypy backend/ tests/      # strict (L91); tests/ holds the fake side of the
@@ -135,7 +136,8 @@ CI runs the gates on every push (§11, L96).
 
 Tests never hit the network: orchestrator tests use an injected fake client (canned
 tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests use
-`dependency_overrides`.
+`dependency_overrides`. The database tests reach only the Postgres `TEST_DATABASE_URL` names
+(L345); a gate that expects nothing skipped needs it set.
 
 ## Conventions
 

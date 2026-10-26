@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.3** (patch — persistence's settings, October 2026). Supersedes
-v1.10.2.
+**Spec version: v1.10.4** (patch — persistence's sink, October 2026). Supersedes v1.10.3.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3054,6 +3053,7 @@ async def summarize_endpoint(
     background_tasks: BackgroundTasks,
     client: LLMClient = Depends(get_client),
     judge: Judge | None = Depends(get_judge),   # None unless settings.judge_enabled (edge)
+    sessions = Depends(get_sessions),           # None unless persist_enabled (L343)
     _: None = Depends(reserve_budget),          # §9.8: 503 budget_exhausted BEFORE any spend
 ):
     note_id = uuid4()
@@ -3062,7 +3062,8 @@ async def summarize_endpoint(
     note   = ground(result.draft, req.raw_text, config=config)                # grounding
     report = await run_checks(note, req.raw_text, mode="production",          # evals (live subset)
                               config=config, judge=judge)
-    background_tasks.add_task(persist, note_id, req.raw_text, note, report, result.metadata)
+    background_tasks.add_task(persist, sessions, note_id, req.raw_text, note, report,
+                              result.metadata)
     return SummarizeResponse(note_id=note_id, note=note, report=report,       # sink runs AFTER this
                              metadata=result.metadata)
 ```
@@ -3245,24 +3246,25 @@ A SOAP note is a **document-shaped aggregate** — read and written whole; you n
 query power you have no query for (Volkswagen). So: relational envelope, JSONB payload.
 
 ```python
-class NoteRecord(Base):
-    __tablename__ = "notes"
-    id                         = Column(UUID, primary_key=True)   # minted in the route (§9.1)
-    created_at                 = Column(DateTime, server_default=func.now())
-    raw_text                   = Column(Text)
-    model_used                 = Column(String)      # ← regression metadata
-    prompt_version             = Column(String)      # ← regression metadata
-    checks_version             = Column(String)      # ← v1.3 (L57): verdicts stay interpretable
-                                                     #   across a lexicon change
-    input_tokens               = Column(Integer)     # ← the cost axis (§5.5), summed across
-    output_tokens              = Column(Integer)     #   validation attempts (L13)
-    validation_attempts        = Column(Integer)     # ← v1.3 (L57)
-    judge_input_tokens         = Column(Integer)     # ← v1.3 (L7, L57): the second call's cost
-    judge_output_tokens        = Column(Integer)
-    production_critical_passed = Column(Boolean)     # ← PER-NOTE verdict from the PRODUCTION
-                                                     #   (reference-free) mode
-    note                       = Column(JSONB)       # ← the whole validated SOAPNote
-    report                     = Column(JSONB)       # ← the whole EvalReport
+class NoteRecord(Base):                     # SQLAlchemy 2.0's typed form (L344): every
+    __tablename__ = "notes"                 #   column NOT NULL
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)    # minted in the route (§9.1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())    # timestamptz (L344)
+    raw_text: Mapped[str] = mapped_column(Text)
+    model_used: Mapped[str]                 # ← regression metadata
+    prompt_version: Mapped[str]             # ← regression metadata
+    checks_version: Mapped[str]             # ← v1.3 (L57): verdicts stay interpretable
+                                            #   across a lexicon change
+    input_tokens: Mapped[int]               # ← the cost axis (§5.5), summed across
+    output_tokens: Mapped[int]              #   validation attempts (L13)
+    validation_attempts: Mapped[int]        # ← v1.3 (L57)
+    judge_input_tokens: Mapped[int]         # ← v1.3 (L7, L57): the second call's cost
+    judge_output_tokens: Mapped[int]
+    production_critical_passed: Mapped[bool]   # ← PER-NOTE verdict from the PRODUCTION
+                                               #   (reference-free) mode
+    note: Mapped[dict[str, Any]] = mapped_column(JSONB)     # ← the whole validated SOAPNote
+    report: Mapped[dict[str, Any]] = mapped_column(JSONB)   # ← the whole EvalReport
 ```
 
 The pulled-out columns are exactly the ones you'd ever filter or trend on. `model_used` +
@@ -3274,7 +3276,8 @@ script print.
 **The report names what decided it (L334, L336).** `report` holds the whole `EvalReport`,
 which carries the verdict knobs it was checked under (`checks_config`) and the version of
 the judge that judged it (`judge_version`, None without one), so a persisted verdict reads
-with no column for either. `checks_version` keeps its column (L57).
+with no column for either. `checks_version` keeps its column (L57); the judge's version
+gets none, since nothing queries by it (L344).
 
 > ⚠️ Naming (v1.1, sharpened): there are **two similarly-shaped metrics** and the name
 > now says which is which. `production_critical_passed` is a per-note boolean from the
@@ -3290,15 +3293,16 @@ DB. A write failure must NOT 500 the user — they already have their valid,
 safety-checked note (and by the time the task runs, the response is already gone):
 
 ```python
-async def persist(note_id, raw_text, note, report, metadata) -> None:
-    if not settings.persist_enabled:                    # v1.2: the demo can run stateless (§9.8)
-        return
+async def persist(sessions, note_id, raw_text, note, report, metadata) -> None:
+    if sessions is None:                    # get_sessions(): None with persistence off, the
+        return                              #   demo stateless (§9.8, L343)
     try:
-        async with SessionLocal() as session:           # v1.2: its OWN session — see below
-            session.add(NoteRecord(id=note_id, raw_text=raw_text, ...))
+        async with sessions() as session:   # v1.2: its OWN session — see below
+            session.add(note_record(note_id, raw_text, note, report, metadata))
             await session.commit()
-    except DBError:
-        logger.error("persist failed", exc_info=True)   # log, don't raise
+    except Exception as exc:                # the sink's boundary: log, don't raise
+        logger.error("persist_failed note_id=%s exc_type=%s frames=%s",   # type and
+                     note_id, type(exc).__name__, format_frames(exc))     #   frames (L342)
 ```
 
 **The session trap (v1.2):** `persist` must open its own session from the sessionmaker,
@@ -3309,6 +3313,21 @@ closed-connection error on every single request. It would be logged and swallowe
 (§9.6 promises exactly that), so the app would look healthy while persisting nothing.
 A sink that silently sinks nothing is the failure mode this section was written to
 prevent; the integration test asserts a row exists after the response.
+
+**The factory is read per request (L343).** `get_sessions()` returns the session factory
+when `persist_enabled`, else None, read per request at the edge as `get_judge` is (L318),
+and the route hands it to the task. The engine behind it is built on first use, once per
+process (§9.8's pool), never at import: a run without persistence has no URL (L341). Tests
+pass a factory for their own database (§11, L345).
+
+**A failed write logs its type and frames (L342).** Never the message, and never `exc_info`:
+§9.8's rule, as the 500 path (L69) and a crashed check (L113) log. Measured on Postgres 16:
+a failed insert logged with `exc_info` wrote the paste into the log line, through the
+driver's chained error, whose `DETAIL: Failing row contains (…)` echoes the row; the
+engine's `hide_parameters` hides only SQLAlchemy's own copy. `persist` catches `Exception`,
+not database errors alone: whatever escapes a background task reaches the server's own
+traceback logger, message and all. *Test:* a write that fails with the paste in its message
+logs one line naming its type and frames, and the paste appears nowhere in the captured log.
 
 ### 9.7 Two UI render channels (present-but-suspect vs absent-but-required)
 
@@ -3346,7 +3365,7 @@ channels and shipped a contract that could only express the first).
   without `exc_info`; any stringified validation error uses `errors(include_input=False)`;
   error bodies are `{error, request_id}` (§9.4); the 500 path logs exception type and
   frames, never the message or `exc_info` (L69), and a crashed check logs the same way, by
-  check *name* (L113).
+  check *name* (L113), as a failed write does, by note id (L342).
   `persist_enabled=false` keeps the demo out of the database; this rule keeps it out of the
   hosting platform's log retention, which v1.2's "not a PHI sink" had forgotten.
   Structured/JSON logging → v2.
@@ -3612,6 +3631,12 @@ in the push workflow — it spends real money.
   a session-scoped fixture hashes each module-level table before the first test and checks
   it after the last. The tables stay mutable types (§7's module imports nothing); the
   fixture catches a test that writes to one.
+- **Persistence (phase 3, L345)** — against a real Postgres that `TEST_DATABASE_URL` names,
+  a database the tests may empty: never a setting and never `.env`, so no test reaches the
+  app's own. Each test drops and rebuilds the tables from the model (measured: `create_all`
+  leaves an existing table as it is, so a model change met the last run's schema). Unset,
+  those tests skip; CI runs a `postgres:16` service and sets `NOTEPILOT_REQUIRE_DB`, under
+  which a missing database fails them instead.
 - **Corpus load + coverage** — every fixture parses; every `expected_flags` entry is
   registered; every reference label reads, the raw text keeps each `must_preserve` reading,
   and adds no `must_not_add` one (L219); the §8.5 coverage rule holds, with the model
@@ -3730,7 +3755,7 @@ notepilot/
 │   ├── corpus.py           ← EDGE (phase 2b, L188). score_corpus: settings · the API · git · runs/
 │   ├── api.py              ← EDGE. routes (composition root) · handlers · logging · rate limit · budget
 │   ├── static/index.html   ← phase 1 only: the static display (§9.10, L68); frontend/ replaces it
-│   └── db.py               ← EDGE (phase 3). SessionLocal, NoteRecord, persist()
+│   └── db.py               ← EDGE (phase 3). get_sessions, NoteRecord, persist()
 ├── frontend/               ← React (phase 3): paste → SOAP view → hover-highlight + safety banner
 │   └── src/api.d.ts        ← GENERATED by openapi-typescript (§9.10); never hand-edited
 ├── tests/                  ← unit + injected corpus + integration (deterministic, every commit)

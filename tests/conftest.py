@@ -1,18 +1,20 @@
 """Env setup that must run before any test imports backend, the hypothesis profile, the
-async-backend pin, the lexicon-table guard, the registry fixture, and the client-cache
-fixture.
+async-backend pin, the lexicon-table guard, the registry fixture, the client-cache fixture,
+and the database fixtures.
 
 Settings is built at import time (spec §10).
 """
 
 import os
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING
 
 import pytest
 from hypothesis import settings
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from backend.evals.registry import Check
 
 # config.py skips .env when this is set, so local and CI test runs see identical settings
@@ -87,3 +89,39 @@ def fresh_client_cache() -> Iterator[None]:
     anthropic_client.cache_clear()
     yield
     anthropic_client.cache_clear()
+
+
+# The database tests (spec §11, L345). TEST_DATABASE_URL names a Postgres the tests may empty:
+# never a setting and never .env, so no test can reach the app's own database. Unset, the
+# tests that need it skip, unless NOTEPILOT_REQUIRE_DB is "1" (CI), where they fail instead.
+@pytest.fixture
+def db_url() -> str:
+    url = os.environ.get("TEST_DATABASE_URL")
+    if url:
+        return url
+    if os.environ.get("NOTEPILOT_REQUIRE_DB") == "1":
+        pytest.fail("NOTEPILOT_REQUIRE_DB is 1 and TEST_DATABASE_URL is unset (L345)")
+    pytest.skip("TEST_DATABASE_URL is unset: the database tests need a Postgres (L345)")
+
+
+@pytest.fixture
+async def db_sessions(db_url: str) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """A session factory on the test database, its tables dropped and rebuilt from the model.
+
+    Rebuilt, not emptied: create_all leaves an existing table as it is, so a model change would
+    meet the last run's schema. The model builds the tables until Alembic's migration does
+    (phase 3). Imported here, not at the top, so the env setup above runs before any backend
+    import.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from backend.db import Base
+
+    engine = create_async_engine(db_url, hide_parameters=True)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()

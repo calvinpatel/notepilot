@@ -11,6 +11,24 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # The database tests run against this Postgres (spec §11, L345). NOTEPILOT_REQUIRE_DB
+    # makes a missing one fail them rather than skip, so CI can't pass without them.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: notepilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/notepilot_test
+      NOTEPILOT_REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0

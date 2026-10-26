@@ -11,12 +11,16 @@
       "Edit(/CLAUDE.md)"
     ]
   },
+  "env": {
+    "TEST_DATABASE_URL": "postgresql+asyncpg://localhost/notepilot_test"
+  },
   "sandbox": {
     "enabled": true,
     "allowUnsandboxedCommands": false,
     "network": {
       "allowedDomains": ["pypi.org", "files.pythonhosted.org"],
-      "deniedDomains": ["api.anthropic.com"]
+      "deniedDomains": ["api.anthropic.com"],
+      "allowLocalBinding": true
     },
     "credentials": {
       "files": [{ "path": "./.env", "mode": "deny" }]

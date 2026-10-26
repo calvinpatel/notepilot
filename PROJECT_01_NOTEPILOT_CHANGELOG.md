@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,50 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.10.4 — persistence's sink (patch)
+
+Theme: the persistence step's third commit (§14, phase 3): `db.py`'s table and sink, the
+tests' database, and CI's Postgres. One conflict resolved, three fills, each landing with
+its code (CLAUDE.md, "Changing the spec"), all ruled by Cal on Oct 25. No invariant moves;
+CLAUDE.md's commands gain the tests' database.
+
+**WARNING**
+- **L342 §9.6, §9.8 — a failed write logs its type and frames.** Conflict: §9.6's sample
+  logged `exc_info=True`; §9.8 says no exception message reaches a log line, and logs the
+  500 path (L69) and a crashed check (L113) by type and frames. §9.8 wins: measured on
+  Postgres 16 through SQLAlchemy and asyncpg, a failed insert logged as §9.6 had it wrote
+  the paste into the log line, through asyncpg's chained error, whose `DETAIL` echoes the
+  failing row; `hide_parameters` hid only SQLAlchemy's copy. `persist` logs `persist_failed
+  note_id=… exc_type=… frames=…` and catches `Exception`, since whatever escapes a
+  background task reaches uvicorn's traceback logger. The engine keeps
+  `hide_parameters=True` as a second layer.
+
+**INFO**
+- **L343 §9.1, §9.6, §13 — the session factory is a dependency.** Fill: §9.6 and §13 named a
+  module-level `SessionLocal`, which an engine built at import would need a URL for, and the
+  public demo has none (§9.8, L341). `get_sessions()` returns the factory when
+  `persist_enabled`, else None, read per request as `get_judge` is (L318); its engine is
+  built on first use, once per process, as `anthropic_client` is (L78). `persist` takes the
+  factory as its first argument and still opens its own session from it (§9.6's trap), and
+  tests pass their own. §9.1's route sample takes it through `Depends(get_sessions)`; the
+  route itself lands with the integration test.
+- **L344 §9.5 — `NoteRecord` in its typed form, and no judge column.** Fill: SQLAlchemy
+  2.0's `Mapped` columns, so mypy checks the table and nullability follows the types: every
+  column is NOT NULL. `created_at` is `timestamptz`, where the sample's bare `DateTime`
+  stored a time with no zone. #3 entry 6 asked for a `judge_version` column when a report
+  couldn't name its judge; L336 gave the report that, and §9.5 already reads a persisted
+  verdict with no column for it. Ruled Oct 25: no column, since §9.5 pulls out only what a
+  query filters on and nothing queries by judge; entry 6 closes as superseded by L336.
+- **L345 §11 — the tests' database.** Fill: §11's integration tier names a test DB and
+  nothing says where it comes from. `TEST_DATABASE_URL` names a Postgres the tests may
+  empty, read from the environment only, never a setting or `.env`, so no test reaches the
+  app's database. Each test drops and rebuilds the tables from the model until Alembic's
+  migration does: measured, `create_all` left an existing table as it was, so a mutant
+  dropping `created_at`'s time zone survived until the fixture rebuilt. Unset, the database
+  tests skip; CI runs a `postgres:16` service and sets `NOTEPILOT_REQUIRE_DB`, under which a
+  missing database fails them. Locally, Homebrew's `postgresql@16`, the major version CI
+  runs.
 
 ## v1.10.3 — persistence's settings (patch)
 
