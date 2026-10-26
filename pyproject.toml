@@ -5,6 +5,7 @@ description = "Clinical-encounter → grounded, safety-checked SOAP summarizer."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.20.0",
     "anthropic>=1.9,<2",
     "asyncpg>=0.32.0",
     "fastapi>=0.141.1",
