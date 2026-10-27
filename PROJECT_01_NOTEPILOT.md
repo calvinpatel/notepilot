@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.6** (patch — the route persists, October 2026). Supersedes v1.10.5.
+**Spec version: v1.10.7** (patch — the wallet's settings, October 2026). Supersedes
+v1.10.6.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3389,7 +3390,10 @@ channels and shipped a contract that could only express the first).
   closes three ways v1.2's cap leaked. **Reserve before spend:** the `reserve_budget`
   dependency atomically charges the worst case (`settings.max_request_tokens` — max input
   plus max output across every validation attempt) *before* any call, so concurrent
-  requests can't all pass a check-then-spend race. **No refund:** the
+  requests can't all pass a check-then-spend race. Under a budget that is one attempt
+  (L348): a retry's correction quotes the invalid output, which nothing bounds, so boot
+  refuses a budget with validation retries, and in the deploy an invalid output answers
+  502 `model_output_invalid` where a local run would retry. **No refund:** the
   demo charges the reservation, not actual usage — a conservative cap is a correct cap, and
   it needs no settlement path. **One counter:** the demo runs a single worker with an
   in-process counter under an `asyncio.Lock`, documented, because N workers × N counters is
@@ -3529,8 +3533,9 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   and `database_url` (a `SecretStr`, None unless set: the asyncpg DSN, L341);
   `corpus_concurrency` (`ge=1`, default 1, L209);
   `corpus_repeats` (D11, `ge=1`, default 3);
-  `daily_token_budget` (None unless set: no cap, L332), `max_request_tokens` (L56);
-  `rate_limit`; `forwarded_allow_ips`
+  `daily_token_budget` (None unless set: no cap, L332), `max_request_tokens` (L56; derived,
+  never a field, L348); `rate_limit` (a slowapi limit string, None unless set: no limiter,
+  L348); `forwarded_allow_ips`
   (L58); `runs_path` (default `backend/evals/runs/corpus_runs.jsonl`, §13, L209); CORS
   origins. Clinical knowledge — including `NEGATION_WINDOW` —
   lives in `clinical/lexicons.py`. The literal numbers in this spec's code samples are
@@ -3544,7 +3549,9 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   name a `.jsonl` file (L232): a run writes its record there last, after the spend, so a bad
   path must fail at boot. A third rejects `judge_timeout_s >= llm_timeout_s` (L314): the
   judge's call is the shorter one (L54). A fourth rejects `judge_enabled` with
-  `daily_token_budget` set (L332): the route never judges under a budget. With
+  `daily_token_budget` set (L332): the route never judges under a budget. A budget also
+  refuses `max_validation_retries` above 0 and a value below `max_request_tokens` (L348),
+  and `rate_limit` must parse with each limit at least 1. With
   `persist_enabled` on, another requires a `database_url` on the `postgresql+asyncpg://`
   driver (L341): without one, `persist()` would fail on every request, logged and
   swallowed (§9.6). `Settings` hides its input in validation errors (L341): a failed

@@ -2,11 +2,14 @@
 
 Every field declares its domain (L77). `max_output_tokens` is a read-only property derived
 from `max_input_chars` and `output_tokens_per_input_char` (L94), checked against the model's
-declared output ceiling at construction (L16, L72). Five boot checks beyond the fields'
+declared output ceiling at construction (L16, L72); `max_request_tokens`, what the daily
+budget reserves per request, is derived beside it (L348). Boot checks beyond the fields'
 bounds, each a validation error: the derived output ceiling, the input bounds, runs_path's
-.jsonl name (L232), a judge timeout below summarize's (L314), and, with persist_enabled, a
-database_url on the asyncpg driver (L341). A boot error names its rule, never the input,
-which holds the key and the database password (L341).
+.jsonl name (L232), a judge timeout below summarize's (L314), with persist_enabled a
+database_url on the asyncpg driver (L341), a rate_limit that parses and admits a request,
+and, with a daily budget, no judge (L332), one validation attempt, and room for one request
+(L348). A boot error names its rule, never the input, which holds the key and the database
+password (L341).
 
 Tests run with dotenv disabled; see tests/conftest.py.
 """
@@ -15,8 +18,9 @@ import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Self
+from typing import Final, Self
 
+from limits import parse_many
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +28,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from backend.schemas import ChecksConfig
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+# The reservation's measured terms (§9.8, L348): count_tokens on summarize's exact request
+# (system prompt, tool, forced tool choice, message form), Oct 27. A 20-character paste cost
+# 1,689 input tokens; past it, the costliest script measured 4.005 tokens per character
+# (supplementary-plane code points, about one token per UTF-8 byte), clinical English 0.421.
+# The factor is that worst case plus a margin, since the counts are estimates. Both terms
+# belong to one prompt on one model's tokenizer: a test fails when either moves.
+RESERVATION_MEASURED_AT: Final = ("claude-haiku-5-5", "306bbaa5126a")  # model, PROMPT_VERSION
+RESERVATION_PROMPT_TOKENS: Final = 1_689
+RESERVATION_TOKENS_PER_INPUT_CHAR: Final = 4.1
 
 
 def _dotenv_path(env: Mapping[str, str]) -> Path | None:
@@ -104,6 +119,12 @@ class Settings(BaseSettings):
     persist_enabled: bool = False
     database_url: SecretStr | None = None
 
+    # The wallet (§9.8): a per-IP rate limit, a slowapi limit string such as "5/minute", and
+    # a daily token budget the route reserves against before any call (L56). Unset, a local
+    # run has neither; the deploy sets both (L348).
+    rate_limit: str | None = None
+    daily_token_budget: int | None = Field(None, ge=1)
+
     def checks_config(self) -> ChecksConfig:
         """The verdict knobs, for the edge to pass inward: the domain reads no settings (L187)."""
         return ChecksConfig(
@@ -115,6 +136,38 @@ class Settings(BaseSettings):
     def max_output_tokens(self) -> int:
         """Derived, never a field (L94): a field could be set from the environment alone."""
         return math.ceil(self.max_input_chars * self.output_tokens_per_input_char)
+
+    @property
+    def max_request_tokens(self) -> int:
+        """What the daily budget reserves per request (§9.8, L56): one attempt's worst case.
+
+        One attempt, since boot refuses a budget with validation retries (L348): the measured
+        prompt overhead, the measured bound per pasted character, and the output ceiling.
+        """
+        return (
+            RESERVATION_PROMPT_TOKENS
+            + math.ceil(self.max_input_chars * RESERVATION_TOKENS_PER_INPUT_CHAR)
+            + self.max_output_tokens
+        )
+
+    @field_validator("rate_limit")
+    @classmethod
+    def _rate_limit_admits_requests(cls, value: str | None) -> str | None:
+        """rate_limit parses as slowapi's limits read it, and every limit admits a request."""
+        if value is None:
+            return value
+        try:
+            limits = parse_many(value)
+        except ValueError:
+            limits = []
+        if not limits or any(limit.amount < 1 for limit in limits):
+            raise PydanticCustomError(
+                "rate_limit_invalid",
+                "rate_limit={value} must be a limit string such as 5/minute, each limit at "
+                "least 1 (§9.8)",
+                {"value": value},
+            )
+        return value
 
     @field_validator("runs_path")
     @classmethod
@@ -197,6 +250,44 @@ class Settings(BaseSettings):
                 "database_url_not_asyncpg",
                 "database_url must name the postgresql+asyncpg:// driver (§9.8)",
                 {},
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _no_judge_under_a_budget(self) -> Self:
+        """The reservation charges summarize alone, so a budget runs no judge (L332)."""
+        if self.daily_token_budget is not None and self.judge_enabled:
+            raise PydanticCustomError(
+                "judge_under_budget",
+                "judge_enabled with daily_token_budget set: the reservation charges summarize "
+                "alone, so the judge would spend outside the cap (§9.8, L332)",
+                {},
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _one_attempt_under_a_budget(self) -> Self:
+        """A budget reserves one attempt: a retry's correction quotes the invalid output (L348)."""
+        if self.daily_token_budget is not None and self.max_validation_retries > 0:
+            raise PydanticCustomError(
+                "retries_under_budget",
+                "max_validation_retries={retries} with daily_token_budget set: a retry's "
+                "correction quotes the invalid output, which nothing bounds, so a budget "
+                "reserves one attempt; set max_validation_retries=0 (§9.8, L348)",
+                {"retries": self.max_validation_retries},
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _budget_admits_a_request(self) -> Self:
+        """A budget below one request's reservation would answer 503 to every request."""
+        budget, reservation = self.daily_token_budget, self.max_request_tokens
+        if budget is not None and budget < reservation:
+            raise PydanticCustomError(
+                "budget_below_one_request",
+                "daily_token_budget={budget} is below max_request_tokens={reservation}: no "
+                "request could reserve; raise the budget or lower max_input_chars (L348)",
+                {"budget": budget, "reservation": reservation},
             )
         return self
 

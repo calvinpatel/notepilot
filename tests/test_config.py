@@ -1,4 +1,4 @@
-"""Pins config wiring (spec §10; L209, L232, L233, L314, L341).
+"""Pins config wiring (spec §10; L209, L232, L233, L314, L332, L341, L348).
 
 Settings is built at import time, so test_dotenv_disabled_under_pytest sees the
 environment conftest set before backend was first imported. _dotenv_path is pure,
@@ -19,7 +19,14 @@ import pytest
 from pydantic import SecretStr, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 
-from backend.config import Settings, _dotenv_path
+from backend.config import (
+    RESERVATION_MEASURED_AT,
+    RESERVATION_PROMPT_TOKENS,
+    RESERVATION_TOKENS_PER_INPUT_CHAR,
+    Settings,
+    _dotenv_path,
+)
+from backend.orchestrator import PROMPT_VERSION
 from backend.schemas import ChecksConfig, CorpusRunRecord
 from tests.fakes import checks_config_with
 
@@ -72,6 +79,9 @@ def _settings(
     anthropic_api_key: SecretStr = _DUMMY_KEY,
     persist_enabled: bool = False,
     database_url: SecretStr | None = None,
+    judge_enabled: bool = False,
+    rate_limit: str | None = None,
+    daily_token_budget: int | None = None,
 ) -> Settings:
     return Settings(
         anthropic_api_key=anthropic_api_key,
@@ -92,6 +102,9 @@ def _settings(
         runs_path=runs_path,
         persist_enabled=persist_enabled,
         database_url=database_url,
+        judge_enabled=judge_enabled,
+        rate_limit=rate_limit,
+        daily_token_budget=daily_token_budget,
     )
 
 
@@ -324,6 +337,86 @@ def test_judge_timeout_not_below_llm_timeout_rejected(judge_timeout_s: float) ->
 def test_judge_timeout_below_llm_timeout_accepted() -> None:
     s = _settings(llm_timeout_s=30.0, judge_timeout_s=29.5)
     assert (s.judge_timeout_s, s.llm_timeout_s) == (29.5, 30.0)
+
+
+# --- the wallet: a rate limit and a daily budget, unset by default (§9.8, §10; L348) ---
+
+
+def test_the_wallet_is_off_by_default() -> None:
+    fields = Settings.model_fields
+    assert (fields["rate_limit"].default, fields["daily_token_budget"].default) == (None, None)
+
+
+@pytest.mark.parametrize("limit", ["5/minute", "5/minute;100/day"])
+def test_a_limit_string_is_accepted(limit: str) -> None:
+    assert _settings(rate_limit=limit).rate_limit == limit
+
+
+@pytest.mark.parametrize("limit", ["five a minute", "", "0/minute"], ids=["prose", "empty", "zero"])
+def test_a_rate_limit_that_admits_no_request_or_doesnt_parse_is_rejected(limit: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(rate_limit=limit)
+    (err,) = exc.value.errors()
+    assert err["type"] == "rate_limit_invalid"
+    assert err["loc"] == ("rate_limit",)
+
+
+def test_the_reservation_is_one_attempts_worst_case() -> None:
+    # L348: the measured prompt overhead, the bound per pasted character, and the output
+    # ceiling. Non-default knobs, so a term the code drops or a knob it misreads shows.
+    s = _settings(max_input_chars=200, output_tokens_per_input_char=1.5)
+    expected = (
+        RESERVATION_PROMPT_TOKENS
+        + math.ceil(200 * RESERVATION_TOKENS_PER_INPUT_CHAR)
+        + s.max_output_tokens
+    )
+    assert s.max_output_tokens == 300
+    assert s.max_request_tokens == expected
+
+
+def test_the_reservations_terms_were_measured_at_this_prompt_and_model() -> None:
+    # L348: count_tokens measured them for one prompt on one model's tokenizer. Moving either
+    # fails here until they're measured again (the probe in the changelog's L348).
+    assert RESERVATION_MEASURED_AT == (Settings.model_fields["model"].default, PROMPT_VERSION)
+
+
+def test_a_budget_with_one_attempt_and_no_judge_is_accepted() -> None:
+    s = _settings(max_validation_retries=0, daily_token_budget=1_000_000)
+    assert s.daily_token_budget == 1_000_000
+
+
+def test_a_budget_with_validation_retries_is_rejected() -> None:
+    # L348: a retry's correction quotes the invalid output, which nothing bounds.
+    with pytest.raises(ValidationError) as exc:
+        _settings(max_validation_retries=1, daily_token_budget=1_000_000)
+    (err,) = exc.value.errors()
+    assert err["type"] == "retries_under_budget"
+    assert err["loc"] == ()
+
+
+def test_a_budget_with_the_judge_on_is_rejected() -> None:
+    # L332 (#12 entry 42(c)): the reservation charges summarize alone.
+    with pytest.raises(ValidationError) as exc:
+        _settings(max_validation_retries=0, judge_enabled=True, daily_token_budget=1_000_000)
+    (err,) = exc.value.errors()
+    assert err["type"] == "judge_under_budget"
+    assert err["loc"] == ()
+
+
+def test_a_budget_below_one_requests_reservation_is_rejected() -> None:
+    # A cap that admits no request would answer 503 to every one; boot says so instead.
+    s = _settings(max_validation_retries=0)
+    with pytest.raises(ValidationError) as exc:
+        _settings(max_validation_retries=0, daily_token_budget=s.max_request_tokens - 1)
+    (err,) = exc.value.errors()
+    assert err["type"] == "budget_below_one_request"
+    assert err["loc"] == ()
+    assert (
+        _settings(
+            max_validation_retries=0, daily_token_budget=s.max_request_tokens
+        ).daily_token_budget
+        == s.max_request_tokens
+    )
 
 
 # --- persistence: off by default, and a database_url when on (§9.8, §10; L341) --------
