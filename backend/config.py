@@ -8,8 +8,9 @@ bounds, each a validation error: the derived output ceiling, the input bounds, r
 .jsonl name (L232), a judge timeout below summarize's (L314), with persist_enabled a
 database_url on the asyncpg driver (L341), a rate_limit that parses and admits a request,
 and, with a daily budget, no judge (L332), one validation attempt, and room for one request
-(L348). A boot error names its rule, never the input, which holds the key and the database
-password (L341).
+(L348). Nor may the environment hold a RATELIMIT_ variable, where slowapi reads settings of
+its own (L349). A boot error names its rule, never the input, which holds the key and the
+database password (L341).
 
 Tests run with dotenv disabled; see tests/conftest.py.
 """
@@ -39,6 +40,12 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 RESERVATION_MEASURED_AT: Final = ("claude-haiku-5-5", "306bbaa5126a")  # model, PROMPT_VERSION
 RESERVATION_PROMPT_TOKENS: Final = 1_689
 RESERVATION_TOKENS_PER_INPUT_CHAR: Final = 4.1
+
+# slowapi's Limiter reads settings of its own from RATELIMIT_ variables in the process
+# environment, and some outrank the arguments it is built with: RATELIMIT_ENABLED=false turns
+# off a limiter built with enabled=True (L349). rate_limit is the limit's one knob, so boot
+# refuses them.
+_SLOWAPI_ENV_PREFIX: Final = "RATELIMIT_"
 
 
 def _dotenv_path(env: Mapping[str, str]) -> Path | None:
@@ -288,6 +295,23 @@ class Settings(BaseSettings):
                 "daily_token_budget={budget} is below max_request_tokens={reservation}: no "
                 "request could reserve; raise the budget or lower max_input_chars (L348)",
                 {"budget": budget, "reservation": reservation},
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _no_slowapi_environment(self) -> Self:
+        """No RATELIMIT_ variable in the environment, where slowapi would read it (L349).
+
+        The error names the variables, never their values.
+        """
+        names = sorted(name for name in os.environ if name.startswith(_SLOWAPI_ENV_PREFIX))
+        if names:
+            raise PydanticCustomError(
+                "slowapi_environment",
+                "{names} set in the environment: slowapi reads RATELIMIT_ variables, and some "
+                "outrank how it is configured; unset them, and set the limit with rate_limit "
+                "(§9.8, L349)",
+                {"names": ", ".join(names)},
             )
         return self
 

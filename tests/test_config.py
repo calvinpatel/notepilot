@@ -1,4 +1,4 @@
-"""Pins config wiring (spec §10; L209, L232, L233, L314, L332, L341, L348).
+"""Pins config wiring (spec §10; L209, L232, L233, L314, L332, L341, L348, L349).
 
 Settings is built at import time, so test_dotenv_disabled_under_pytest sees the
 environment conftest set before backend was first imported. _dotenv_path is pure,
@@ -6,10 +6,13 @@ so its branches are tested directly with a passed-in environment.
 
 Domain tests build Settings through _settings, which passes every knob explicitly:
 init kwargs outrank environment variables in pydantic-settings, so an exported shell
-variable can never reach the knob under test. Each rejection pins the single error's
-type and loc (the step-1 pattern), so no test passes on an unrelated error.
+variable can never reach the knob under test. The one check that reads the environment
+itself, slowapi's RATELIMIT_ variables (L349), is tested by setting them. Each rejection pins
+the single error's type and loc (the step-1 pattern), so no test passes on an unrelated
+error.
 """
 
+import logging
 import math
 import re
 from collections.abc import Callable
@@ -18,6 +21,8 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from backend.config import (
     RESERVATION_MEASURED_AT,
@@ -417,6 +422,53 @@ def test_a_budget_below_one_requests_reservation_is_rejected() -> None:
         ).daily_token_budget
         == s.max_request_tokens
     )
+
+
+# --- slowapi's own settings, refused at boot (§9.8, §10; L349) ------------------------
+
+# A value no error may show: the refusal names each variable, never what it holds.
+_ENV_VALUE_SENTINEL = "env-sentinel-4b1d"
+
+
+def test_slowapi_reads_ratelimit_variables_over_its_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The reason for the refusal, pinned: if slowapi stops reading the environment, this
+    # fails and the refusal can be revisited. Limiter() adds a handler to the "slowapi"
+    # logger, so the logger gets a handler list of this test's own.
+    monkeypatch.setattr(logging.getLogger("slowapi"), "handlers", [])
+    monkeypatch.setenv("RATELIMIT_ENABLED", "false")
+    assert Limiter(key_func=get_remote_address, enabled=True).enabled is False
+
+
+@pytest.mark.parametrize("name", ["RATELIMIT_ENABLED", "RATELIMIT_HEADERS_ENABLED"])
+def test_a_ratelimit_variable_in_the_environment_is_rejected(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(name, _ENV_VALUE_SENTINEL)
+    with pytest.raises(ValidationError) as exc:
+        _settings()
+    (err,) = exc.value.errors()
+    assert err["type"] == "slowapi_environment"
+    assert err["loc"] == ()
+    assert err.get("ctx") == {"names": name}
+    assert _ENV_VALUE_SENTINEL not in str(exc.value)
+
+
+def test_every_ratelimit_variable_is_named_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Set out of order on purpose: the message lists them sorted, whatever the environment's.
+    for name in ("RATELIMIT_STRATEGY", "RATELIMIT_ENABLED"):
+        monkeypatch.setenv(name, _ENV_VALUE_SENTINEL)
+    with pytest.raises(ValidationError) as exc:
+        _settings()
+    (err,) = exc.value.errors()
+    assert err.get("ctx") == {"names": "RATELIMIT_ENABLED, RATELIMIT_STRATEGY"}
+
+
+def test_rate_limits_own_variable_is_not_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    # RATE_LIMIT is rate_limit's own variable, not slowapi's, and passes boot.
+    monkeypatch.setenv("RATE_LIMIT", "5/minute")
+    assert _settings().rate_limit is None  # init kwargs outrank it, and boot passes
 
 
 # --- persistence: off by default, and a database_url when on (§9.8, §10; L341) --------

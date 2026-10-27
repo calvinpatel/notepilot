@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.7** (patch — the wallet's settings, October 2026). Supersedes
-v1.10.6.
+**Spec version: v1.10.8** (patch — slowapi's environment, October 2026). Supersedes
+v1.10.7.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3551,7 +3551,9 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   judge's call is the shorter one (L54). A fourth rejects `judge_enabled` with
   `daily_token_budget` set (L332): the route never judges under a budget. A budget also
   refuses `max_validation_retries` above 0 and a value below `max_request_tokens` (L348),
-  and `rate_limit` must parse with each limit at least 1. With
+  and `rate_limit` must parse with each limit at least 1. Boot refuses any `RATELIMIT_`
+  variable in the environment (L349): slowapi reads settings of its own there, and
+  `RATELIMIT_ENABLED=false` would turn the limit off with `rate_limit` set. With
   `persist_enabled` on, another requires a `database_url` on the `postgresql+asyncpg://`
   driver (L341): without one, `persist()` would fail on every request, logged and
   swallowed (§9.6). `Settings` hides its input in validation errors (L341): a failed
