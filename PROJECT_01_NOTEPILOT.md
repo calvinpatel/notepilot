@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.5** (patch — persistence's migrations, October 2026). Supersedes
-v1.10.4.
+**Spec version: v1.10.6** (patch — the route persists, October 2026). Supersedes v1.10.5.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3095,7 +3094,9 @@ becomes `note_id` + `note` + `report` + `metadata`, and nothing in `schemas.py` 
 **Phase 2a's route is the one above, less what later phases add (L166).** No judge until 2c,
 so `run_checks` selects no judged check; no `reserve_budget` and no `persist` until phase 3
 (§14). `note_id` is minted all the same: with nothing persisted it names no row, as §9.10
-says of `persist_enabled=false` (L58). *Test:* the happy-path route test asserts the keys
+says of `persist_enabled=false` (L58). Phase 3 adds `persist` first (L347): with persistence
+on, the note is written after the response and `note_id` names its row; with it off, the
+route answers as before. *Test:* the happy-path route test asserts the keys
 are exactly `{"note_id", "note", "report", "metadata"}` and a span that offsets into a
 padded paste; a test that registers its own checks asserts the route checks the note it
 returns, against the exact paste, in production mode, with no judge.

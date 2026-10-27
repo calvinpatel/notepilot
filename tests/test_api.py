@@ -1,6 +1,6 @@
 """Pins the /summarize HTTP boundary: its input, its judge, its error bodies, and its log lines
-(spec §9.1, §9.4, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99, L166,
-L318).
+(spec §9.1, §9.4, §9.6, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99,
+L166, L318, L347).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -9,8 +9,9 @@ get_client with an EMPTY-script FakeLLMClient; a test that reaches the model wit
 installing its own script fails loudly on the fake's unscripted-call guard instead of
 building a real client. The guard fails through pytest.fail, a BaseException that
 `except Exception` can't swallow, so the catch-all can't turn a forgotten script into a 500
-a test could pass on. The same fixture overrides get_judge with None, so no test reaches a
-judge it didn't install, whatever JUDGE_ENABLED the shell exports.
+a test could pass on. The same fixture overrides get_judge and get_sessions with None, so no
+test reaches a judge or a database it didn't install, whatever JUDGE_ENABLED or
+PERSIST_ENABLED the shell exports.
 
 Logging tests call caplog.set_level(logging.DEBUG): under pytest the root logger sits at
 WARNING. Sentinel scans read caplog.text, every captured record as rendered, exc_info
@@ -46,11 +47,14 @@ from anthropic import (
 from anthropic.types import Message
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.types import Message as ASGIMessage
 
 from backend.api import CatchAllMiddleware, RequestIdMiddleware, SummarizeResponse, app
 from backend.config import Settings, settings
+from backend.db import NoteRecord, get_sessions
 from backend.evals.checks import clause_text
 from backend.evals.judge import Judge
 from backend.evals.registry import REGISTRY, Check, CheckFn, Finding, register_check
@@ -117,11 +121,12 @@ Installer = Callable[[Sequence[Message | Exception]], FakeLLMClient]
 
 @pytest.fixture(autouse=True)
 def install_fake() -> Iterator[Installer]:
-    """Overrides get_client and get_judge for every test; restores the prior overrides after.
+    """Overrides get_client, get_judge, and get_sessions for every test; restores the prior
+    overrides after.
 
     Starts with an EMPTY script: a test that reaches the model without installing its own
     fails on the fake's unscripted-call guard, never by building a real client. The judge is
-    None until a test installs one (L318).
+    None until a test installs one (L318), and so are the sessions (L347).
     """
     prior = dict(app.dependency_overrides)
 
@@ -132,6 +137,7 @@ def install_fake() -> Iterator[Installer]:
 
     install([])
     app.dependency_overrides[get_judge] = lambda: None
+    app.dependency_overrides[get_sessions] = lambda: None
     try:
         yield install
     finally:
@@ -299,6 +305,49 @@ def test_a_judge_timeout_errors_its_check_and_the_note_returns(
 def test_response_model_is_the_edge_shape() -> None:
     assert _route().response_model is SummarizeResponse  # L76: never SummarizationResult
     assert SummarizeResponse.__module__ == "backend.api"  # §13: an HTTP edge shape
+
+
+# --- persistence in the route (§9.6, §14; invariant 8; L347) ---------------------------
+
+
+@pytest.mark.anyio
+async def test_a_summarized_note_is_in_its_row_after_the_response(
+    client: TestClient, install_fake: Installer, db_sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    # §14's integration test. The row is read in a session of the test's own, after the
+    # request: persist's session is its own too (§9.6), never the request's.
+    install_fake([tool_use_message(VALID_INPUT, input_tokens=123, output_tokens=456)])
+    app.dependency_overrides[get_sessions] = lambda: db_sessions
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
+    assert response.status_code == 200
+    body = response.json()
+    async with db_sessions() as session:
+        row = await session.get(NoteRecord, UUID(body["note_id"]))
+    assert row is not None
+    assert row.raw_text == GROUNDED_PASTE  # the exact paste, as the spans index it (L87)
+    assert (row.note, row.report) == (body["note"], body["report"])
+    metadata = body["metadata"]
+    assert (row.model_used, row.prompt_version) == (metadata["model"], metadata["prompt_version"])
+    assert (row.input_tokens, row.output_tokens) == (123, 456)
+
+
+def test_a_failed_write_still_answers_200_and_logs_no_paste(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Invariant 8: a database that refuses at once (port 1) costs the user nothing. NullPool
+    # keeps nothing open, so the engine needs no disposing.
+    caplog.set_level(logging.DEBUG)
+    install_fake([tool_use_message(VALID_INPUT)])
+    engine = create_async_engine(
+        "postgresql+asyncpg://localhost:1/none", hide_parameters=True, poolclass=pool.NullPool
+    )
+    app.dependency_overrides[get_sessions] = lambda: async_sessionmaker(engine)
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
+    assert response.status_code == 200
+    (record,) = [r for r in caplog.records if r.name == "backend.db"]
+    note_id = response.json()["note_id"]
+    assert record.getMessage().startswith(f"persist_failed note_id={note_id} exc_type=")
+    assert GROUNDED_PASTE not in caplog.text
 
 
 # --- 422 input_invalid: the INPUT is the problem (§9.4; L53, L70, L73, L79, L87) -----

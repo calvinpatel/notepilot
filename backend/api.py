@@ -65,14 +65,16 @@ from typing import Annotated, Final
 from uuid import UUID, uuid4
 
 from anthropic import APIError, APIStatusError, APITimeoutError, RateLimitError
-from fastapi import Depends, FastAPI, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.config import settings
+from backend.db import get_sessions, persist
 from backend.evals.judge import Judge
 from backend.evals.runner import run_checks
 from backend.grounding import ground
@@ -205,20 +207,27 @@ class SummarizeResponse(BaseModel):
 @app.post("/summarize")
 async def summarize_endpoint(
     req: SummarizeRequest,
+    background_tasks: BackgroundTasks,
     client: Annotated[LLMClient, Depends(get_client)],
     judge: Annotated[Judge | None, Depends(get_judge)],
+    sessions: Annotated[async_sessionmaker[AsyncSession] | None, Depends(get_sessions)],
 ) -> SummarizeResponse:
     """Composition root (§9.1): wires the pipeline in order; no logic lives here.
 
-    Phase 2c's route (L166, L318): §9.1's without a budget reservation or persist. The judge
+    Phase 3's route so far (L166, L318, L347): §9.1's without a budget reservation. The judge
     is get_judge's, None unless settings.judge_enabled; run_checks selects the judged check
-    only with one. note_id names no row, since nothing is persisted (§9.10, L58).
+    only with one. The sessions are get_sessions', None unless settings.persist_enabled:
+    persist writes the note after the response, in a session of its own (§9.6), and note_id
+    names its row. With persistence off it names none (§9.10, L58).
     """
     note_id = uuid4()
     result = await summarize(req.raw_text, client=client)
     config = settings.checks_config()  # L187: built here, at the edge, and passed inward
     note = ground(result.draft, req.raw_text, config=config)  # spans index the exact paste (L87)
     report = await run_checks(note, req.raw_text, mode="production", config=config, judge=judge)
+    background_tasks.add_task(
+        persist, sessions, note_id, req.raw_text, note, report, result.metadata
+    )
     return SummarizeResponse(note_id=note_id, note=note, report=report, metadata=result.metadata)
 
 

@@ -112,11 +112,14 @@ async def db_sessions(db_url: str) -> AsyncIterator[async_sessionmaker[AsyncSess
     would otherwise meet the migration. Imported here, not at the top, so the env setup above
     runs before any backend import.
     """
+    from sqlalchemy import pool
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from tests.database import migrate, reset
 
-    engine = create_async_engine(db_url, hide_parameters=True)
+    # NullPool (L347): a route test's app runs in TestClient's own event loop, and a pooled
+    # connection belongs to the loop that opened it.
+    engine = create_async_engine(db_url, hide_parameters=True, poolclass=pool.NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(reset)
         await conn.run_sync(migrate)

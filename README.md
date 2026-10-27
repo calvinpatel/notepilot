@@ -108,6 +108,16 @@ uv run uvicorn backend.api:app --reload
 
 Open http://127.0.0.1:8000/docs for the API.
 
+Persistence is off by default, and the public demo runs without it. To keep each note in a local Postgres 16, create a database, add two lines to `.env`, and migrate:
+
+```bash
+createdb notepilot
+# in .env: PERSIST_ENABLED=true and DATABASE_URL=postgresql+asyncpg://localhost/notepilot
+uv run alembic upgrade head
+```
+
+Each summarized note then lands in the `notes` table after its response.
+
 ```bash
 uv run pytest               # unit + integration (no API calls)
 uv run ruff check .         # lint
