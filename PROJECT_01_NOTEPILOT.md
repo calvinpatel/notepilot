@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.12** (patch — the deploy's image, October 2026). Supersedes
-v1.10.11.
+**Spec version: v1.10.13** (patch — the deploy's steps and checklist, October 2026).
+Supersedes v1.10.12.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3380,6 +3380,10 @@ channels and shipped a contract that could only express the first).
   summarize's and the judge's token counts.
   `persist_enabled=false` keeps the demo out of the database; this rule keeps it out of the
   hosting platform's log retention, which v1.2's "not a PHI sink" had forgotten.
+  The SDK's own logging is a side door no code here guards (L354): with
+  `ANTHROPIC_LOG=debug`, it raises the `anthropic` and `httpx2` loggers to DEBUG and logs
+  each request's options, the pasted note among them. The deploy never sets it, and the
+  README's deploy checklist checks the service for it.
   Structured/JSON logging → v2.
 - **Migrations** (v1.1, DECISION D3) — `Base.metadata.create_all` for build phases 1–2
   (schema churn is high, data is disposable); **Alembic adopted in phase 3** when
@@ -3435,6 +3439,14 @@ channels and shipped a contract that could only express the first).
   the one the client writes. The proxy's timeout must exceed a max-size request's duration
   (§5.2, L185, L333), or `max_input_chars` drops: past it, the proxy cuts the request, and
   the page gets the proxy's error body, not §9.4's.
+- **The deploy (L354).** The private preview runs on Cloud Run in `us-west1`. Callers need
+  the service's invoker role; the key reaches it from Secret Manager, through a runtime
+  identity that can read only that secret; one instance serves it (`min = max = 1`), so
+  the process's rate limit and daily budget are the service's. Its request timeout is
+  600 s, 2.2 times a request's worst case under a budget (270 s, L333, L348). It deploys
+  from a fresh clone of a pushed commit, never from a working tree, whose `.env` holds the
+  key. The README's "Deploying it" section holds the steps, the checklist, and the probes
+  that measure the proxy's address, the rate limit's key, and the budget.
 - **The paste box is a PHI intake (v1.2).** The repo has zero real PHI. The *deployed
   demo* has a text box, and someone will paste a real note into it. Two consequences:
   (1) the UI carries a visible "synthetic / de-identified text only — this is a demo,
@@ -3809,6 +3821,7 @@ notepilot/
 │                              test_injected_cases, test_corpus_coverage
 ├── .env.example            ← committed; real .env gitignored
 └── README.md               ← product layer + four-metric scorecard (n, k) + cost line + CI badge
+                               + the deploy's steps, checklist, and probes (phase 3, L354)
 ```
 
 **The three documents live at the root, together (v1.3.2, L93).** CLAUDE.md names the other

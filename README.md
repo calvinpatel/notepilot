@@ -125,6 +125,62 @@ uv run ruff check .         # lint
 
 The database tests need a Postgres 16 they may empty: set `TEST_DATABASE_URL`, for example to `postgresql+asyncpg://localhost/notepilot_test`. Without it, they skip.
 
+## Deploying it
+
+The demo runs on Cloud Run in `us-west1` as a private preview: the service answers only accounts that hold its invoker role, on one instance, with the judge and persistence off. The spec's §9.8 states why each setting is what it is. The steps assume the [gcloud CLI](https://cloud.google.com/sdk/docs/install), signed in, and a project with billing set as its default (`gcloud config set project PROJECT_ID`); replace `PROJECT_ID` below with yours.
+
+Once per project: the APIs, the key in Secret Manager (typed at a silent prompt, so it lands in no file and no shell history), and a runtime identity that can read that one secret and nothing else.
+
+```bash
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
+read -rs KEY && printf '%s' "$KEY" | gcloud secrets create anthropic-api-key --data-file=- && unset KEY
+gcloud iam service-accounts create notepilot-run
+gcloud secrets add-iam-policy-binding anthropic-api-key --member=serviceAccount:notepilot-run@PROJECT_ID.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
+```
+
+### Before every deploy
+
+- [ ] The commit is pushed, and CI is green on it, the `image` job included.
+- [ ] The `Dockerfile`'s base is the newest CPython patch released at least two weeks before today; a newer one moves in a commit of its own, pinned by digest.
+- [ ] The deploy runs from a fresh clone, never the working tree, whose `.env` holds the real key: `git clone --depth 1 https://github.com/calvinpatel/notepilot /tmp/notepilot-deploy && cd /tmp/notepilot-deploy`. There, `gcloud meta list-files-for-upload` lists no `.env`.
+- [ ] `ANTHROPIC_LOG` is never set, on the service or in the shell: with `debug`, the SDK logs each request's options, the pasted note among them (§9.8).
+- [ ] After the deploy, `gcloud run services describe notepilot --region us-west1` shows the settings below and no `ANTHROPIC_LOG`, `JUDGE_ENABLED`, or `PERSIST_ENABLED`.
+
+### Deploy
+
+```bash
+gcloud run deploy notepilot --source . --region us-west1 --no-allow-unauthenticated --service-account notepilot-run@PROJECT_ID.iam.gserviceaccount.com --min-instances 1 --max-instances 1 --timeout 600 --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest --set-env-vars RATE_LIMIT=3/minute,DAILY_TOKEN_BUDGET=1000000,MAX_VALIDATION_RETRIES=0
+```
+
+One instance keeps one rate-limit counter and one daily budget, which live in the process. The 600 s timeout is 2.2 times a request's worst case under a budget, 270 s. Boot refuses a budget with validation retries, so `MAX_VALIDATION_RETRIES=0` rides with it. `FORWARDED_ALLOW_IPS` joins the settings once the first probe below has measured the proxy's address.
+
+To open the page, `gcloud run services proxy notepilot --region us-west1` serves the service at http://localhost:8080 with your identity. To call it from a shell:
+
+```bash
+URL=$(gcloud run services describe notepilot --region us-west1 --format 'value(status.url)')
+TOKEN=$(gcloud auth print-identity-token)
+curl -sS -H "Authorization: Bearer $TOKEN" "$URL/health"
+```
+
+### Probes
+
+After a deploy that changes the image or the proxy's trust, run P1 to P4 against a revision whose budget covers exactly two requests: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=145878`, twice what one request reserves at the defaults (72,939). The probes send synthetic text only, and at most two of their requests reach the model.
+
+```bash
+LOGS='resource.type="cloud_run_revision" AND resource.labels.service_name="notepilot"'
+ACCESS='textPayload:"GET /health"'
+paste_of() { python3 -c 'import json, sys; print(json.dumps({"raw_text": ("Synthetic visit, zebrafinch: mild headache for two days, no fever. " * 200)[: int(sys.argv[1])]}))' "$1"; }
+summarize() { curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@" --data @- "$URL/summarize"; echo; }
+```
+
+- **P2, the page and `/health`.** Through the proxy, the page loads; the `curl` above prints `{"status":"ok"}`.
+- **P1, the proxy's address.** With `FORWARDED_ALLOW_IPS` at its default, `gcloud logging read "$LOGS AND $ACCESS" --limit 3 --format 'value(textPayload)'` shows uvicorn's access line for that `curl`, and the address it starts with is the proxy's. That address sets `FORWARDED_ALLOW_IPS` (`--update-env-vars`, never `*`) before P3.
+- **P3, a full paste.** `paste_of 12500 | summarize` prints `200`. `gcloud logging read "$LOGS AND textPayload:request_completed" --limit 3 --format 'value(textPayload)'` shows one `request_completed` line for it, and `gcloud logging read "$LOGS" --freshness 1h --format 'value(textPayload)' | grep -c zebrafinch` prints `0`: no paste text in the logs.
+- **P4, the budget.** `paste_of 40 | summarize` prints `200`, the budget's second request; the next, `paste_of 40 | summarize -D -`, prints `503` with a `Retry-After` header.
+- **P1, the key.** `for i in 1 2 3 4 5 6 7; do paste_of 40 | summarize -H "X-Forwarded-For: 203.0.113.$i"; done` prints at least one `429`: seven requests within a minute overrun the limit of three, whatever window they straddle. Uvicorn's access lines for them show your own public address, never a `203.0.113.x`; a forged address there means the trust is too wide, and a Google address means it is too narrow.
+
+Then restore the budget: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=1000000`.
+
 ## Author
 
 Calvin Patel — [calvinpatel.dev](https://calvinpatel.dev) · [GitHub](https://github.com/calvinpatel)
