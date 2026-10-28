@@ -1,6 +1,6 @@
 """Pins the /summarize HTTP boundary: its input, its judge, its error bodies, and its log lines
 (spec §9.1, §9.4, §9.6, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99,
-L166, L318, L347, L350).
+L166, L318, L347, L350, L351).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -535,7 +535,7 @@ def test_a_request_over_its_rate_limit_is_429_and_reserves_nothing(
     # reserved would turn the fourth request into a 503, and leave no room for the fifth.
     _set_rate_limit(monkeypatch, "2/minute")
     _install_budget(3 * _RESERVATION)
-    fake = install_fake([_decoy() for _ in range(3)])
+    fake = install_fake([tool_use_message(VALID_INPUT) for _ in range(3)])
     statuses = [_summarize(client).status_code for _ in range(4)]
     assert statuses == [200, 200, _RATE_LIMITED.status, _RATE_LIMITED.status]
     _set_rate_limit(monkeypatch, None)
@@ -551,7 +551,7 @@ def test_rate_limited_has_the_one_shape_and_is_logged_by_code(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     _set_rate_limit(monkeypatch, "1/minute")
-    fake = install_fake([_decoy()])
+    fake = install_fake([tool_use_message(VALID_INPUT), _decoy()])
     assert _summarize(client).status_code == 200
     _assert_refused(_summarize(client), _RATE_LIMITED, caplog)
     assert len(fake.messages.calls) == 1  # refused before any spend
@@ -564,7 +564,7 @@ def test_rate_limited_retry_after_counts_down_to_the_windows_reset(
     clock = _EpochClock(1_800_000_000.0)
     monkeypatch.setattr(time, "time", clock)
     _set_rate_limit(monkeypatch, "1/minute")
-    install_fake([_decoy(), _decoy()])
+    install_fake([tool_use_message(VALID_INPUT), tool_use_message(VALID_INPUT)])
     assert _summarize(client).status_code == 200
     assert _summarize(client).headers["Retry-After"] == "60"
     clock.now += 59.25
@@ -577,7 +577,7 @@ def test_the_rate_limit_is_per_client(
     install_fake: Installer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_rate_limit(monkeypatch, "1/minute")
-    install_fake([_decoy(), _decoy()])
+    install_fake([tool_use_message(VALID_INPUT), tool_use_message(VALID_INPUT)])
     first, second = TestClient(app, client=_CLIENT_A), TestClient(app, client=_CLIENT_B)
     assert [_summarize(first).status_code for _ in range(2)] == [200, _RATE_LIMITED.status]
     assert _summarize(second).status_code == 200  # a bucket of its own
@@ -588,7 +588,7 @@ def test_no_rate_limit_unless_one_is_set(
 ) -> None:
     # The fixture leaves the limit unset: slowapi is never asked, so it logs nothing either.
     caplog.set_level(logging.DEBUG)
-    install_fake([_decoy() for _ in range(3)])
+    install_fake([tool_use_message(VALID_INPUT) for _ in range(3)])
     assert [_summarize(client).status_code for _ in range(3)] == [200, 200, 200]
     assert [r.getMessage() for r in caplog.records if r.name == "slowapi"] == []
 
@@ -598,7 +598,7 @@ def test_the_budget_admits_what_it_can_reserve_and_no_more(
 ) -> None:
     # One token short of four reservations: three fit, the fourth doesn't.
     _install_budget(4 * _RESERVATION - 1)
-    fake = install_fake([_decoy() for _ in range(3)])
+    fake = install_fake([*[tool_use_message(VALID_INPUT) for _ in range(3)], _decoy()])
     statuses = [_summarize(client).status_code for _ in range(4)]
     assert statuses == [200, 200, 200, _BUDGET_EXHAUSTED.status]
     assert len(fake.messages.calls) == 3
@@ -609,7 +609,7 @@ def test_budget_exhausted_has_the_one_shape_and_is_logged_by_code(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     _install_budget(_RESERVATION)
-    fake = install_fake([_decoy()])
+    fake = install_fake([tool_use_message(VALID_INPUT), _decoy()])
     assert _summarize(client).status_code == 200
     _assert_refused(_summarize(client), _BUDGET_EXHAUSTED, caplog)
     assert len(fake.messages.calls) == 1  # refused before any spend
@@ -619,7 +619,7 @@ def test_the_budget_resets_at_utc_midnight(client: TestClient, install_fake: Ins
     # Exactly one reservation's room: the first request fits, the second waits for midnight.
     clock = _UtcClock(datetime(2026, 10, 27, 23, 59, 59, 250_000, tzinfo=UTC))
     _install_budget(_RESERVATION, clock)
-    install_fake([_decoy(), _decoy()])
+    install_fake([tool_use_message(VALID_INPUT), tool_use_message(VALID_INPUT)])
     assert _summarize(client).status_code == 200
     refused = _summarize(client)
     assert refused.status_code == _BUDGET_EXHAUSTED.status
@@ -632,7 +632,7 @@ def test_a_rejected_paste_reserves_nothing(client: TestClient, install_fake: Ins
     # admit takes the validated request (L350): measured, a dependency that didn't take it ran
     # even when the body failed validation.
     _install_budget(_RESERVATION)
-    install_fake([_decoy()])
+    install_fake([tool_use_message(VALID_INPUT)])
     oversized = {"raw_text": _content(settings.max_input_chars + 1)}
     assert client.post("/summarize", json=oversized).status_code == _INPUT_INVALID.status
     assert _summarize(client).status_code == 200  # the one reservation was still free
@@ -652,7 +652,9 @@ def test_a_failed_request_keeps_its_reservation(
 async def test_gathered_requests_never_reserve_past_the_cap(install_fake: Installer) -> None:
     # Eight at once against room for three: three are admitted, and only three reach the model.
     _install_budget(3 * _RESERVATION)
-    fake = install_fake([_decoy() for _ in range(8)])
+    fake = install_fake(
+        [*[tool_use_message(VALID_INPUT) for _ in range(3)], *(_decoy() for _ in range(5))]
+    )
     transport = httpx2.ASGITransport(app=app)
     async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as http:
         responses = await asyncio.gather(
@@ -687,6 +689,108 @@ async def test_get_budget_builds_the_processs_one_counter_from_the_setting(
             await budget.reserve(1)
     finally:
         _budget.cache_clear()
+
+
+# --- /health (§9.8) ---------------------------------------------------------------------
+
+
+def test_health_is_ok_and_neither_limited_nor_charged(
+    client: TestClient, install_fake: Installer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A limit of one request and room for one reservation: /health spends neither.
+    _set_rate_limit(monkeypatch, "1/minute")
+    _install_budget(_RESERVATION)
+    fake = install_fake([tool_use_message(VALID_INPUT)])
+    for _ in range(3):
+        response = client.get("/health")
+        assert (response.status_code, response.json()) == (200, {"status": "ok"})
+    assert fake.messages.calls == []
+    assert _summarize(client).status_code == 200  # the one request and the one reservation
+
+
+# --- the request log line (§9.8, L351) ----------------------------------------------------
+
+# api.py's uuid4 mints the request id (the middleware's) and then the note id (the route's).
+_REQUEST_UUID: Final = UUID("00000000-0000-4000-8000-0000000000a1")
+_NOTE_UUID: Final = UUID("00000000-0000-4000-8000-0000000000b2")
+
+
+class _Readings[T]:
+    """A function's scripted results, one per call; a call past the script fails the test."""
+
+    def __init__(self, *readings: T) -> None:
+        self._readings = list(readings)
+
+    def __call__(self) -> T:
+        if not self._readings:
+            pytest.fail("called more often than scripted")
+        return self._readings.pop(0)
+
+
+def _completed_line(caplog: pytest.LogCaptureFixture) -> str:
+    """The request's one request_completed line, at INFO."""
+    ours = [
+        r
+        for r in caplog.records
+        if r.name == "backend.api" and r.getMessage().startswith("request_completed ")
+    ]
+    assert len(ours) == 1
+    assert ours[0].levelno == logging.INFO
+    return ours[0].getMessage()
+
+
+def test_a_completed_request_logs_one_line_of_ids_and_numbers(
+    client: TestClient,
+    install_fake: Installer,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # One retry, so the attempts and the summed tokens show; the clock reads 10.0 as the route
+    # begins, 12.5 as summarize returns, and 13.25 after the checks.
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr("backend.api.uuid4", _Readings(_REQUEST_UUID, _NOTE_UUID))
+    monkeypatch.setattr("backend.api.perf_counter", _Readings(10.0, 12.5, 13.25))
+    install_fake(
+        [
+            tool_use_message(_INVALID_INPUT, tool_use_id="toolu_fake_1"),
+            tool_use_message(VALID_INPUT, tool_use_id="toolu_fake_2"),
+        ]
+    )
+    body = _summarize(client).json()
+    assert body["note_id"] == str(_NOTE_UUID)
+    assert _completed_line(caplog) == (
+        f"request_completed request_id={_REQUEST_UUID.hex} note_id={_NOTE_UUID} "
+        f"model={body['metadata']['model']} wall_s=3.250 summarize_wall_s=2.500 "
+        "validation_attempts=2 input_tokens=20 output_tokens=40 judge_input_tokens=0 "
+        "judge_output_tokens=0"
+    )
+    assert SENTINEL not in caplog.text  # the paste (L53)
+    assert MODEL_SENTINEL not in caplog.text  # the invalid attempt's output
+
+
+def test_the_completed_line_counts_the_judges_tokens(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    judge = FakeJudge(
+        usage=TokenUsage(input_tokens=7, output_tokens=3), script=entail_all_but("fact-1")
+    )
+    app.dependency_overrides[get_judge] = lambda: judge
+    install_fake([tool_use_message(VALID_INPUT)])
+    assert client.post("/summarize", json={"raw_text": GROUNDED_PASTE}).status_code == 200
+    assert _completed_line(caplog).endswith(
+        " validation_attempts=1 input_tokens=10 output_tokens=20 judge_input_tokens=7 "
+        "judge_output_tokens=3"
+    )
+
+
+def test_a_failed_request_logs_no_completed_line(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    install_fake([_timeout_error()])
+    assert _summarize(client).status_code == 504
+    assert [r for r in caplog.records if r.getMessage().startswith("request_completed ")] == []
 
 
 # --- request ids and the middleware stack (L73) ----------------------------------------

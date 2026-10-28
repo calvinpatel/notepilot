@@ -24,6 +24,11 @@ Retry-After the seconds until the client's window resets; BudgetExhaustedError b
 budget_exhausted, with Retry-After the seconds until the next UTC midnight. Each logs one
 admission_refused line with the code, the request id, and the Retry-After.
 
+A request the route completes logs one INFO line, request_completed (L351): the request id,
+the note id, the model, wall_s (the route's, summarize through the checks), summarize_wall_s
+(summarize's alone, as the corpus measures it), the validation attempts, and summarize's and
+the judge's token counts. Ids and numbers only (L53, invariant 19).
+
 A RequestValidationError becomes 422 {"error": "input_invalid", "request_id": ...} and is
 logged by code only (L70). FastAPI's default handler echoes the paste as `input` whenever
 the body parses; this one never reads exc.errors(), str(exc), or the body (L53,
@@ -75,6 +80,7 @@ import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import Annotated, Final
 from uuid import UUID, uuid4
 
@@ -317,8 +323,40 @@ async def admit(
     return req
 
 
+def _log_completed(
+    request: Request,
+    note_id: UUID,
+    metadata: RunMetadata,
+    report: EvalReport,
+    started: float,
+    summarized: float,
+) -> None:
+    """The completed request's one line (§9.8, L351): ids and numbers, never content.
+
+    started and summarized are perf_counter readings, taken as the route began and as
+    summarize returned; wall_s runs to this call, after the checks.
+    """
+    usage, judge_usage = metadata.usage, report.judge_usage
+    logger.info(
+        "request_completed request_id=%s note_id=%s model=%s wall_s=%.3f summarize_wall_s=%.3f "
+        "validation_attempts=%d input_tokens=%d output_tokens=%d judge_input_tokens=%d "
+        "judge_output_tokens=%d",
+        request.state.request_id,
+        note_id,
+        metadata.model,
+        perf_counter() - started,
+        summarized - started,
+        metadata.validation_attempts,
+        usage.input_tokens,
+        usage.output_tokens,
+        judge_usage.input_tokens,
+        judge_usage.output_tokens,
+    )
+
+
 @app.post("/summarize")
 async def summarize_endpoint(
+    request: Request,
     req: Annotated[SummarizeRequest, Depends(admit)],
     background_tasks: BackgroundTasks,
     client: Annotated[LLMClient, Depends(get_client)],
@@ -327,18 +365,20 @@ async def summarize_endpoint(
 ) -> SummarizeResponse:
     """Composition root (§9.1): wires the pipeline in order; no logic lives here.
 
-    Phase 3's route so far (L166, L318, L347, L350): §9.1's. The request is admit's, limited
+    Phase 3's route (L166, L318, L347, L350, L351): §9.1's. The request is admit's, limited
     and reserved before any call. The judge is get_judge's, None unless settings.judge_enabled;
     run_checks selects the judged check only with one. The sessions are get_sessions', None
     unless settings.persist_enabled: persist writes the note after the response, in a session
     of its own (§9.6), and note_id names its row. With persistence off it names none (§9.10,
-    L58).
+    L58). Before the response, the request's one request_completed line (L351).
     """
-    note_id = uuid4()
+    note_id, started = uuid4(), perf_counter()
     result = await summarize(req.raw_text, client=client)
+    summarized = perf_counter()
     config = settings.checks_config()  # L187: built here, at the edge, and passed inward
     note = ground(result.draft, req.raw_text, config=config)  # spans index the exact paste (L87)
     report = await run_checks(note, req.raw_text, mode="production", config=config, judge=judge)
+    _log_completed(request, note_id, result.metadata, report, started, summarized)
     background_tasks.add_task(
         persist, sessions, note_id, req.raw_text, note, report, result.metadata
     )

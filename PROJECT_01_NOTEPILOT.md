@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.9** (patch — admission, October 2026). Supersedes v1.10.8.
+**Spec version: v1.10.10** (patch — the request log line, October 2026). Supersedes
+v1.10.9.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3049,6 +3050,7 @@ class SummarizeResponse(BaseModel):
 
 @app.post("/summarize", response_model=SummarizeResponse)
 async def summarize_endpoint(
+    request: Request,                           # its request_id, for the log line (L351)
     background_tasks: BackgroundTasks,
     req: SummarizeRequest = Depends(admit),     # §9.8: 429, then 503, BEFORE any spend;
                                                 #   the request admit let in (L350)
@@ -3056,12 +3058,14 @@ async def summarize_endpoint(
     judge: Judge | None = Depends(get_judge),   # None unless settings.judge_enabled (edge)
     sessions = Depends(get_sessions),           # None unless persist_enabled (L343)
 ):
-    note_id = uuid4()
+    note_id, started = uuid4(), perf_counter()                                # L351
     result = await summarize(req.raw_text, client=client)                     # orchestrator
+    summarized = perf_counter()                                               # L351
     config = settings.checks_config()                                         # L187
     note   = ground(result.draft, req.raw_text, config=config)                # grounding
     report = await run_checks(note, req.raw_text, mode="production",          # evals (live subset)
                               config=config, judge=judge)
+    _log_completed(request, note_id, result.metadata, report, started, summarized)  # L351
     background_tasks.add_task(persist, sessions, note_id, req.raw_text, note, report,
                               result.metadata)
     return SummarizeResponse(note_id=note_id, note=note, report=report,       # sink runs AFTER this
@@ -3069,7 +3073,7 @@ async def summarize_endpoint(
 ```
 
 A handful of lines that wire the pipeline in order. **The thinness is the signal** — a
-seven-line route instead of a 200-line god-handler is the visual proof of "dependencies
+nine-line route instead of a 200-line god-handler is the visual proof of "dependencies
 point inward." `persist` rides a `BackgroundTask`, so "the sink runs after the response" is
 the framework's execution order, not a promise the route keeps (§9.6). The id is minted in
 the route because the response must carry it and the response is built before the row
@@ -3355,7 +3359,8 @@ channels and shipped a contract that could only express the first).
 
 - **Connection pooling** — the real concurrency concern is the DB, not async itself. Async
   engine (`asyncpg` pool via SQLAlchemy). Cheap; do it right.
-- **`/health` endpoint** — five lines; its *presence* signals you thought about deployment.
+- **`/health` endpoint** — three lines; its *presence* signals you thought about deployment.
+  Admission never reaches it: it is neither rate-limited nor charged to the budget (L351).
 - **CORS** (v1.1) — the React dev server runs on a different origin; without
   `CORSMiddleware` (allow the frontend origin, configured in `config.py`) phase 3 begins
   with a mystery evening. One middleware registration, specced now so future-me doesn't
@@ -3369,6 +3374,10 @@ channels and shipped a contract that could only express the first).
   error bodies are `{error, request_id}` (§9.4); the 500 path logs exception type and
   frames, never the message or `exc_info` (L69), and a crashed check logs the same way, by
   check *name* (L113), as a failed write does, by note id (L342).
+  A request the route completes logs one INFO line (L351), `request_completed`: its request
+  and note ids, the model, `wall_s` (summarize through the checks), `summarize_wall_s`
+  (summarize's alone, as the corpus measures it, L201), the validation attempts, and
+  summarize's and the judge's token counts.
   `persist_enabled=false` keeps the demo out of the database; this rule keeps it out of the
   hosting platform's log retention, which v1.2's "not a PHI sink" had forgotten.
   Structured/JSON logging → v2.
