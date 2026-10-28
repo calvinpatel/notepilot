@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.14** (patch — the deploy's measured trust, October 2026). Supersedes
-v1.10.13.
+**Spec version: v1.10.15** (patch — the OpenAPI snapshot, October 2026). Supersedes
+v1.10.14.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3658,6 +3658,10 @@ runs locally are the free tiers' (CLAUDE.md).
   multi-character lowercasing can't break it.
 - **Tool-schema snapshot** — `SUMMARY_TOOL["input_schema"]` against a committed JSON; any
   change to `ClaimDraft` is a reviewed diff *and* a new `PROMPT_VERSION`.
+- **OpenAPI snapshot (L356)** — `GET /openapi.json` against a committed JSON, compared as
+  text, key order included, so a change to the schema the API serves is a reviewed diff. The
+  schema embeds settings (the request's `maxLength` is `max_input_chars`, §9.1), so the
+  snapshot holds the values the suite runs with (§10).
 - **Orchestrator boundary (phase 1)** — fake client: happy path; a validation retry with a
   correctly shaped `tool_result` (`tool_use_id`, `is_error=True`); `max_tokens` and
   `model_context_window_exceeded` each fail fast as `OutputTruncatedError` (L88); a refusal

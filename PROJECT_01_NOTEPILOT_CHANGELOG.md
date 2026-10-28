@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,30 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.10.15 — the OpenAPI snapshot (patch)
+
+Theme: the frontend step's first commit (§14, phase 3), as Cal ruled the frontend's sheet on
+Oct 28 (F1 to F10): F3's snapshot of `/openapi.json`, pinned before the commits after it
+move the schema. A fill, landing with its test (CLAUDE.md, "Changing the spec"). No
+invariant moves.
+
+**INFO**
+- **L356 §11 — the OpenAPI snapshot.** Fill: §11 pins the tool schema against a committed
+  JSON, and nothing pinned what `/openapi.json` serves, which §9.10's types are generated
+  from. F3 ruled that `openapi-typescript` reads a committed snapshot of it, kept equal to
+  the endpoint by a test, so a schema change is a reviewed JSON diff before it is a type
+  diff, and the frontend's CI job needs no Python. The test compares text, key order
+  included: measured Oct 28 with `openapi-typescript` 7.13.0, a schema whose `ClinicalClaim`
+  properties were reversed parses equal to the served one and generates a different
+  `api.d.ts`, so a parse-and-compare (the tool-schema snapshot's form) would pass a snapshot
+  that generates other types. The file is the body as `json.dumps` writes it with `indent=2`
+  and `ensure_ascii=False`, plus one newline; the endpoint serves non-ASCII as itself
+  (measured), and so does the file. The schema embeds `max_input_chars` as the request's
+  `maxLength`, so `write_openapi_snapshot`, in the test module, regenerates it in
+  CLAUDE.md's scratch environment, whose settings are the suite's. It records today's
+  schema, the default 422 body #3 entry 3 replaces included (§9.4, L70), so the commits
+  after it move it visibly.
 
 ## v1.10.14 — the deploy's measured trust (patch)
 

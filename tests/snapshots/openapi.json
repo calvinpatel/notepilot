@@ -1,0 +1,462 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NotePilot",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Index",
+        "description": "The phase-1 page (§9.10, L68).",
+        "operationId": "index__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/summarize": {
+      "post": {
+        "summary": "Summarize Endpoint",
+        "description": "Composition root (§9.1): wires the pipeline in order; no logic lives here.\n\nPhase 3's route (L166, L318, L347, L350, L351): §9.1's. The request is admit's, limited\nand reserved before any call. The judge is get_judge's, None unless settings.judge_enabled;\nrun_checks selects the judged check only with one. The sessions are get_sessions', None\nunless settings.persist_enabled: persist writes the note after the response, in a session\nof its own (§9.6), and note_id names its row. With persistence off it names none (§9.10,\nL58). Before the response, the request's one request_completed line (L351).",
+        "operationId": "summarize_endpoint_summarize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SummarizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummarizeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChecksConfig": {
+        "properties": {
+          "fuzzy_score_cutoff": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Fuzzy Score Cutoff"
+          },
+          "min_quote_content_tokens": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Min Quote Content Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fuzzy_score_cutoff",
+          "min_quote_content_tokens"
+        ],
+        "title": "ChecksConfig",
+        "description": "The knobs that decide verdicts (§4.2, L187), passed in, never read from settings.\n\nBuilt at the edge only, by settings.checks_config(), and handed to grounding and the\nchecks. No defaults: those are Settings' (§10), and a second copy could drift. The\nbounds repeat Settings', so a config built in a test can't go out of range either;\ntests/test_config.py pins the two copies equal."
+      },
+      "ClinicalClaim": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text",
+            "description": "One clinical fact."
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "S",
+              "O",
+              "A",
+              "P"
+            ],
+            "title": "Section"
+          },
+          "source_quote": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Source Quote",
+            "description": "Verbatim; one contiguous span of the input."
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "source_span": {
+            "anyOf": [
+              {
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Span"
+          },
+          "grounding_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grounding Score"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/SafetyFlag"
+            },
+            "type": "array",
+            "title": "Flags",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "section",
+          "source_quote",
+          "id"
+        ],
+        "title": "ClinicalClaim"
+      },
+      "EvalReport": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/EvalResult"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "checks_run": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true,
+            "title": "Checks Run"
+          },
+          "checks_version": {
+            "type": "string",
+            "title": "Checks Version"
+          },
+          "judge_usage": {
+            "$ref": "#/components/schemas/TokenUsage"
+          },
+          "checks_config": {
+            "$ref": "#/components/schemas/ChecksConfig"
+          },
+          "judge_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Version"
+          },
+          "all_critical_passed": {
+            "type": "boolean",
+            "title": "All Critical Passed",
+            "description": "The note's verdict, serialized with the results it summarizes (L102).\n\nbool(crits) is the vacuous-truth guard: all() over no CRITICAL result is True, and\nthat must not read as safe (invariant 12). An errored CRITICAL has passed=False, so\na crash reads as a failure.",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "results",
+          "checks_run",
+          "checks_version",
+          "checks_config",
+          "judge_version",
+          "all_critical_passed"
+        ],
+        "title": "EvalReport"
+      },
+      "EvalResult": {
+        "properties": {
+          "check": {
+            "type": "string",
+            "title": "Check"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "errored": {
+            "type": "boolean",
+            "title": "Errored",
+            "default": false
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "claim_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Claim Ids",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "check",
+          "severity",
+          "passed"
+        ],
+        "title": "EvalResult"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "RunMetadata": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/TokenUsage"
+          },
+          "validation_attempts": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Validation Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "prompt_version",
+          "usage",
+          "validation_attempts"
+        ],
+        "title": "RunMetadata"
+      },
+      "SOAPNote": {
+        "properties": {
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/ClinicalClaim"
+            },
+            "type": "array",
+            "title": "Claims"
+          }
+        },
+        "type": "object",
+        "required": [
+          "claims"
+        ],
+        "title": "SOAPNote"
+      },
+      "SafetyFlag": {
+        "type": "string",
+        "enum": [
+          "unsupported",
+          "paraphrased"
+        ],
+        "title": "SafetyFlag"
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "critical",
+          "warning",
+          "info"
+        ],
+        "title": "Severity"
+      },
+      "SummarizeRequest": {
+        "properties": {
+          "raw_text": {
+            "type": "string",
+            "maxLength": 12500,
+            "title": "Raw Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "raw_text"
+        ],
+        "title": "SummarizeRequest",
+        "description": "HTTP-boundary shape (§9.1); sanctioned outside schemas.py by §13."
+      },
+      "SummarizeResponse": {
+        "properties": {
+          "note_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Note Id"
+          },
+          "note": {
+            "$ref": "#/components/schemas/SOAPNote"
+          },
+          "report": {
+            "$ref": "#/components/schemas/EvalReport"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/RunMetadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "note_id",
+          "note",
+          "report",
+          "metadata"
+        ],
+        "title": "SummarizeResponse",
+        "description": "The wire shape, exactly {note_id, note, report, metadata} (L76, L166): an edge type."
+      },
+      "TokenUsage": {
+        "properties": {
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "default": 0
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Output Tokens",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "TokenUsage"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
