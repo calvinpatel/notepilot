@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,45 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.10.14 — the deploy's measured trust (patch)
+
+Theme: the deploy sub-step's fourth commit (§14, phase 3), as Cal ruled it on Oct 28 (R1 to
+R3): what the private preview's first deploy measured, recorded in §9.8 and the README, and
+the README fixes that deploy called for. A fill. No invariant moves.
+
+**WARNING**
+- **L355 §9.8, §13 — the deploy's measured trust and probe results.** Fill: §9.8 named the
+  trusted proxy only as the platform's range (L352), and C4 left its value to P1. Measured
+  on Oct 28 in `us-west1`, project `calvinpatel-notepilot`, revisions `notepilot-00001` to
+  `notepilot-00004`. P2: `/health` answered `{"status":"ok"}`; through
+  `gcloud run services proxy` (which accepts `--region`), the page loaded and summarized a
+  synthetic note into 20 claims with all 12 checks passed, at `prompt_version=306bbaa5126a`.
+  P1, the address: with the default trust, uvicorn's access lines began with
+  `169.254.169.126` on two revisions. Cal ruled (R1) to trust the link-local block
+  `169.254.0.0/16` rather than that one address: no client can arrive from a link-local
+  address, and if the front end's address moved within the block, a single trusted address
+  would stop matching and every client would share one rate-limit bucket. P3: a
+  12,500-character synthetic paste answered 200 with one `request_completed` line, 6,708
+  input and 96 output tokens against a reservation of 72,939 (L348), and its marker word
+  appeared in the logs 0 times; on the browser path, 0 times too. P4: under a budget of two
+  reservations, the second request answered 200 and the third 503 `budget_exhausted`,
+  `Retry-After: 8468`, the seconds from 21:38:52 UTC to midnight. P1, the key: seven
+  requests forging `X-Forwarded-For` from 203.0.113.0/24 answered 429 `rate_limited`,
+  `retry_after` 13 or 14, and every access line showed the client's own IPv6 address; keyed
+  by the forged entries, each would have opened its own bucket and met the spent budget's
+  503 instead. All seven, not at least one, because P3 and P4 had already used the minute's
+  three requests under the same key. The deploy itself: `gcloud run deploy --source` built
+  through Cloud Build and served in 1m32s with no grant beyond the README's. Three README
+  fixes follow from it (R2). A run without the runtime account stopped at validation,
+  `iam.serviceAccounts.actAs` denied, so the one-time block ends with
+  `gcloud iam service-accounts list`. A clone onto an existing directory failed and left the
+  shell in the home directory, where `gcloud meta list-files-for-upload` listed personal
+  files, so the clone line removes the old clone first and the deploy line repeats its `cd`.
+  An IPv4-only echo service showed a different address from the IPv6 one the access lines
+  held, so P1 says the client's address may be IPv6. P1's first pass now runs on a revision
+  with the trust removed, since with it set the access lines show the client, not the proxy.
+  The README records the results (R3), without the client's address.
 
 ## v1.10.13 — the deploy's steps and checklist (patch)
 

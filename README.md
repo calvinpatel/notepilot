@@ -89,7 +89,7 @@ Verdicts were stable in all seven runs: no case changed verdict across its three
 |---|---|---|
 | 1 | MVP spine: paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display | done (`v0.1-spine`) |
 | 2 | Grounding ladder, safety checks, synthetic trap corpus, run lineage, semantic judge | done (`v0.2a-safety`, `v0.2b-corpus`, `v0.2c-judge`) |
-| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | planned |
+| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | in progress (private preview deployed) |
 | 4 | RAG cross-check against drug-interaction and guideline references | planned |
 
 Out of scope for v1: EHR integration, real patient data, multi-user auth. NotePilot is a portfolio project and is not a medical device.
@@ -138,21 +138,23 @@ gcloud iam service-accounts create notepilot-run
 gcloud secrets add-iam-policy-binding anthropic-api-key --member=serviceAccount:notepilot-run@PROJECT_ID.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 ```
 
+Then `gcloud iam service-accounts list` shows `notepilot-run`. Without it, the deploy below stops at validation with `iam.serviceAccounts.actAs` denied.
+
 ### Before every deploy
 
 - [ ] The commit is pushed, and CI is green on it, the `image` job included.
 - [ ] The `Dockerfile`'s base is the newest CPython patch released at least two weeks before today; a newer one moves in a commit of its own, pinned by digest.
-- [ ] The deploy runs from a fresh clone, never the working tree, whose `.env` holds the real key: `git clone --depth 1 https://github.com/calvinpatel/notepilot /tmp/notepilot-deploy && cd /tmp/notepilot-deploy`. There, `gcloud meta list-files-for-upload` lists no `.env`.
+- [ ] The deploy runs from a fresh clone, never the working tree, whose `.env` holds the real key: `rm -rf /tmp/notepilot-deploy && git clone --depth 1 https://github.com/calvinpatel/notepilot /tmp/notepilot-deploy && cd /tmp/notepilot-deploy`. There, `gcloud meta list-files-for-upload` lists the repo's files and no `.env`; any other file in the list, your home folder's among them, means the shell is not in the clone.
 - [ ] `ANTHROPIC_LOG` is never set, on the service or in the shell: with `debug`, the SDK logs each request's options, the pasted note among them (§9.8).
 - [ ] After the deploy, `gcloud run services describe notepilot --region us-west1` shows the settings below and no `ANTHROPIC_LOG`, `JUDGE_ENABLED`, or `PERSIST_ENABLED`.
 
 ### Deploy
 
 ```bash
-gcloud run deploy notepilot --source . --region us-west1 --no-allow-unauthenticated --service-account notepilot-run@PROJECT_ID.iam.gserviceaccount.com --min-instances 1 --max-instances 1 --timeout 600 --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest --set-env-vars RATE_LIMIT=3/minute,DAILY_TOKEN_BUDGET=1000000,MAX_VALIDATION_RETRIES=0
+cd /tmp/notepilot-deploy && gcloud run deploy notepilot --source . --region us-west1 --no-allow-unauthenticated --service-account notepilot-run@PROJECT_ID.iam.gserviceaccount.com --min-instances 1 --max-instances 1 --timeout 600 --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest --set-env-vars RATE_LIMIT=3/minute,DAILY_TOKEN_BUDGET=1000000,MAX_VALIDATION_RETRIES=0,FORWARDED_ALLOW_IPS=169.254.0.0/16
 ```
 
-One instance keeps one rate-limit counter and one daily budget, which live in the process. The 600 s timeout is 2.2 times a request's worst case under a budget, 270 s. Boot refuses a budget with validation retries, so `MAX_VALIDATION_RETRIES=0` rides with it. `FORWARDED_ALLOW_IPS` joins the settings once the first probe below has measured the proxy's address.
+One instance keeps one rate-limit counter and one daily budget, which live in the process. The 600 s timeout is 2.2 times a request's worst case under a budget, 270 s. Boot refuses a budget with validation retries, so `MAX_VALIDATION_RETRIES=0` rides with it. `FORWARDED_ALLOW_IPS` trusts the block Cloud Run's front end connects from, `169.254.0.0/16`, where P1 measured it: link-local addresses aren't routable, so no client can arrive from one. The command repeats the `cd`, so it can't run anywhere but the clone: from another directory, `--source .` would upload that directory.
 
 To open the page, `gcloud run services proxy notepilot --region us-west1` serves the service at http://localhost:8080 with your identity. To call it from a shell:
 
@@ -169,17 +171,30 @@ After a deploy that changes the image or the proxy's trust, run P1 to P4 against
 ```bash
 LOGS='resource.type="cloud_run_revision" AND resource.labels.service_name="notepilot"'
 ACCESS='textPayload:"GET /health"'
+POSTS='textPayload:"POST /summarize"'
 paste_of() { python3 -c 'import json, sys; print(json.dumps({"raw_text": ("Synthetic visit, zebrafinch: mild headache for two days, no fever. " * 200)[: int(sys.argv[1])]}))' "$1"; }
 summarize() { curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@" --data @- "$URL/summarize"; echo; }
 ```
 
 - **P2, the page and `/health`.** Through the proxy, the page loads; the `curl` above prints `{"status":"ok"}`.
-- **P1, the proxy's address.** With `FORWARDED_ALLOW_IPS` at its default, `gcloud logging read "$LOGS AND $ACCESS" --limit 3 --format 'value(textPayload)'` shows uvicorn's access line for that `curl`, and the address it starts with is the proxy's. That address sets `FORWARDED_ALLOW_IPS` (`--update-env-vars`, never `*`) before P3.
+- **P1, the proxy's address.** On a revision with the default trust (`gcloud run services update notepilot --region us-west1 --remove-env-vars FORWARDED_ALLOW_IPS`), `curl` `/health` once; then `gcloud logging read "$LOGS AND $ACCESS" --limit 3 --format 'value(textPayload)'` shows uvicorn's access line for it, and the address it starts with is the proxy's. It must lie in `169.254.0.0/16`. Restore the trust before P3, never with `*`: `gcloud run services update notepilot --region us-west1 --update-env-vars FORWARDED_ALLOW_IPS=169.254.0.0/16`.
 - **P3, a full paste.** `paste_of 12500 | summarize` prints `200`. `gcloud logging read "$LOGS AND textPayload:request_completed" --limit 3 --format 'value(textPayload)'` shows one `request_completed` line for it, and `gcloud logging read "$LOGS" --freshness 1h --format 'value(textPayload)' | grep -c zebrafinch` prints `0`: no paste text in the logs.
 - **P4, the budget.** `paste_of 40 | summarize` prints `200`, the budget's second request; the next, `paste_of 40 | summarize -D -`, prints `503` with a `Retry-After` header.
-- **P1, the key.** `for i in 1 2 3 4 5 6 7; do paste_of 40 | summarize -H "X-Forwarded-For: 203.0.113.$i"; done` prints at least one `429`: seven requests within a minute overrun the limit of three, whatever window they straddle. Uvicorn's access lines for them show your own public address, never a `203.0.113.x`; a forged address there means the trust is too wide, and a Google address means it is too narrow.
+- **P1, the key.** `for i in 1 2 3 4 5 6 7; do paste_of 40 | summarize -H "X-Forwarded-For: 203.0.113.$i"; done` prints at least one `429`: seven requests within a minute overrun the limit of three, whatever window they straddle, and when P3 and P4 have already used the minute's three, all seven do. Their access lines, `gcloud logging read "$LOGS AND $POSTS" --limit 12 --format 'value(textPayload)'`, show your own public address, never a `203.0.113.x`; a forged address there means the trust is too wide, and a Google address means it is too narrow. The address may be your IPv6 one: an echo service that answers over IPv4 shows a different address for the same machine.
 
 Then restore the budget: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=1000000`.
+
+### Measured
+
+The private preview's first deploy, on Oct 28, 2026, across revisions `notepilot-00001` to `notepilot-00004`:
+
+| Probe | Result |
+|---|---|
+| P2 | `/health` answered `{"status":"ok"}`. Through the proxy, the page loaded, and a synthetic note came back as 20 claims, each quoting the paste, with all 12 checks passed. |
+| P1, the address | The access lines began with `169.254.169.126` on two revisions, inside the trusted block. |
+| P3 | A 12,500-character paste answered `200`, with one `request_completed` line (6,708 input and 96 output tokens); the paste's marker word appeared in the logs 0 times. |
+| P4 | The budget's second request answered `200`; the third, `503` `budget_exhausted` with `Retry-After: 8468`, the seconds left until UTC midnight. |
+| P1, the key | Seven requests with forged `X-Forwarded-For` values answered `429` `rate_limited`, every access line showing the client's own IPv6 address. |
 
 ## Author
 

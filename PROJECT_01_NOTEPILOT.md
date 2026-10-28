@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.13** (patch — the deploy's steps and checklist, October 2026).
-Supersedes v1.10.12.
+**Spec version: v1.10.14** (patch — the deploy's measured trust, October 2026). Supersedes
+v1.10.13.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3436,9 +3436,11 @@ channels and shipped a contract that could only express the first).
   `settings.forwarded_allow_ips`, the platform's proxy range: uvicorn reads
   `WEB_CONCURRENCY` and `FORWARDED_ALLOW_IPS` from the environment whenever they aren't
   passed. Boot refuses `*`, under which uvicorn keys the leftmost `X-Forwarded-For` entry,
-  the one the client writes. The proxy's timeout must exceed a max-size request's duration
-  (§5.2, L185, L333), or `max_input_chars` drops: past it, the proxy cuts the request, and
-  the page gets the proxy's error body, not §9.4's.
+  the one the client writes. On Cloud Run the range is `169.254.0.0/16`, the link-local
+  block its front end connects from (`169.254.169.126` when measured, L355): no client can
+  arrive from a link-local address. The proxy's timeout must exceed a max-size request's
+  duration (§5.2, L185, L333), or `max_input_chars` drops: past it, the proxy cuts the
+  request, and the page gets the proxy's error body, not §9.4's.
 - **The deploy (L354).** The private preview runs on Cloud Run in `us-west1`. Callers need
   the service's invoker role; the key reaches it from Secret Manager, through a runtime
   identity that can read only that secret; one instance serves it (`min = max = 1`), so
@@ -3821,7 +3823,7 @@ notepilot/
 │                              test_injected_cases, test_corpus_coverage
 ├── .env.example            ← committed; real .env gitignored
 └── README.md               ← product layer + four-metric scorecard (n, k) + cost line + CI badge
-                               + the deploy's steps, checklist, and probes (phase 3, L354)
+                               + deploy steps, checklist, probes, results (L354, L355)
 ```
 
 **The three documents live at the root, together (v1.3.2, L93).** CLAUDE.md names the other
