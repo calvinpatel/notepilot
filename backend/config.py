@@ -9,12 +9,14 @@ bounds, each a validation error: the derived output ceiling, the input bounds, r
 database_url on the asyncpg driver (L341), a rate_limit that parses and admits a request,
 and, with a daily budget, no judge (L332), one validation attempt, and room for one request
 (L348). Nor may the environment hold a RATELIMIT_ variable, where slowapi reads settings of
-its own (L349). A boot error names its rule, never the input, which holds the key and the
+its own (L349), and forwarded_allow_ips must list addresses or networks, never * (L352). A
+boot error names its rule, never the input, which holds the key and the
 database password (L341).
 
 Tests run with dotenv disabled; see tests/conftest.py.
 """
 
+import ipaddress
 import math
 import os
 from collections.abc import Mapping
@@ -131,6 +133,13 @@ class Settings(BaseSettings):
     # run has neither; the deploy sets both (L348).
     rate_limit: str | None = None
     daily_token_budget: int | None = Field(None, ge=1)
+
+    # The deploy's server (§9.8, L352): what backend.serve hands uvicorn. forwarded_allow_ips
+    # is the platform proxy's range, whose X-Forwarded-For entries uvicorn trusts; the
+    # default is uvicorn's own, this machine.
+    host: str = Field("127.0.0.1", pattern="^[!-~]+$")  # never empty, never a space
+    port: int = Field(8000, ge=1, le=65535)
+    forwarded_allow_ips: str = "127.0.0.1,::1"
 
     def checks_config(self) -> ChecksConfig:
         """The verdict knobs, for the edge to pass inward: the domain reads no settings (L187)."""
@@ -297,6 +306,38 @@ class Settings(BaseSettings):
                 {"budget": budget, "reservation": reservation},
             )
         return self
+
+    @field_validator("forwarded_allow_ips")
+    @classmethod
+    def _forwarded_allow_ips_names_the_proxy(cls, value: str) -> str:
+        """Never *, and each entry an address or a network, as uvicorn parses the list (L352).
+
+        uvicorn trusts every address only for the exact value *, and then keys the leftmost
+        X-Forwarded-For entry, the client's own, so every client would pick its own rate-limit
+        key. Any entry it can't parse, a * inside a list included, it keeps as a hostname that
+        trusts no address.
+        """
+        if value == "*":
+            raise PydanticCustomError(
+                "forwarded_allow_ips_any",
+                "forwarded_allow_ips may not be *: uvicorn would key the rate limit by the "
+                "client's own X-Forwarded-For entry; list the proxy's range (§9.8, L352)",
+            )
+        for entry in (entry.strip() for entry in value.split(",")):
+            try:  # uvicorn's own parse, which keeps a failure as a hostname trusting nothing
+                if "/" in entry:
+                    ipaddress.ip_network(entry)
+                else:
+                    ipaddress.ip_address(entry)
+            except ValueError:
+                raise PydanticCustomError(
+                    "forwarded_allow_ips_invalid",
+                    "forwarded_allow_ips={value} must list addresses or networks, comma-"
+                    "separated: uvicorn keeps any other entry as a hostname that trusts no "
+                    "address (§9.8, L352)",
+                    {"value": value},
+                ) from None
+        return value
 
     @model_validator(mode="after")
     def _no_slowapi_environment(self) -> Self:

@@ -1,4 +1,4 @@
-"""Pins config wiring (spec §10; L209, L232, L233, L314, L332, L341, L348, L349).
+"""Pins config wiring (spec §10; L209, L232, L233, L314, L332, L341, L348, L349, L352).
 
 Settings is built at import time, so test_dotenv_disabled_under_pytest sees the
 environment conftest set before backend was first imported. _dotenv_path is pure,
@@ -87,6 +87,9 @@ def _settings(
     judge_enabled: bool = False,
     rate_limit: str | None = None,
     daily_token_budget: int | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    forwarded_allow_ips: str = "127.0.0.1,::1",
 ) -> Settings:
     return Settings(
         anthropic_api_key=anthropic_api_key,
@@ -110,6 +113,9 @@ def _settings(
         judge_enabled=judge_enabled,
         rate_limit=rate_limit,
         daily_token_budget=daily_token_budget,
+        host=host,
+        port=port,
+        forwarded_allow_ips=forwarded_allow_ips,
     )
 
 
@@ -560,6 +566,67 @@ def test_max_output_tokens_is_not_a_field() -> None:
     # A @computed_field would land in model_computed_fields, not model_fields (L94).
     assert "max_output_tokens" not in Settings.model_fields
     assert "max_output_tokens" not in Settings.model_computed_fields
+
+
+# --- the deploy's server: host, port, forwarded_allow_ips (§9.8, §10; L352) -------------
+
+
+def test_forwarded_allow_ips_refuses_any_host() -> None:
+    # Only the exact * trusts everything; a * in a list, or padded, is an invalid entry (below).
+    with pytest.raises(ValidationError) as exc:
+        _settings(forwarded_allow_ips="*")
+    (err,) = exc.value.errors()
+    assert err["type"] == "forwarded_allow_ips_any"
+    assert err["loc"] == ("forwarded_allow_ips",)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["proxy.internal", "10.0.0.0/8,", "10.0.0.0/33", "10.0.0.5/8", "", "10.0.0.0/8,*", " * "],
+    ids=[
+        "hostname",
+        "trailing-comma",
+        "prefix-33",
+        "host-bits-set",
+        "empty",
+        "listed-any",
+        "padded-any",
+    ],
+)
+def test_forwarded_allow_ips_must_list_addresses_or_networks(value: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(forwarded_allow_ips=value)
+    (err,) = exc.value.errors()
+    assert err["type"] == "forwarded_allow_ips_invalid"
+    assert err["loc"] == ("forwarded_allow_ips",)
+
+
+def test_forwarded_allow_ips_accepts_addresses_and_networks() -> None:
+    # Two networks, one padded, and an IPv6 address, kept as given: uvicorn parses the list.
+    value = "10.0.0.0/8, 35.191.0.0/16,::1"
+    assert _settings(forwarded_allow_ips=value).forwarded_allow_ips == value
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [(0, "greater_than_equal"), (65536, "less_than_equal")],
+    ids=["0", "65536"],
+)
+def test_port_rejects_out_of_range(value: int, error: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(port=value)
+    (err,) = exc.value.errors()
+    assert err["type"] == error
+    assert err["loc"] == ("port",)
+
+
+@pytest.mark.parametrize("value", ["", " ", "local host"], ids=["empty", "blank", "inner-space"])
+def test_host_rejects_empty_or_spaced(value: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(host=value)
+    (err,) = exc.value.errors()
+    assert err["type"] == "string_pattern_mismatch"
+    assert err["loc"] == ("host",)
 
 
 # --- existing fields gain domains (L77, L84, L72) ----------------------------------

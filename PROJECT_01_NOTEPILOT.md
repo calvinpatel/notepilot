@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.10** (patch — the request log line, October 2026). Supersedes
-v1.10.9.
+**Spec version: v1.10.11** (patch — the deploy's entrypoint, October 2026). Supersedes
+v1.10.10.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3427,11 +3427,14 @@ channels and shipped a contract that could only express the first).
   does, summarize's worst case is `sdk_transport_retries + 1` times what the reservation
   charges, three times at the defaults, as `judge_usage` is a floor (L316).
 - **Proxies (v1.3, L58).** Behind a platform proxy, `request.client.host` is the proxy —
-  every user shares one rate-limit bucket. Run uvicorn with `--proxy-headers` and
-  `--forwarded-allow-ips` set to the platform's proxy range (`settings.forwarded_allow_ips`).
-  The proxy's timeout must exceed a max-size request's duration (§5.2, L185, L333), or
-  `max_input_chars` drops: past it, the proxy cuts the request, and the page gets the
-  proxy's error body, not §9.4's.
+  every user shares one rate-limit bucket. The deploy starts uvicorn with
+  `python -m backend.serve` (L352), which passes proxy headers on, one worker, and
+  `settings.forwarded_allow_ips`, the platform's proxy range: uvicorn reads
+  `WEB_CONCURRENCY` and `FORWARDED_ALLOW_IPS` from the environment whenever they aren't
+  passed. Boot refuses `*`, under which uvicorn keys the leftmost `X-Forwarded-For` entry,
+  the one the client writes. The proxy's timeout must exceed a max-size request's duration
+  (§5.2, L185, L333), or `max_input_chars` drops: past it, the proxy cuts the request, and
+  the page gets the proxy's error body, not §9.4's.
 - **The paste box is a PHI intake (v1.2).** The repo has zero real PHI. The *deployed
   demo* has a text box, and someone will paste a real note into it. Two consequences:
   (1) the UI carries a visible "synthetic / de-identified text only — this is a demo,
@@ -3547,8 +3550,8 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   `corpus_repeats` (D11, `ge=1`, default 3);
   `daily_token_budget` (None unless set: no cap, L332), `max_request_tokens` (L56; derived,
   never a field, L348); `rate_limit` (a slowapi limit string, None unless set: no limiter,
-  L348); `forwarded_allow_ips`
-  (L58); `runs_path` (default `backend/evals/runs/corpus_runs.jsonl`, §13, L209); CORS
+  L348); `host`, `port`, and `forwarded_allow_ips`, the proxy's range and never `*` (L58,
+  L352); `runs_path` (default `backend/evals/runs/corpus_runs.jsonl`, §13, L209); CORS
   origins. Clinical knowledge — including `NEGATION_WINDOW` —
   lives in `clinical/lexicons.py`. The literal numbers in this spec's code samples are
   `settings.*` in the repo.
@@ -3565,7 +3568,8 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   refuses `max_validation_retries` above 0 and a value below `max_request_tokens` (L348),
   and `rate_limit` must parse with each limit at least 1. Boot refuses any `RATELIMIT_`
   variable in the environment (L349): slowapi reads settings of its own there, and
-  `RATELIMIT_ENABLED=false` would turn the limit off with `rate_limit` set. With
+  `RATELIMIT_ENABLED=false` would turn the limit off with `rate_limit` set.
+  `forwarded_allow_ips` must list addresses or networks, never `*` (L352). With
   `persist_enabled` on, another requires a `database_url` on the `postgresql+asyncpg://`
   driver (L341): without one, `persist()` would fail on every request, logged and
   swallowed (§9.6). `Settings` hides its input in validation errors (L341): a failed
@@ -3780,6 +3784,7 @@ notepilot/
 │   │   └── runs/           ← corpus_runs.jsonl — committed from local runs (D5)
 │   ├── corpus.py           ← EDGE (phase 2b, L188). score_corpus: settings · the API · git · runs/
 │   ├── api.py              ← EDGE. routes (composition root) · handlers · logging · rate limit · budget
+│   ├── serve.py            ← EDGE (phase 3, L352). the deploy's uvicorn, one worker
 │   ├── static/index.html   ← phase 1 only: the static display (§9.10, L68); frontend/ replaces it
 │   └── db.py               ← EDGE (phase 3). get_sessions, NoteRecord, persist()
 ├── alembic/                ← EDGE (phase 3, D3). env.py (the URL from settings, L346) ·
