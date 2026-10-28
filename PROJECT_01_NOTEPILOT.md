@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.8** (patch — slowapi's environment, October 2026). Supersedes
-v1.10.7.
+**Spec version: v1.10.9** (patch — admission, October 2026). Supersedes v1.10.8.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3050,12 +3049,12 @@ class SummarizeResponse(BaseModel):
 
 @app.post("/summarize", response_model=SummarizeResponse)
 async def summarize_endpoint(
-    req: SummarizeRequest,
     background_tasks: BackgroundTasks,
+    req: SummarizeRequest = Depends(admit),     # §9.8: 429, then 503, BEFORE any spend;
+                                                #   the request admit let in (L350)
     client: LLMClient = Depends(get_client),
     judge: Judge | None = Depends(get_judge),   # None unless settings.judge_enabled (edge)
     sessions = Depends(get_sessions),           # None unless persist_enabled (L343)
-    _: None = Depends(reserve_budget),          # §9.8: 503 budget_exhausted BEFORE any spend
 ):
     note_id = uuid4()
     result = await summarize(req.raw_text, client=client)                     # orchestrator
@@ -3093,11 +3092,12 @@ becomes `note_id` + `note` + `report` + `metadata`, and nothing in `schemas.py` 
 `{"draft", "metadata"}`.
 
 **Phase 2a's route is the one above, less what later phases add (L166).** No judge until 2c,
-so `run_checks` selects no judged check; no `reserve_budget` and no `persist` until phase 3
+so `run_checks` selects no judged check; no `admit` and no `persist` until phase 3
 (§14). `note_id` is minted all the same: with nothing persisted it names no row, as §9.10
 says of `persist_enabled=false` (L58). Phase 3 adds `persist` first (L347): with persistence
 on, the note is written after the response and `note_id` names its row; with it off, the
-route answers as before. *Test:* the happy-path route test asserts the keys
+route answers as before. Then `admit` (L350): the rate limit, then the reservation (§9.8).
+*Test:* the happy-path route test asserts the keys
 are exactly `{"note_id", "note", "report", "metadata"}` and a span that offsets into a
 padded paste; a test that registers its own checks asserts the route checks the note it
 returns, against the exact paste, in production mode, with no judge.
@@ -3387,10 +3387,13 @@ channels and shipped a contract that could only express the first).
   key behind it is a denial-of-wallet endpoint. Minimum viable defense, both required: a
   per-IP rate limit (`slowapi`, a few requests/minute → 429) *and* a daily spend cap
   enforced in code (`settings.daily_token_budget` → 503 `budget_exhausted`). v1.3 (L56)
-  closes three ways v1.2's cap leaked. **Reserve before spend:** the `reserve_budget`
-  dependency atomically charges the worst case (`settings.max_request_tokens` — max input
-  plus max output across every validation attempt) *before* any call, so concurrent
-  requests can't all pass a check-then-spend race. Under a budget that is one attempt
+  closes three ways v1.2's cap leaked. **Reserve before spend:** `admit`, the route's
+  admission dependency (L350), checks the client's rate limit and then atomically charges
+  the worst case (`settings.max_request_tokens` — max input plus max output across every
+  validation attempt) *before* any call, so concurrent requests can't all pass a
+  check-then-spend race. The order is part of the defense: a request over its limit
+  reserves nothing, and `admit` takes the validated request, so a paste that fails
+  validation never reaches it. Under a budget that is one attempt
   (L348): a retry's correction quotes the invalid output, which nothing bounds, so boot
   refuses a budget with validation retries, and in the deploy an invalid output answers
   502 `model_output_invalid` where a local run would retry. **No refund:** the

@@ -15,6 +15,15 @@ SummarizeRequest counts CONTENT (stripped length, L87) and never mutates raw_tex
 source spans are offsets into the exact paste. An oversized paste fails honestly at
 max_length (§9.1).
 
+Admission comes before any call (§9.8, L350). admit, a dependency of the route, takes the
+validated request, so a paste that fails validation never reaches it. It checks the client's
+rate limit through slowapi first, so a request over its limit reserves nothing; then it
+reserves the day's worst case against the daily budget, and returns the request it admitted.
+Each defense is off while its setting is unset. RateLimitExceeded becomes 429 rate_limited, with
+Retry-After the seconds until the client's window resets; BudgetExhaustedError becomes 503
+budget_exhausted, with Retry-After the seconds until the next UTC midnight. Each logs one
+admission_refused line with the code, the request id, and the Retry-After.
+
 A RequestValidationError becomes 422 {"error": "input_invalid", "request_id": ...} and is
 logged by code only (L70). FastAPI's default handler echoes the paste as `input` whenever
 the body parses; this one never reads exc.errors(), str(exc), or the body (L53,
@@ -58,8 +67,13 @@ It never re-raises: past it, ServerErrorMiddleware re-raises for the server, and
 logs the full traceback, message and chained cause included.
 """
 
+import asyncio
+import functools
 import logging
-from collections.abc import Mapping
+import math
+import time
+from collections.abc import Callable, Mapping
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Final
 from uuid import UUID, uuid4
@@ -69,6 +83,9 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -204,9 +221,105 @@ class SummarizeResponse(BaseModel):
     metadata: RunMetadata
 
 
+# --- admission: the rate limit, then the reservation (§9.8, L350) -----------------------
+
+# §9.8's per-IP rate limit, in this process's memory, keyed by the client's address
+# (slowapi's get_remote_address). Boot refuses the environment slowapi would read (L349).
+limiter = Limiter(key_func=get_remote_address)
+
+
+def _rate_limit() -> str:
+    """The limit string, read per request; admit checks the limit only when one is set."""
+    return settings.rate_limit or ""
+
+
+@limiter.limit(_rate_limit)
+async def _count_against_rate_limit(request: Request) -> None:
+    """Empty: slowapi's decorator counts the request against the client's limit before this
+    runs, and raises RateLimitExceeded past it."""
+
+
+class BudgetExhaustedError(Exception):
+    """The day's budget can't cover another reservation (§9.8): 503 budget_exhausted."""
+
+    def __init__(self, retry_after_s: int) -> None:
+        super().__init__(retry_after_s)
+        self.retry_after_s = retry_after_s  # until the next UTC midnight
+
+
+class DailyTokenBudget:
+    """The daily spend cap (§9.8, L56): tokens reserved per UTC day, in this process.
+
+    Reserve before spend: a request reserves its worst case before any call, and nothing
+    refunds it. clock returns the current time, aware and in UTC.
+    """
+
+    def __init__(self, cap: int, clock: Callable[[], datetime]) -> None:
+        self._cap = cap
+        self._clock = clock
+        self._lock = asyncio.Lock()  # §9.8: concurrent reservations can't both pass the check
+        self._day: date | None = None
+        self._reserved = 0
+
+    async def reserve(self, tokens: int) -> None:
+        """Charges tokens to today, or raises BudgetExhaustedError if they don't fit."""
+        async with self._lock:
+            now = self._clock()
+            today = now.date()
+            if today != self._day:
+                self._day, self._reserved = today, 0
+            if self._reserved + tokens > self._cap:
+                midnight = datetime.combine(today + timedelta(days=1), datetime.min.time(), UTC)
+                raise BudgetExhaustedError(math.ceil((midnight - now).total_seconds()))
+            self._reserved += tokens
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+@functools.cache
+def _budget() -> DailyTokenBudget:
+    """The process's one counter (§9.8), built on first use, as db.py's engine is (L343).
+
+    Only get_budget calls it, with daily_token_budget set.
+    """
+    if settings.daily_token_budget is None:
+        raise RuntimeError("daily_token_budget is unset")
+    return DailyTokenBudget(settings.daily_token_budget, _utc_now)
+
+
+def get_budget() -> DailyTokenBudget | None:
+    """The day's counter when settings.daily_token_budget is set, else None (§9.8).
+
+    Read per request at the edge, as get_judge is (L318); the function object is the override
+    key route tests replace.
+    """
+    return _budget() if settings.daily_token_budget is not None else None
+
+
+async def admit(
+    request: Request,
+    req: SummarizeRequest,
+    budget: Annotated[DailyTokenBudget | None, Depends(get_budget)],
+) -> SummarizeRequest:
+    """§9.8's two defenses, in this order, before any call (L350).
+
+    The client's rate limit first, so a request over it reserves nothing; then the day's
+    reservation, settings.max_request_tokens. It takes the validated request, so a paste that
+    fails validation never reaches it, and returns it: the route holds the request admit let
+    in.
+    """
+    if settings.rate_limit is not None:
+        await _count_against_rate_limit(request)
+    if budget is not None:
+        await budget.reserve(settings.max_request_tokens)
+    return req
+
+
 @app.post("/summarize")
 async def summarize_endpoint(
-    req: SummarizeRequest,
+    req: Annotated[SummarizeRequest, Depends(admit)],
     background_tasks: BackgroundTasks,
     client: Annotated[LLMClient, Depends(get_client)],
     judge: Annotated[Judge | None, Depends(get_judge)],
@@ -214,11 +327,12 @@ async def summarize_endpoint(
 ) -> SummarizeResponse:
     """Composition root (§9.1): wires the pipeline in order; no logic lives here.
 
-    Phase 3's route so far (L166, L318, L347): §9.1's without a budget reservation. The judge
-    is get_judge's, None unless settings.judge_enabled; run_checks selects the judged check
-    only with one. The sessions are get_sessions', None unless settings.persist_enabled:
-    persist writes the note after the response, in a session of its own (§9.6), and note_id
-    names its row. With persistence off it names none (§9.10, L58).
+    Phase 3's route so far (L166, L318, L347, L350): §9.1's. The request is admit's, limited
+    and reserved before any call. The judge is get_judge's, None unless settings.judge_enabled;
+    run_checks selects the judged check only with one. The sessions are get_sessions', None
+    unless settings.persist_enabled: persist writes the note after the response, in a session
+    of its own (§9.6), and note_id names its row. With persistence off it names none (§9.10,
+    L58).
     """
     note_id = uuid4()
     result = await summarize(req.raw_text, client=client)
@@ -245,6 +359,43 @@ async def handle_request_validation_error(
     code = "input_invalid"
     logger.warning("input_rejected code=%s request_id=%s", code, rid)
     return JSONResponse(status_code=422, content={"error": code, "request_id": rid})
+
+
+@app.exception_handler(RateLimitExceeded)
+async def handle_rate_limit_exceeded(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """429 rate_limited (§9.4, §9.8): THIS client is over its limit, and it reserved nothing.
+
+    Retry-After is the seconds until the client's window resets, read from slowapi's window
+    for the limit it hit, request.state.view_rate_limit, as slowapi's own handler reads it.
+    Never reads exc.detail or the body (invariant 19). Registered on slowapi's class, which
+    subclasses Starlette's HTTPException: without it, that handler would answer http_error.
+    """
+    rid: str = request.state.request_id
+    code = "rate_limited"
+    item, key = request.state.view_rate_limit
+    reset = limiter.limiter.get_window_stats(item, *key).reset_time
+    retry_after = math.ceil(reset - time.time())
+    logger.warning("admission_refused code=%s request_id=%s retry_after=%d", code, rid, retry_after)
+    return JSONResponse(
+        status_code=429,
+        content={"error": code, "request_id": rid},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+@app.exception_handler(BudgetExhaustedError)
+async def handle_budget_exhausted(request: Request, exc: BudgetExhaustedError) -> JSONResponse:
+    """503 budget_exhausted (§9.4, §9.8): the demo's daily cap, until the next UTC midnight."""
+    rid: str = request.state.request_id
+    code = "budget_exhausted"
+    logger.warning(
+        "admission_refused code=%s request_id=%s retry_after=%d", code, rid, exc.retry_after_s
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"error": code, "request_id": rid},
+        headers={"Retry-After": str(exc.retry_after_s)},
+    )
 
 
 # Framework codes (L80): not rows of §9.4's table, and not part of the phase-1 reach list.

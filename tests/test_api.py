@@ -1,6 +1,6 @@
 """Pins the /summarize HTTP boundary: its input, its judge, its error bodies, and its log lines
 (spec §9.1, §9.4, §9.6, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99,
-L166, L318, L347).
+L166, L318, L347, L350).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -9,24 +9,28 @@ get_client with an EMPTY-script FakeLLMClient; a test that reaches the model wit
 installing its own script fails loudly on the fake's unscripted-call guard instead of
 building a real client. The guard fails through pytest.fail, a BaseException that
 `except Exception` can't swallow, so the catch-all can't turn a forgotten script into a 500
-a test could pass on. The same fixture overrides get_judge and get_sessions with None, so no
-test reaches a judge or a database it didn't install, whatever JUDGE_ENABLED or
-PERSIST_ENABLED the shell exports.
+a test could pass on. The same fixture overrides get_judge, get_sessions, and get_budget with
+None, pins the rate limit off, and empties the limiter's counts, so no test reaches a judge,
+a database, a budget, or a limit it didn't install, whatever JUDGE_ENABLED, PERSIST_ENABLED,
+DAILY_TOKEN_BUDGET, or RATE_LIMIT the shell exports.
 
 Logging tests call caplog.set_level(logging.DEBUG): under pytest the root logger sits at
 WARNING. Sentinel scans read caplog.text, every captured record as rendered, exc_info
 included (L53); positive checks filter "backend.api" records through getMessage() (L79).
 Sentinels go in values, never keys.
 
-PHASE_1_REACH and NOT_UNTIL_PHASE_3 list §9.4's outcomes by phase (L73).
-test_phase_1_reach_is_exactly_the_declared_outcomes checks the first against the outcomes
-the error tests declare.
+PHASE_1_REACH and NOT_UNTIL_PHASE_3 list §9.4's outcomes by phase (L73). Phase 3's admission
+reaches the second (L350), so test_reach_is_exactly_the_declared_outcomes checks the two
+together against the outcomes the error tests declare.
 """
 
+import asyncio
 import logging
 import re
+import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Final, NamedTuple
 from uuid import UUID
 
@@ -52,7 +56,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.types import Message as ASGIMessage
 
-from backend.api import CatchAllMiddleware, RequestIdMiddleware, SummarizeResponse, app
+from backend.api import (
+    BudgetExhaustedError,
+    CatchAllMiddleware,
+    DailyTokenBudget,
+    RequestIdMiddleware,
+    SummarizeResponse,
+    _budget,
+    app,
+    get_budget,
+    limiter,
+)
 from backend.config import Settings, settings
 from backend.db import NoteRecord, get_sessions
 from backend.evals.checks import clause_text
@@ -112,21 +126,24 @@ PHASE_1_REACH: Final[frozenset[_Outcome]] = frozenset(
 NOT_UNTIL_PHASE_3: Final[frozenset[_Outcome]] = frozenset(
     {_Outcome(429, "rate_limited"), _Outcome(503, "budget_exhausted")}
 )
-# The outcomes the 422 test and the 500 tests assert, as constants those tests read.
+# The outcomes the 422, 500, and admission tests assert, as constants those tests read.
 _INPUT_INVALID: Final = _Outcome(422, "input_invalid")
 _INTERNAL_ERROR: Final = _Outcome(500, "internal_error")
+_RATE_LIMITED: Final = _Outcome(429, "rate_limited")
+_BUDGET_EXHAUSTED: Final = _Outcome(503, "budget_exhausted")
 
 Installer = Callable[[Sequence[Message | Exception]], FakeLLMClient]
 
 
 @pytest.fixture(autouse=True)
-def install_fake() -> Iterator[Installer]:
-    """Overrides get_client, get_judge, and get_sessions for every test; restores the prior
-    overrides after.
+def install_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[Installer]:
+    """Overrides get_client, get_judge, get_sessions, and get_budget for every test, pins the
+    rate limit off, and empties the limiter's counts; restores the prior overrides after.
 
     Starts with an EMPTY script: a test that reaches the model without installing its own
     fails on the fake's unscripted-call guard, never by building a real client. The judge is
-    None until a test installs one (L318), and so are the sessions (L347).
+    None until a test installs one (L318), and so are the sessions (L347) and the budget
+    (L350); the rate limit is None until a test sets one.
     """
     prior = dict(app.dependency_overrides)
 
@@ -138,11 +155,15 @@ def install_fake() -> Iterator[Installer]:
     install([])
     app.dependency_overrides[get_judge] = lambda: None
     app.dependency_overrides[get_sessions] = lambda: None
+    app.dependency_overrides[get_budget] = lambda: None
+    _set_rate_limit(monkeypatch, None)
+    limiter.reset()
     try:
         yield install
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(prior)
+        limiter.reset()
 
 
 @pytest.fixture
@@ -439,6 +460,233 @@ def test_min_input_chars_is_read_at_call_time(
     install_fake([_decoy()])
     response = client.post("/summarize", json={"raw_text": "x" * length})
     assert response.status_code == status
+
+
+# --- admission: the rate limit, then the reservation (§9.4, §9.8; L350) -----------------
+
+# One request's reservation: what admit charges, read from settings as admit reads it.
+_RESERVATION: Final = settings.max_request_tokens
+# TEST-NET-1 (RFC 5737): addresses reserved for documentation, so no real client's.
+_CLIENT_A: Final = ("192.0.2.1", 50000)
+_CLIENT_B: Final = ("192.0.2.2", 50000)
+
+
+def _set_rate_limit(monkeypatch: pytest.MonkeyPatch, limit: str | None) -> None:
+    """The route's rate limit for this test; admit reads it per request."""
+    monkeypatch.setattr("backend.api.settings", settings.model_copy(update={"rate_limit": limit}))
+
+
+class _UtcClock:
+    """The budget's clock, set by the test: its day turns over with no sleep."""
+
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+class _EpochClock:
+    """A settable time.time: slowapi's window and the 429's Retry-After both read it."""
+
+    def __init__(self, now: float) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _install_budget(cap: int, clock: Callable[[], datetime] | None = None) -> DailyTokenBudget:
+    """A fresh counter for this test, as get_budget's; the default clock is a fixed noon."""
+    budget = DailyTokenBudget(cap, clock or _UtcClock(datetime(2026, 10, 27, 12, tzinfo=UTC)))
+    app.dependency_overrides[get_budget] = lambda: budget
+    return budget
+
+
+def _summarize(client: TestClient) -> httpx2.Response:
+    # A paste that clears min_input_chars, with the sentinel in it (L53).
+    return client.post("/summarize", json={"raw_text": _content(settings.min_input_chars + 10)})
+
+
+def _assert_refused(
+    response: httpx2.Response, outcome: _Outcome, caplog: pytest.LogCaptureFixture
+) -> None:
+    """§9.4's one shape, a Retry-After, no paste, and one admission_refused line (L79)."""
+    assert response.status_code == outcome.status
+    assert SENTINEL not in response.text  # L53
+    body = response.json()
+    rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
+    assert body == {"error": outcome.code, "request_id": rid}
+    assert RID_RE.fullmatch(rid)
+    retry_after = response.headers["Retry-After"]
+    assert retry_after.isdigit()
+    assert SENTINEL not in caplog.text
+    line = f"admission_refused code={outcome.code} request_id={rid} retry_after={retry_after}"
+    ours = [r for r in caplog.records if r.name == "backend.api" and r.getMessage() == line]
+    assert len(ours) == 1
+    assert ours[0].levelno == logging.WARNING
+
+
+def test_a_request_over_its_rate_limit_is_429_and_reserves_nothing(
+    client: TestClient, install_fake: Installer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The limit is checked before the reservation (L350): measured, a limit checked after it
+    # let a client over its limit drain the cap. Room for three reservations, so a 429 that
+    # reserved would turn the fourth request into a 503, and leave no room for the fifth.
+    _set_rate_limit(monkeypatch, "2/minute")
+    _install_budget(3 * _RESERVATION)
+    fake = install_fake([_decoy() for _ in range(3)])
+    statuses = [_summarize(client).status_code for _ in range(4)]
+    assert statuses == [200, 200, _RATE_LIMITED.status, _RATE_LIMITED.status]
+    _set_rate_limit(monkeypatch, None)
+    assert _summarize(client).status_code == 200  # the third reservation was still free
+    assert len(fake.messages.calls) == 3
+
+
+def test_rate_limited_has_the_one_shape_and_is_logged_by_code(
+    client: TestClient,
+    install_fake: Installer,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    _set_rate_limit(monkeypatch, "1/minute")
+    fake = install_fake([_decoy()])
+    assert _summarize(client).status_code == 200
+    _assert_refused(_summarize(client), _RATE_LIMITED, caplog)
+    assert len(fake.messages.calls) == 1  # refused before any spend
+
+
+def test_rate_limited_retry_after_counts_down_to_the_windows_reset(
+    client: TestClient, install_fake: Installer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # time.time frozen: slowapi's window opens at the first request and resets 60 s later.
+    clock = _EpochClock(1_800_000_000.0)
+    monkeypatch.setattr(time, "time", clock)
+    _set_rate_limit(monkeypatch, "1/minute")
+    install_fake([_decoy(), _decoy()])
+    assert _summarize(client).status_code == 200
+    assert _summarize(client).headers["Retry-After"] == "60"
+    clock.now += 59.25
+    assert _summarize(client).headers["Retry-After"] == "1"  # 0.75 s left, rounded up
+    clock.now += 0.75
+    assert _summarize(client).status_code == 200  # the window has reset
+
+
+def test_the_rate_limit_is_per_client(
+    install_fake: Installer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_rate_limit(monkeypatch, "1/minute")
+    install_fake([_decoy(), _decoy()])
+    first, second = TestClient(app, client=_CLIENT_A), TestClient(app, client=_CLIENT_B)
+    assert [_summarize(first).status_code for _ in range(2)] == [200, _RATE_LIMITED.status]
+    assert _summarize(second).status_code == 200  # a bucket of its own
+
+
+def test_no_rate_limit_unless_one_is_set(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The fixture leaves the limit unset: slowapi is never asked, so it logs nothing either.
+    caplog.set_level(logging.DEBUG)
+    install_fake([_decoy() for _ in range(3)])
+    assert [_summarize(client).status_code for _ in range(3)] == [200, 200, 200]
+    assert [r.getMessage() for r in caplog.records if r.name == "slowapi"] == []
+
+
+def test_the_budget_admits_what_it_can_reserve_and_no_more(
+    client: TestClient, install_fake: Installer
+) -> None:
+    # One token short of four reservations: three fit, the fourth doesn't.
+    _install_budget(4 * _RESERVATION - 1)
+    fake = install_fake([_decoy() for _ in range(3)])
+    statuses = [_summarize(client).status_code for _ in range(4)]
+    assert statuses == [200, 200, 200, _BUDGET_EXHAUSTED.status]
+    assert len(fake.messages.calls) == 3
+
+
+def test_budget_exhausted_has_the_one_shape_and_is_logged_by_code(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    _install_budget(_RESERVATION)
+    fake = install_fake([_decoy()])
+    assert _summarize(client).status_code == 200
+    _assert_refused(_summarize(client), _BUDGET_EXHAUSTED, caplog)
+    assert len(fake.messages.calls) == 1  # refused before any spend
+
+
+def test_the_budget_resets_at_utc_midnight(client: TestClient, install_fake: Installer) -> None:
+    # Exactly one reservation's room: the first request fits, the second waits for midnight.
+    clock = _UtcClock(datetime(2026, 10, 27, 23, 59, 59, 250_000, tzinfo=UTC))
+    _install_budget(_RESERVATION, clock)
+    install_fake([_decoy(), _decoy()])
+    assert _summarize(client).status_code == 200
+    refused = _summarize(client)
+    assert refused.status_code == _BUDGET_EXHAUSTED.status
+    assert refused.headers["Retry-After"] == "1"  # 0.75 s to midnight, rounded up
+    clock.now = datetime(2026, 10, 28, tzinfo=UTC)
+    assert _summarize(client).status_code == 200
+
+
+def test_a_rejected_paste_reserves_nothing(client: TestClient, install_fake: Installer) -> None:
+    # admit takes the validated request (L350): measured, a dependency that didn't take it ran
+    # even when the body failed validation.
+    _install_budget(_RESERVATION)
+    install_fake([_decoy()])
+    oversized = {"raw_text": _content(settings.max_input_chars + 1)}
+    assert client.post("/summarize", json=oversized).status_code == _INPUT_INVALID.status
+    assert _summarize(client).status_code == 200  # the one reservation was still free
+
+
+def test_a_failed_request_keeps_its_reservation(
+    client: TestClient, install_fake: Installer
+) -> None:
+    # No refund (§9.8): the cap charges the reservation, not what the call used.
+    _install_budget(_RESERVATION)
+    install_fake([_timeout_error(), _decoy()])
+    assert _summarize(client).status_code == 504
+    assert _summarize(client).status_code == _BUDGET_EXHAUSTED.status
+
+
+@pytest.mark.anyio
+async def test_gathered_requests_never_reserve_past_the_cap(install_fake: Installer) -> None:
+    # Eight at once against room for three: three are admitted, and only three reach the model.
+    _install_budget(3 * _RESERVATION)
+    fake = install_fake([_decoy() for _ in range(8)])
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as http:
+        responses = await asyncio.gather(
+            *(http.post("/summarize", json={"raw_text": GROUNDED_PASTE}) for _ in range(8))
+        )
+    statuses = sorted(r.status_code for r in responses)
+    assert statuses == [200] * 3 + [_BUDGET_EXHAUSTED.status] * 5
+    assert len(fake.messages.calls) == 3
+
+
+@pytest.mark.anyio
+async def test_get_budget_builds_the_processs_one_counter_from_the_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Called directly: route tests override it. A cap of two reservations, not a default.
+    monkeypatch.setattr(
+        "backend.api.settings", settings.model_copy(update={"daily_token_budget": None})
+    )
+    assert get_budget() is None
+    budgeted = settings.model_copy(
+        update={"max_validation_retries": 0, "daily_token_budget": 2 * _RESERVATION}
+    )
+    monkeypatch.setattr("backend.api.settings", budgeted)
+    _budget.cache_clear()
+    try:
+        budget = get_budget()
+        assert budget is not None
+        assert get_budget() is budget  # one counter per process (L343's pattern)
+        await budget.reserve(_RESERVATION)
+        await budget.reserve(_RESERVATION)
+        with pytest.raises(BudgetExhaustedError):
+            await budget.reserve(1)
+    finally:
+        _budget.cache_clear()
 
 
 # --- request ids and the middleware stack (L73) ----------------------------------------
@@ -993,21 +1241,21 @@ def test_unclaimed_base_class_is_500_by_structure(
     )
 
 
-# --- the phase-1 reach list (§9.4, L73) ----------------------------------------------------
+# --- the reach list (§9.4; L73, L350) -------------------------------------------------------
 
 
-def test_phase_1_reach_is_exactly_the_declared_outcomes() -> None:
+def test_reach_is_exactly_the_declared_outcomes() -> None:
     """Every reachable §9.4 row is the declared outcome of an error test, and no more (L73).
 
     Declared, not observed: the outcomes come from the case tables and the constants the
-    single-outcome tests read. Equality, not a superset: an outcome outside the list is a
-    later phase's code, built early.
+    single-outcome tests read. Equality, not a superset: an outcome outside the lists is a
+    later phase's code, built early. Phase 3's admission reaches NOT_UNTIL_PHASE_3 (L350).
     """
-    declared = {_INPUT_INVALID, _INTERNAL_ERROR}
+    declared = {_INPUT_INVALID, _INTERNAL_ERROR, _RATE_LIMITED, _BUDGET_EXHAUSTED}
     declared |= {_Outcome(c.status, c.code) for c in _MODEL_OUTPUT.values()}
     declared |= {_Outcome(c.status, c.code) for c in _UPSTREAM.values()}
     assert PHASE_1_REACH.isdisjoint(NOT_UNTIL_PHASE_3)
-    assert declared == PHASE_1_REACH
+    assert declared == PHASE_1_REACH | NOT_UNTIL_PHASE_3
 
 
 # --- logging configuration (§9.8, L79) ---------------------------------------------------

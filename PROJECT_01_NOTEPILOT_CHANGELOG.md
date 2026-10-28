@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,44 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.10.9 — admission (patch)
+
+Theme: the wallet-and-edge step (§14, phase 3), as Cal ruled it on Oct 27 (A1, A2, A4 to
+A7): the rate limit and the reservation, in that order, in one dependency, with their 429
+and 503. A conflict resolved, landing with its code (CLAUDE.md, "Changing the spec"). No
+invariant moves.
+
+**WARNING**
+- **L350 §9.1, §9.8 — `admit`: the rate limit, then the reservation.** Conflict, resolved as
+  L343 resolved §9.6's `SessionLocal`: §9.8 requires the rate limit and the cap together,
+  and §9.1's sample reserved in a `reserve_budget` dependency of its own. Measured on Oct 27
+  with FastAPI and slowapi 0.1.10: FastAPI ran a dependency that didn't take the body even
+  when the body failed validation, so a 422 reserved; and slowapi's decorator checks a
+  route's limit after the route's dependencies, so at 2 a minute four requests answered 200,
+  200, 429, 429 and all four reserved. Either drained the cap with requests that spent
+  nothing. §9.8 wins. One dependency, `admit`, takes the validated request, checks the
+  client's limit through slowapi, then reserves `max_request_tokens`, and returns the
+  request, so the route holds only one `admit` let in; measured, the validator then runs
+  once per admitted request where a body parameter beside the dependency ran it twice, and
+  `/openapi.json`'s request body is unchanged. slowapi checks the limit through a decorated
+  function with an empty body, its limit read per request, and only while `rate_limit` is
+  set. slowapi's middleware was measured too and passed over: it leaves a decorated route to
+  the decorator, and its app-wide default limits limited `/health` and charged a 422 to the
+  client's bucket. The counter, `DailyTokenBudget`, counts per UTC day under an
+  `asyncio.Lock`, from `get_budget`, None unless a budget is set and built once per process,
+  as `get_sessions` is (L343). `BudgetExhaustedError` answers 503 `budget_exhausted` with
+  Retry-After the seconds to the next UTC midnight; `RateLimitExceeded` answers 429
+  `rate_limited` with Retry-After the seconds to the client's window reset, read from
+  slowapi's window. Each logs one `admission_refused` line with the code, the request id,
+  and the Retry-After. Measured, the lock changes nothing today: with no `await` between the
+  check and the charge, the event loop can't interleave two reservations, and removing it
+  fails no test; a counter that awaits between them unlocked fails the test that gathers
+  eight requests against room for three. slowapi logs its own WARNING per 429 with the
+  client's address, as uvicorn's access log does per request. Under Python 3.14, slowapi
+  0.1.10's decorator raises a `DeprecationWarning`: it calls `asyncio.iscoroutinefunction`,
+  which Python 3.16 removes. The repo pins 3.14 (`.python-version`), and 0.1.10 is slowapi's
+  newest release.
 
 ## v1.10.8 — slowapi's environment (patch)
 
