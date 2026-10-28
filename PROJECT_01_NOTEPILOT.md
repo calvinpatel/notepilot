@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.11** (patch — the deploy's entrypoint, October 2026). Supersedes
-v1.10.10.
+**Spec version: v1.10.12** (patch — the deploy's image, October 2026). Supersedes
+v1.10.11.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3427,7 +3427,7 @@ channels and shipped a contract that could only express the first).
   does, summarize's worst case is `sdk_transport_retries + 1` times what the reservation
   charges, three times at the defaults, as `judge_usage` is a floor (L316).
 - **Proxies (v1.3, L58).** Behind a platform proxy, `request.client.host` is the proxy —
-  every user shares one rate-limit bucket. The deploy starts uvicorn with
+  every user shares one rate-limit bucket. The deploy's image (L353) starts uvicorn with
   `python -m backend.serve` (L352), which passes proxy headers on, one worker, and
   `settings.forwarded_allow_ips`, the platform's proxy range: uvicorn reads
   `WEB_CONCURRENCY` and `FORWARDED_ALLOW_IPS` from the environment whenever they aren't
@@ -3623,7 +3623,13 @@ unit-tested, and the injected corpus proves every check the model corpus relies 
 every push **from phase 1** (v1.3, L60 — v1.2
 scheduled CI in phase 3 while CLAUDE.md said it ran on push; a green badge from the first
 commit is the cheapest credibility signal in the repo). The model corpus is deliberately not
-in the push workflow — it spends real money.
+in the push workflow — it spends real money. Beside the free tiers, from phase 3, the
+`image` job builds the deploy's image and boots it (L353): the build context must be
+`.dockerignore`'s allowlist, with a `.env` and a bytecode cache planted for it to keep out;
+the server answers `/health` and the page as uid 10001, on the base image's Python at
+`.python-version`'s minor; a trust of `*` stops its boot, exit 1, by name and without the
+key; and a stop's SIGTERM ends it with exit 0. The job needs Docker, so the gates a session
+runs locally are the free tiers' (CLAUDE.md).
 
 **Free-tier tests the spec demands** (each guards a specific bug or claim):
 
@@ -3756,9 +3762,13 @@ notepilot/
 ├── pyproject.toml          ← uv project; runtime deps under [project], dev under groups ·
 │                              anthropic>=1.9,<2 (L82) · [tool.mypy] strict = true (L91)
 ├── uv.lock                 ← the environment's source of truth
+├── Dockerfile              ← the deploy's image (phase 3, L353): python -m backend.serve as
+│                              uid 10001, over uv sync --locked --no-dev
+├── .dockerignore           ← an allowlist: backend/ and the three files uv sync reads
 ├── .github/
 │   └── workflows/ci.yml    ← ruff check + format, mypy, pytest on push, FROM PHASE 1 (L96)
-│                              (model corpus: manual, $)
+│                              (model corpus: manual, $) · the image job: build, boot, and
+│                              check the deploy's image (phase 3, L353)
 ├── backend/
 │   ├── schemas.py          ← DOMAIN. the spine. imports nothing; imported by everything.
 │   ├── tracebacks.py       ← DOMAIN. imports nothing. L69's frames as file:line:function (L112)

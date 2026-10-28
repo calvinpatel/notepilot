@@ -1,0 +1,8 @@
+# An allowlist (L353): the build context holds only the four paths listed below, with no
+# bytecode cache under backend/. CI's image job lists the context and checks both.
+*
+!backend/
+!pyproject.toml
+!uv.lock
+!.python-version
+backend/**/__pycache__

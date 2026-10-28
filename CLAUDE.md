@@ -183,8 +183,8 @@ rather than repeating them. It names every invariant its step touches, read from
   prefix outlives its run, and inside the sandbox `mktemp -d` without a `$TMPDIR`
   template fails.
 - Reports state only numbers measured in this session: test counts, line numbers, hashes.
-- `gates` means the checks in `.github/workflows/ci.yml`, run locally with the same
-  commands.
+- `gates` means the `check` job in `.github/workflows/ci.yml`, run locally with the same
+  commands. Its `image` job needs Docker and runs in CI only (L353).
 
 ### Edits and commits
 

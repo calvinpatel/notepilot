@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,50 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.10.12 — the deploy's image (patch)
+
+Theme: the deploy sub-step's second commit (§14, phase 3), as Cal ruled it on Oct 27 (D6,
+D8, B1 to B5, and the review's F1 to F4): a root `Dockerfile`, an allowlist `.dockerignore`,
+and a CI job that builds the image, boots it, and checks it. A fill, landing with its code
+(CLAUDE.md, "Changing the spec"). No invariant moves.
+
+**WARNING**
+- **L353 §9.8, §11, §13 — the deploy's image, checked in CI.** Fill: §9.8 and §14 require a
+  deploy, and nothing said what it runs or how that is checked. The `Dockerfile` starts from
+  `python:3.14.8-slim`, the newest patch then at least two weeks old (Docker's library file
+  listed 3.14.8 from Oct 1, 3.14.9 from Oct 21, 3.14.10 from Oct 26), copies uv 0.13.4's
+  binary from uv's image, syncs `uv.lock` with `--locked --no-dev` on the base's Python
+  (`UV_PYTHON_DOWNLOADS=never`), and copies `backend/`. `/app` is the image's repo root and
+  its working directory, as in a checkout, so the `.env` config.py reads and the one slowapi
+  reads from the working directory (L349) are one path. The server runs as uid 10001, on
+  every interface (`HOST=0.0.0.0`), with `python -m backend.serve` as an exec-form command;
+  `PORT` is the platform's to set. `.dockerignore` is an allowlist: `backend/`,
+  `pyproject.toml`, `uv.lock`, and `.python-version`, with no bytecode cache under
+  `backend/`. `alembic/` stays out, so the image runs no migration, and a deploy with
+  persistence off needs none (§9.8). CI's `image` job runs beside the free tiers, since it
+  needs Docker, and CLAUDE.md's gates become the `check` job's. It plants a `.env` and a
+  bytecode cache in the checkout, lists the build context against the allowlist, builds,
+  boots with a dummy key, and checks that `/health` and the page answer 200; that the server
+  is uid 10001 on the base's Python (`/usr/local`) at `.python-version`'s minor; that `/app`
+  holds no `.env`, `tests/`, or bytecode cache; that `FORWARDED_ALLOW_IPS=*` stops the boot
+  with exit 1, naming `forwarded_allow_ips_any` and never the key; and that `docker stop`
+  ends the server with exit 0. Read in source on Oct 27: BuildKit applies `.dockerignore` as
+  written, keeping back no `Dockerfile` or `.dockerignore` (`frontend/dockerui/config.go`),
+  and fsutil's walker matches a path and its parent directories with moby's patternmatcher
+  (`filter.go`). Measured on Oct 27 without Docker, in a stand-in built from those rules:
+  with no context listing, an allowlist missing its `*` passed every other check, a planted
+  `.env` included, since the `Dockerfile` copies only named paths; a base without CPython
+  3.14 fails the build with downloads off, and with them on uv downloads one and the
+  base-prefix check fails; a trust of `*` that booted would hold its step open until the
+  job's limit, and `timeout 30` ends it with status 124. Measured too: `serve` as PID 1 in
+  its own PID namespace shut down on SIGTERM, and uvicorn's access line reached a piped
+  stdout while it ran, since `logging.StreamHandler` flushes each record, so the image sets
+  no `PYTHONUNBUFFERED`. Later patches carry security fixes 3.14.8 lacks, among them
+  CVE-2026-115557 in 3.14.10 (`ssl` rejects chains holding compromised eMudhra intermediate
+  keys), and Docker's library file stopped listing 3.14.8 on Oct 21: the base moves to
+  3.14.10 two weeks after its release (Oct 25), before the public deploy, and both images'
+  digests are pinned once CI's first build reports them.
 
 ## v1.10.11 — the deploy's entrypoint (patch)
 
