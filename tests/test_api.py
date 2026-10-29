@@ -1,6 +1,6 @@
-"""Pins the /summarize HTTP boundary: its input, its judge, its error bodies, and its log lines
-(spec §9.1, §9.4, §9.6, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98, L99,
-L166, L318, L347, L350, L351).
+"""Pins the /summarize HTTP boundary: its input, its judge, its error bodies, how
+/openapi.json documents them, and its log lines (spec §9.1, §9.4, §9.6, §9.8; L14, L53, L54,
+L69, L70, L71, L73, L76, L79, L80, L87, L98, L99, L166, L318, L347, L350, L351, L358).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -75,7 +75,7 @@ from backend.evals.registry import REGISTRY, Check, CheckFn, Finding, register_c
 from backend.evals.runner import CHECKS_VERSION
 from backend.grounding import ground
 from backend.judge_client import AnthropicJudge, _user_message, get_judge
-from backend.orchestrator import PROMPT_VERSION, OrchestratorError, get_client
+from backend.orchestrator import PROMPT_VERSION, ModelOutputError, OrchestratorError, get_client
 from backend.schemas import (
     ChecksConfig,
     EvalCase,
@@ -1106,6 +1106,38 @@ def test_model_output_failure_is_502_by_code(
     assert ours[0].levelno == logging.WARNING
 
 
+class _UnwiredCodeError(ModelOutputError):
+    """Test-local: a ModelOutputError whose code no error body may carry (L358)."""
+
+    code = "unwired_code"
+
+
+def test_a_model_output_code_no_body_may_carry_is_a_500(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    # L358: the orchestrator's code is a str, which ErrorBody checks at run time in the 502
+    # handler; the handler raises, and the catch-all answers
+    caplog.set_level(logging.DEBUG)
+    install_fake([_UnwiredCodeError("unwired", usage=TokenUsage(), validation_attempts=1)])
+    response = client.post("/summarize", json={"raw_text": _content(settings.min_input_chars + 10)})
+    assert response.status_code == _INTERNAL_ERROR.status
+    body = response.json()
+    rid = body.get("request_id")  # .get: an absent key must fail the shape assert below
+    assert body == {"error": _INTERNAL_ERROR.code, "request_id": rid}
+    ours = [
+        r
+        for r in caplog.records
+        if r.name == "backend.api" and r.getMessage().startswith("unhandled_exception ")
+    ]
+    assert len(ours) == 1  # L69: the catch-all's one line
+    assert ours[0].levelno == logging.ERROR
+    assert re.fullmatch(
+        rf"unhandled_exception code=internal_error request_id={rid} "
+        r"exc_type=ValidationError frames=\S+",
+        ours[0].getMessage(),
+    )
+
+
 # --- upstream failures, attributed by status (§9.4; L54, L71, L99) -----------------------
 
 # The SDK builds a status error's message from the body, so the body is how upstream text
@@ -1385,6 +1417,60 @@ def test_reach_is_exactly_the_declared_outcomes() -> None:
     declared |= {_Outcome(c.status, c.code) for c in _UPSTREAM.values()}
     assert PHASE_1_REACH.isdisjoint(NOT_UNTIL_PHASE_3)
     assert declared == PHASE_1_REACH | NOT_UNTIL_PHASE_3
+
+
+# --- the documented error shape (§9.4; L358) --------------------------------------------
+
+_ERROR_BODY_REF: Final = {"$ref": "#/components/schemas/ErrorBody"}
+
+
+def _openapi() -> dict[str, Any]:
+    response = TestClient(app).get("/openapi.json")
+    assert response.status_code == 200
+    schema: dict[str, Any] = response.json()
+    return schema
+
+
+def test_summarize_documents_each_error_status_with_its_codes() -> None:
+    # L358: the declared outcomes, by status, and the framework's 400 for a body that isn't
+    # UTF-8 (L80), each as ErrorBody, described by its codes
+    outcomes = PHASE_1_REACH | NOT_UNTIL_PHASE_3
+    unparseable = _FRAMEWORK["unparseable-body"]
+    outcomes |= {_Outcome(unparseable.status, unparseable.code)}
+    expected: dict[str, set[str]] = {}
+    for outcome in outcomes:
+        expected.setdefault(str(outcome.status), set()).add(outcome.code)
+    documented = _openapi()["paths"]["/summarize"]["post"]["responses"]
+    errors = {status: response for status, response in documented.items() if status != "200"}
+    assert set(errors) == set(expected)
+    for status, response in errors.items():
+        assert response["content"]["application/json"]["schema"] == _ERROR_BODY_REF, status
+        assert set(response["description"].split(", ")) == expected[status], status
+
+
+def test_every_route_documents_the_catch_alls_500() -> None:
+    # L358: CatchAllMiddleware can answer any route (L69)
+    paths = _openapi()["paths"]
+    routes = [r for r in app.routes if isinstance(r, APIRoute)]
+    assert {r.path for r in routes} == {"/", "/health", "/summarize"}
+    for route in routes:
+        assert route.methods, route.path
+        for method in route.methods:
+            documented = paths[route.path][method.lower()]["responses"]
+            assert "500" in documented, (route.path, method)
+            schema = documented["500"]["content"]["application/json"]["schema"]
+            assert schema == _ERROR_BODY_REF, (route.path, method)
+
+
+def test_error_body_names_every_code_a_body_carries() -> None:
+    # L358: the frontend keys its copy on this enum, so it holds every code, and the default
+    # 422 body the API never sends (#3 entry 3) is gone
+    schemas = _openapi()["components"]["schemas"]
+    assert "HTTPValidationError" not in schemas
+    assert "ErrorBody" in schemas
+    codes = {o.code for o in PHASE_1_REACH | NOT_UNTIL_PHASE_3}
+    codes |= {case.code for case in _FRAMEWORK.values()}
+    assert set(schemas["ErrorBody"]["properties"]["error"]["enum"]) == codes
 
 
 # --- logging configuration (§9.8, L79) ---------------------------------------------------

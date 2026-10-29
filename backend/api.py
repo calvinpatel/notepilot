@@ -3,8 +3,8 @@
 EDGE adapter (spec §0): FastAPI's types appear here and nowhere inward. The /summarize route
 is a composition root with no logic (§9.1): it awaits summarize(), grounds the draft against
 the exact paste, awaits run_checks() in production mode, and returns the wire shape (L166).
-SummarizeRequest and SummarizeResponse are the HTTP edge shapes §13 sanctions outside
-schemas.py; SummarizationResult never goes on the wire (L76).
+SummarizeRequest, SummarizeResponse, and ErrorBody are the HTTP edge shapes §13 sanctions
+outside schemas.py; SummarizationResult never goes on the wire (L76).
 
 GET / serves backend/static/index.html, the phase-1 page (§9.10, L68), by a path derived
 from this file, never from the cwd. The page renders the model's claims, and a source_quote
@@ -28,6 +28,13 @@ A request the route completes logs one INFO line, request_completed (L351): the 
 the note id, the model, wall_s (the route's, summarize through the checks), summarize_wall_s
 (summarize's alone, as the corpus measures it), the validation attempts, and summarize's and
 the judge's token counts. Ids and numbers only (L53, invariant 19).
+
+Every error body is an ErrorBody (L358): the code, an ErrorCode, and the request id.
+_error_response builds one, so mypy checks the code each handler names; the 502 handler's
+code is the orchestrator's str, which ErrorBody checks at run time. /openapi.json
+documents ErrorBody for each status /summarize answers, described by that status's codes, and
+for a 500 on every route, which the catch-all can answer. Declaring the 422 drops FastAPI's
+default HTTPValidationError, a body the API never sends.
 
 A RequestValidationError becomes 422 {"error": "input_invalid", "request_id": ...} and is
 logged by code only (L70). FastAPI's default handler echoes the paste as `input` whenever
@@ -81,7 +88,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
-from typing import Annotated, Final
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID, uuid4
 
 from anthropic import APIError, APIStatusError, APITimeoutError, RateLimitError
@@ -111,6 +118,48 @@ from backend.tracebacks import format_frames
 # attaches attributes to the record that no handler prints.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+# --- §9.4's one error shape (L358) -----------------------------------------------------
+
+# Every code an error body carries: §9.4's table, and the framework's three (L80).
+ErrorCode = Literal[
+    "input_invalid",
+    "rate_limited",
+    "budget_exhausted",
+    "output_truncated",
+    "model_output_invalid",
+    "upstream_busy",
+    "upstream_timeout",
+    "upstream_error",
+    "internal_error",
+    "not_found",
+    "method_not_allowed",
+    "http_error",
+]
+
+
+class ErrorBody(BaseModel):
+    """§9.4's one error shape: the code and the request id, never a message (L53, L358)."""
+
+    error: ErrorCode
+    request_id: str
+
+
+def _error_response(
+    status: int, code: ErrorCode, rid: str, headers: Mapping[str, str] | None = None
+) -> JSONResponse:
+    """The status, with ErrorBody(code, rid) as its body and the headers when given."""
+    body = ErrorBody(error=code, request_id=rid)
+    return JSONResponse(status_code=status, content=body.model_dump(), headers=headers)
+
+
+def _documented(errors: Mapping[int, tuple[ErrorCode, ...]]) -> dict[int | str, dict[str, Any]]:
+    """FastAPI's responses= for errors: each status as ErrorBody, described by its codes."""
+    return {
+        status: {"model": ErrorBody, "description": ", ".join(codes)}
+        for status, codes in errors.items()
+    }
 
 
 class RequestIdMiddleware:
@@ -164,7 +213,7 @@ class CatchAllMiddleware:
         except Exception as exc:
             # minted by RequestIdMiddleware, which wraps this one (test_user_middleware_order)
             rid: str = scope["state"]["request_id"]
-            code = "internal_error"
+            code: ErrorCode = "internal_error"
             # frames last: a stray space in a file name can't corrupt the other fields
             logger.error(
                 "unhandled_exception code=%s request_id=%s exc_type=%s frames=%s",
@@ -175,11 +224,13 @@ class CatchAllMiddleware:
             )
             if started:
                 return
-            response = JSONResponse(status_code=500, content={"error": code, "request_id": rid})
-            await response(scope, receive, send)
+            await _error_response(500, code, rid)(scope, receive, send)
 
 
-app = FastAPI(title="NotePilot")
+# The catch-all can answer any route (L69), so each documents a 500 (L358).
+_ANY_ROUTE_ERRORS: Final[Mapping[int, tuple[ErrorCode, ...]]] = {500: ("internal_error",)}
+
+app = FastAPI(title="NotePilot", responses=_documented(_ANY_ROUTE_ERRORS))
 # add_middleware inserts at index 0, so the last call is outermost: RequestIdMiddleware wraps
 # CatchAllMiddleware, which reads the id it minted.
 app.add_middleware(CatchAllMiddleware)
@@ -354,7 +405,21 @@ def _log_completed(
     )
 
 
-@app.post("/summarize")
+# The codes /summarize answers, by status: §9.4's rows (L73), and the framework's 400 for a
+# body that isn't UTF-8 (L80). Declaring the 422 drops FastAPI's default HTTPValidationError,
+# a body the API never sends (L358).
+_SUMMARIZE_ERRORS: Final[Mapping[int, tuple[ErrorCode, ...]]] = {
+    400: ("http_error",),
+    422: ("input_invalid",),
+    429: ("rate_limited",),
+    500: ("internal_error",),
+    502: ("output_truncated", "model_output_invalid", "upstream_error"),
+    503: ("budget_exhausted", "upstream_busy"),
+    504: ("upstream_timeout",),
+}
+
+
+@app.post("/summarize", responses=_documented(_SUMMARIZE_ERRORS))
 async def summarize_endpoint(
     request: Request,
     req: Annotated[SummarizeRequest, Depends(admit)],
@@ -396,9 +461,9 @@ async def handle_request_validation_error(
     the request id in the message (L79).
     """
     rid: str = request.state.request_id
-    code = "input_invalid"
+    code: ErrorCode = "input_invalid"
     logger.warning("input_rejected code=%s request_id=%s", code, rid)
-    return JSONResponse(status_code=422, content={"error": code, "request_id": rid})
+    return _error_response(422, code, rid)
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -411,35 +476,27 @@ async def handle_rate_limit_exceeded(request: Request, exc: RateLimitExceeded) -
     subclasses Starlette's HTTPException: without it, that handler would answer http_error.
     """
     rid: str = request.state.request_id
-    code = "rate_limited"
+    code: ErrorCode = "rate_limited"
     item, key = request.state.view_rate_limit
     reset = limiter.limiter.get_window_stats(item, *key).reset_time
     retry_after = math.ceil(reset - time.time())
     logger.warning("admission_refused code=%s request_id=%s retry_after=%d", code, rid, retry_after)
-    return JSONResponse(
-        status_code=429,
-        content={"error": code, "request_id": rid},
-        headers={"Retry-After": str(retry_after)},
-    )
+    return _error_response(429, code, rid, {"Retry-After": str(retry_after)})
 
 
 @app.exception_handler(BudgetExhaustedError)
 async def handle_budget_exhausted(request: Request, exc: BudgetExhaustedError) -> JSONResponse:
     """503 budget_exhausted (§9.4, §9.8): the demo's daily cap, until the next UTC midnight."""
     rid: str = request.state.request_id
-    code = "budget_exhausted"
+    code: ErrorCode = "budget_exhausted"
     logger.warning(
         "admission_refused code=%s request_id=%s retry_after=%d", code, rid, exc.retry_after_s
     )
-    return JSONResponse(
-        status_code=503,
-        content={"error": code, "request_id": rid},
-        headers={"Retry-After": str(exc.retry_after_s)},
-    )
+    return _error_response(503, code, rid, {"Retry-After": str(exc.retry_after_s)})
 
 
 # Framework codes (L80): not rows of §9.4's table, and not part of the phase-1 reach list.
-_FRAMEWORK_CODES: Final[Mapping[int, str]] = {404: "not_found", 405: "method_not_allowed"}
+_FRAMEWORK_CODES: Final[Mapping[int, ErrorCode]] = {404: "not_found", 405: "method_not_allowed"}
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -453,13 +510,9 @@ async def handle_http_exception(request: Request, exc: StarletteHTTPException) -
     for bodiless statuses (204, 304, 1xx): nothing here raises one.
     """
     rid: str = request.state.request_id
-    code = _FRAMEWORK_CODES.get(exc.status_code, "http_error")
+    code: ErrorCode = _FRAMEWORK_CODES.get(exc.status_code, "http_error")
     logger.warning("framework_error code=%s status=%d request_id=%s", code, exc.status_code, rid)
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": code, "request_id": rid},
-        headers=exc.headers,
-    )
+    return _error_response(exc.status_code, code, rid, exc.headers)
 
 
 @app.exception_handler(ModelOutputError)
@@ -473,7 +526,10 @@ async def handle_model_output_error(request: Request, exc: ModelOutputError) -> 
     """
     rid: str = request.state.request_id
     logger.warning("model_output_failure code=%s request_id=%s", exc.code, rid)  # L79
-    return JSONResponse(status_code=502, content={"error": exc.code, "request_id": rid})
+    # L358: exc.code is the orchestrator's str, so ErrorBody checks it here: a code no body may
+    # carry raises, and the catch-all answers 500
+    code = ErrorBody.model_validate({"error": exc.code, "request_id": rid}).error
+    return _error_response(502, code, rid)
 
 
 @app.exception_handler(RateLimitError)
@@ -486,15 +542,13 @@ async def handle_rate_limit_error(request: Request, exc: RateLimitError) -> JSON
     the status code, for the log line, and the Retry-After header (invariant 19).
     """
     rid: str = request.state.request_id
-    code = "upstream_busy"
+    code: ErrorCode = "upstream_busy"
     logger.warning(
         "upstream_failure code=%s request_id=%s upstream_status=%d", code, rid, exc.status_code
     )
     retry_after = exc.response.headers.get("retry-after")
     headers = None if retry_after is None else {"Retry-After": retry_after}
-    return JSONResponse(
-        status_code=503, content={"error": code, "request_id": rid}, headers=headers
-    )
+    return _error_response(503, code, rid, headers)
 
 
 # L71, L99: overloaded and throttled mean the same thing to our client: upstream is busy.
@@ -515,6 +569,7 @@ async def handle_api_status_error(request: Request, exc: APIStatusError) -> JSON
     """
     rid: str = request.state.request_id
     upstream = exc.status_code
+    code: ErrorCode
     if upstream in _BUSY_STATUSES:
         status, code, level = 503, "upstream_busy", logging.WARNING
     elif upstream in _INTERMEDIARY_STATUSES:  # L255
@@ -526,7 +581,7 @@ async def handle_api_status_error(request: Request, exc: APIStatusError) -> JSON
     logger.log(
         level, "upstream_failure code=%s request_id=%s upstream_status=%d", code, rid, upstream
     )
-    return JSONResponse(status_code=status, content={"error": code, "request_id": rid})
+    return _error_response(status, code, rid)
 
 
 @app.exception_handler(APITimeoutError)
@@ -538,11 +593,11 @@ async def handle_api_timeout_error(request: Request, exc: APITimeoutError) -> JS
     never str(exc), exc.message, exc.request, or the cause (invariant 19).
     """
     rid: str = request.state.request_id
-    code = "upstream_timeout"
+    code: ErrorCode = "upstream_timeout"
     logger.warning(
         "upstream_failure code=%s request_id=%s exc_type=%s", code, rid, type(exc).__name__
     )
-    return JSONResponse(status_code=504, content={"error": code, "request_id": rid})
+    return _error_response(504, code, rid)
 
 
 @app.exception_handler(APIError)
@@ -554,8 +609,8 @@ async def handle_api_error(request: Request, exc: APIError) -> JSONResponse:
     exc.body, exc.request, or the cause (invariant 19).
     """
     rid: str = request.state.request_id
-    code = "upstream_error"
+    code: ErrorCode = "upstream_error"
     logger.warning(
         "upstream_failure code=%s request_id=%s exc_type=%s", code, rid, type(exc).__name__
     )
-    return JSONResponse(status_code=502, content={"error": code, "request_id": rid})
+    return _error_response(502, code, rid)

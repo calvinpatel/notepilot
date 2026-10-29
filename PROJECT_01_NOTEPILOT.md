@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.16** (patch — the response schema's required fields, October 2026).
-Supersedes v1.10.15.
+**Spec version: v1.10.17** (patch — the documented error shape, October 2026). Supersedes
+v1.10.16.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3177,7 +3177,8 @@ subclasses (`OutputTruncatedError`, `APITimeoutError`) win over their parents.
 async def handle_model_output_error(request: Request, exc: ModelOutputError):
     rid = request.state.request_id
     logger.warning("model_output_failure code=%s request_id=%s", exc.code, rid)   # L79
-    return JSONResponse(status_code=502, content={"error": exc.code, "request_id": rid})
+    code = ErrorBody.model_validate({"error": exc.code, "request_id": rid}).error  # L358
+    return _error_response(502, code, rid)
 ```
 
 The route never leaks a stack trace; it speaks HTTP semantics, and each code says a
@@ -3187,8 +3188,8 @@ that returned garbage three times wasn't reported as the client's malformed requ
 client's fault either. And 429 is reserved for *our* rate limit: passing upstream throttling
 through as 429 would tell the client *they* sent too many requests.
 
-**Boundary details (L69–L71, L73, L79, L80, L98, L99).** Each fills or reconciles a line
-above, and each names its test.
+**Boundary details (L69–L71, L73, L79, L80, L98, L99, L358).** Each fills or reconciles a
+line above, and each names its test.
 
 - **The 500 path logs structure, never messages (L69).** L53's PHI rule beats the table's
   former "logged in full" cell. The 500 path logs `code="internal_error"`, `request_id`,
@@ -3258,6 +3259,19 @@ above, and each names its test.
   `{"error": "not_found", ...}`; `GET /summarize` → 405
   `{"error": "method_not_allowed", ...}` with `Allow: POST`; a `POST /summarize` whose JSON
   body is not valid UTF-8 → 400 `{"error": "http_error", ...}`.
+- **One model for the one shape (L358).** `ErrorBody`, an HTTP edge shape in `api.py` (§13),
+  is every error body: `error`, an `ErrorCode` literal naming each code in the table above
+  and the three framework codes (L80), and `request_id`. Handlers and the catch-all build
+  bodies through one helper, so mypy checks each code a handler names. The 502 handler's
+  code is the orchestrator's `str` (`exc.code`), which `ErrorBody` checks at run time: a
+  code no body may carry raises in the handler, and the catch-all answers 500.
+  `/openapi.json` documents `ErrorBody` for each status `/summarize` answers, described by
+  that status's codes, and for a 500 on every route, which the catch-all can answer.
+  Declaring the 422 drops FastAPI's default `HTTPValidationError`, a body the API never
+  sends. *Test:* `/summarize`'s documented error statuses and codes are the outcomes the
+  error tests declare, with the framework's 400; every route documents a 500; `ErrorBody`'s
+  codes are every code a body carries, and no `HTTPValidationError` is documented; a
+  `ModelOutputError` whose code no body may carry answers 500, logged by the catch-all.
 
 ### 9.5 Persistence: hybrid relational-envelope + JSONB
 
@@ -3855,12 +3869,12 @@ phase 4 — an empty module in the tree is a promise the code hasn't made. `alem
 phase 3 (D3). Each module lands in the phase whose exit criteria need it (§14), not before.
 
 **Shapes outside `schemas.py` — three sanctioned exceptions, nothing else.** New pipeline
-data shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`)
-live in `api.py`. Layer-internal shapes never cross a layer boundary and live in the layer
-that uses them (L104): `Finding` and `Check` in `evals/registry.py`, `NormalizedText` in
-`grounding.py` (§6.2), the orchestrator's `CallConfig` (§5.2), the judge client's
-`JudgeCallConfig` and its two verdict models (§8.2, L313), and the scorer's `RunPlan` in
-`corpus.py` (§8.7, L235).
+data shapes go in `schemas.py`. HTTP edge shapes (`SummarizeRequest`, `SummarizeResponse`,
+`ErrorBody`, L358) live in `api.py`. Layer-internal shapes never cross a layer boundary and
+live in the layer that uses them (L104): `Finding` and `Check` in `evals/registry.py`,
+`NormalizedText` in `grounding.py` (§6.2), the orchestrator's `CallConfig` (§5.2), the judge
+client's `JudgeCallConfig` and its two verdict models (§8.2, L313), and the scorer's
+`RunPlan` in `corpus.py` (§8.7, L235).
 Extraction's result types (`Dose`, `MedStatus`, `Certainty`) live in `clinical/extract.py`
 and cross into `evals/`, which imports them from there (L132): invariant 13 keeps `clinical/`
 from importing the spine, so they can't live in `schemas.py`. Anything else outside
