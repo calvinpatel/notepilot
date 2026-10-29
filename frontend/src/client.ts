@@ -10,6 +10,8 @@ export type Outcome =
       readonly status: number;
       readonly code: string | null;
       readonly requestId: string | null;
+      /** Retry-After's whole seconds, when it carries them (§9.8). */
+      readonly retryAfter: number | null;
     }
   | { readonly kind: "no-response" };
 
@@ -22,6 +24,11 @@ function errorFields(body: unknown): { code: string; requestId: string } | null 
     }
   }
   return null;
+}
+
+function retryAfter(response: Response): number | null {
+  const value = response.headers.get("Retry-After");
+  return value !== null && /^\d+$/.test(value) ? Number(value) : null;
 }
 
 /**
@@ -47,7 +54,8 @@ export async function summarize(rawText: string): Promise<Outcome> {
     try {
       body = await response.json();
     } catch {
-      return { kind: "error", status: response.status, code: null, requestId: null };
+      const status = response.status;
+      return { kind: "error", status, code: null, requestId: null, retryAfter: null };
     }
     return { kind: "result", body };
   }
@@ -63,5 +71,6 @@ export async function summarize(rawText: string): Promise<Outcome> {
     status: response.status,
     code: fields?.code ?? null,
     requestId: fields?.requestId ?? null,
+    retryAfter: retryAfter(response),
   };
 }

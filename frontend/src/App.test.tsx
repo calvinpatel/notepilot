@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import { App } from "./App";
@@ -32,7 +32,7 @@ async function review(body: Body) {
   stubFetch(jsonResponse(200, body));
   render(<App />);
   paste(SENT);
-  await screen.findByText("DRAFT — unverified");
+  await screen.findByRole("button", { name: "New paste" });
 }
 
 function source() {
@@ -87,7 +87,7 @@ test("the button holds while a request is in flight, so a second click sends not
   const fetch = stubFetch(new Promise<Response>(() => undefined));
   render(<App />);
   paste(SENT);
-  const button = await screen.findByRole("button", { name: "Summarizing…" });
+  const button = await screen.findByRole("button", { name: "Summarizing… 0 s" });
   fireEvent.click(button);
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(button.hasAttribute("disabled")).toBe(true);
@@ -199,12 +199,15 @@ test("markup in a claim or its quote renders as text", async () => {
   expect(screen.getAllByText(markup, { exact: false })).not.toHaveLength(0);
 });
 
-test("an error says its status, code, and request id, and keeps the draft", async () => {
-  stubFetch(jsonResponse(503, { error: "budget_exhausted", request_id: "r2" }));
+test("an error says its code's line, wait, and reference, and keeps the draft", async () => {
+  const exhausted = { error: "budget_exhausted", request_id: "r2" };
+  stubFetch(jsonResponse(503, exhausted, { "Retry-After": "25920" }));
   render(<App />);
   paste(SENT);
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toBe("The request failed: HTTP 503 · budget_exhausted · request r2");
+  expect(alert.textContent).toBe(
+    "The demo has used today's budget. It resets at midnight UTC, in 7h 12m. Reference: r2",
+  );
   expect(screen.getByLabelText("Paste a note to summarize")).toHaveProperty("value", SENT);
 });
 
@@ -214,11 +217,54 @@ test("a body that isn't ours says its status alone, and no response says so", as
   paste(SENT);
   expect((await screen.findByRole("alert")).textContent).toBe("The request failed: HTTP 502");
   fireEvent.click(screen.getByRole("button", { name: "Summarize" }));
-  expect(await screen.findByText("No response from the server.")).toBeTruthy();
+  expect(await screen.findByText(/^No response from the server\./)).toBeTruthy();
 });
 
 test("New paste returns to the box with the text kept", async () => {
   await review(only(GROUNDED));
   fireEvent.click(screen.getByRole("button", { name: "New paste" }));
   expect(screen.getByLabelText("Paste a note to summarize")).toHaveProperty("value", SENT);
+});
+
+test("the button counts a request's seconds in flight, from 0 each time", async () => {
+  vi.useFakeTimers();
+  try {
+    let fail: (reason: Error) => void = () => undefined;
+    const first = new Promise<Response>((_resolve, reject) => {
+      fail = reject;
+    });
+    stubFetch(first, new Promise<Response>(() => undefined));
+    render(<App />);
+    paste(SENT);
+    expect(screen.getByRole("button", { name: "Summarizing… 0 s" })).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.getByRole("button", { name: "Summarizing… 3 s" })).toBeTruthy();
+    await act(async () => {
+      fail(new TypeError("network down"));
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Summarize" }));
+    expect(screen.getByRole("button", { name: "Summarizing… 0 s" })).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a note with no claims, whose checks all passed, recognized no clinical content", async () => {
+  const passed = report({ results: [result({ check: "a" })] });
+  await review(summarizeBody({ note: { claims: [] }, report: passed }));
+  expect(screen.getByText("No clinical content recognized in this paste.")).toBeTruthy();
+  expect(screen.queryByText(/critical checks passed/)).toBeNull(); // no verdict over nothing
+  expect(screen.queryByRole("heading", { name: "Subjective" })).toBeNull();
+  expect(screen.getByText(/^claude-test · prompt/)).toBeTruthy();
+});
+
+test("a note with no claims and a fired warning is a review, not the empty state", async () => {
+  const fired = result({ check: "empty_note_on_clinical_input", passed: false, detail: "fever" });
+  await review(summarizeBody({ note: { claims: [] }, report: report({ results: [fired] }) }));
+  expect(screen.queryByText("No clinical content recognized in this paste.")).toBeNull();
+  const banner = screen.getByRole("region", { name: "Note-level findings" });
+  expect(within(banner).getByText(/empty_note_on_clinical_input: fever/)).toBeTruthy();
 });

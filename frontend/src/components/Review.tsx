@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import type { SummarizeResponse } from "../client";
-import { place, verdict } from "../findings";
+import { isEmpty, place, verdict } from "../findings";
 import { codePoints } from "../slicing";
 import { NoteView } from "./NoteView";
 import { Receipt } from "./Receipt";
@@ -29,6 +29,17 @@ export function Review({ sent, body }: Props) {
   const [pinned, setPinned] = useState<number | null>(null);
   const active = hovered ?? focused ?? pinned;
   const claim = note.claims.find((candidate) => candidate.id === active) ?? null;
+  if (isEmpty(note.claims, report)) {
+    return (
+      <div className="review">
+        <SourcePane points={points} span={null} paraphrased={false} />
+        <section className="note" aria-label="Note">
+          <p>No clinical content recognized in this paste.</p>
+          <Receipt body={body} />
+        </section>
+      </div>
+    );
+  }
   return (
     <div className="review">
       <SourcePane

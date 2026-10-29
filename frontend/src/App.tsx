@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { type Outcome, type SummarizeResponse, summarize } from "./client";
+import { failureCopy } from "./copy";
 import { PasteForm } from "./components/PasteForm";
 import { PhiBanner } from "./components/PhiBanner";
 import { Review } from "./components/Review";
@@ -12,25 +13,29 @@ type View =
   | { readonly kind: "sending" }
   | { readonly kind: "review"; readonly sent: string; readonly body: SummarizeResponse };
 
-/** Anything but a result, said in place of one (L92, L100). */
-function failureText(failure: Failure): string {
-  if (failure.kind === "no-response") {
-    return "No response from the server.";
-  }
-  const parts = [`HTTP ${String(failure.status)}`];
-  if (failure.code !== null && failure.requestId !== null) {
-    parts.push(failure.code, `request ${failure.requestId}`);
-  }
-  return `The request failed: ${parts.join(" · ")}`;
-}
-
 /** Compose, then review (L362): the paste box, or the note beside the text it came from. */
 export function App() {
   const [draft, setDraft] = useState("");
   const [view, setView] = useState<View>({ kind: "compose", failure: null });
+  const [elapsed, setElapsed] = useState(0);
+  const sending = view.kind === "sending";
+
+  // the button counts the seconds a request has been in flight (L363)
+  useEffect(() => {
+    if (!sending) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      setElapsed((seconds) => seconds + 1);
+    }, 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [sending]);
 
   async function send() {
     const sent = draft;
+    setElapsed(0);
     setView({ kind: "sending" });
     const outcome = await summarize(sent);
     setView(
@@ -62,7 +67,8 @@ export function App() {
         <>
           <PasteForm
             draft={draft}
-            sending={view.kind === "sending"}
+            sending={sending}
+            elapsed={elapsed}
             onDraft={setDraft}
             onSubmit={() => {
               void send();
@@ -70,7 +76,7 @@ export function App() {
           />
           {view.kind === "compose" && view.failure !== null && (
             <p className="failure" role="alert">
-              {failureText(view.failure)}
+              {failureCopy(view.failure)}
             </p>
           )}
         </>

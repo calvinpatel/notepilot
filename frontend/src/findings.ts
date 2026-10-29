@@ -54,6 +54,16 @@ export function place(claims: readonly Claim[], report: Report): Placement {
   return { byClaim: sorted, noteLevel: bySeverity(noteLevel), errored, passed };
 }
 
+/**
+ * No claims, and results that all passed: nothing clinical was found, by checks that ran
+ * (§9.10, L363). An errored check could have been the one to fire, and a report with no
+ * results checked nothing, so either keeps the note out of this state (invariant 12).
+ */
+export function isEmpty(claims: readonly Claim[], report: Report): boolean {
+  const checked = report.results.length > 0;
+  return claims.length === 0 && checked && report.results.every((result) => result.passed);
+}
+
 /** The verdict line's parts (L102, L176, L361). */
 export interface Verdict {
   /** The report's own verdict, never recomputed (L102). */

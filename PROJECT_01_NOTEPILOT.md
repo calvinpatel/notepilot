@@ -3,7 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.21** (patch — the review UI, October 2026). Supersedes v1.10.20.
+**Spec version: v1.10.22** (patch — every state, October 2026). Supersedes v1.10.21.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3564,7 +3564,17 @@ source-of-truth") with nothing backing it. The contract, minimally:
   passed); `input_invalid` 422; `rate_limited` 429; `upstream_busy` and `budget_exhausted`
   503 (different copy — one says retry shortly, one says the demo is done for today);
   `model_output_invalid` / `output_truncated` / `upstream_error` 502; `upstream_timeout`
-  504. No state is a blank page or a raw JSON dump.
+  504. No state is a blank page or a raw JSON dump. Three more outcomes have states (L363,
+  #3 entry 1): a fetch that gets no response; `internal_error` 500; and a body that isn't
+  `{error, request_id}`, or names a code the page doesn't know, which shows its HTTP status.
+  The copy is keyed by `ErrorBody`'s code type, so a code the API gains with no line fails
+  the frontend's type check (L358), and each line ends with the request id; 429's and the
+  two 503s' lines say the wait `Retry-After` gives, when it gives whole seconds. While a
+  request is in flight its button counts the seconds. The empty state takes a note with no
+  claims whose results all passed: a fired or errored result, or none at all, keeps it a
+  review, since an errored check could have been the one to fire (invariant 12). The page
+  reads no check's name for this; that `empty_note_on_clinical_input` runs in production
+  without a judge is pinned in `tests/test_checks.py`.
 - **`note_id` is not a link (v1.3, L58).** With `persist_enabled=false` the id refers to
   nothing, and `GET /notes/{id}` is v2 — the UI never implies the note can be retrieved.
 - **Read-only in v1.** "Review, edit, sign off" (§1) is the product; edit and
@@ -3573,11 +3583,10 @@ source-of-truth") with nothing backing it. The contract, minimally:
 - **Compose, then review (L362).** The page shows the paste box, and for a result the text
   as sent beside the note; "New paste" returns to the box with the text kept. While a
   request is in flight the box and its button are held: a second click would reserve the
-  budget again (L333). Anything but a result shows under the box, which keeps the draft: the
-  HTTP status, with the code and request id when the body carries both, or a fixed line when
-  no response came (L92, L100). The page posts to `/summarize` on the origin that served it,
-  or on `VITE_API_BASE` from the dev server (§9.8's CORS). It trusts a 200's body to be the
-  schema's (the server side is pinned, L357) and checks an error body's shape only.
+  budget again (L333). Anything but a result shows under the box, which keeps the draft, as
+  the states above word it (L363). The page posts to `/summarize` on the origin that served
+  it, or on `VITE_API_BASE` from the dev server (§9.8's CORS). It trusts a 200's body to be
+  the schema's (the server side is pinned, L357) and checks an error body's shape only.
 - **The page stores nothing and writes no HTML (L362, #3 entry 2).** The paste and the
   response stay in memory: no browser storage, no cookie. Text renders as text, never
   through `dangerouslySetInnerHTML` or a DOM writer of HTML, since every `source_quote`

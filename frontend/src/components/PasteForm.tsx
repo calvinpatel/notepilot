@@ -3,12 +3,14 @@ import type { FormEvent } from "react";
 interface Props {
   readonly draft: string;
   readonly sending: boolean;
+  /** Whole seconds since the request went out, while it is in flight. */
+  readonly elapsed: number;
   readonly onDraft: (draft: string) => void;
   readonly onSubmit: () => void;
 }
 
 /** The paste box and its button. While a request is in flight both are held (L362). */
-export function PasteForm({ draft, sending, onDraft, onSubmit }: Props) {
+export function PasteForm({ draft, sending, elapsed, onDraft, onSubmit }: Props) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSubmit();
@@ -26,7 +28,7 @@ export function PasteForm({ draft, sending, onDraft, onSubmit }: Props) {
         }}
       />
       <button type="submit" disabled={sending}>
-        {sending ? "Summarizing…" : "Summarize"}
+        {sending ? `Summarizing… ${String(elapsed)} s` : "Summarize"}
       </button>
     </form>
   );

@@ -58,8 +58,12 @@ export function summarizeBody(fields: Partial<Body> & Pick<Body, "note" | "repor
 }
 
 /** A fetch response carrying body as JSON, or as text when it is a string. */
-export function jsonResponse(status: number, body: unknown): Response {
+export function jsonResponse(
+  status: number,
+  body: unknown,
+  headers: Readonly<Record<string, string>> = {},
+): Response {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   const type = typeof body === "string" ? "text/html" : "application/json";
-  return new Response(text, { status, headers: { "Content-Type": type } });
+  return new Response(text, { status, headers: { "Content-Type": type, ...headers } });
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { place, verdict } from "./findings";
+import { isEmpty, place, verdict } from "./findings";
 import { claim, report, result } from "./test/builders";
 
 test("a fired result naming two claims shows on both cards (§9.7)", () => {
@@ -76,4 +76,18 @@ test("the verdict line counts what ran, the fired warnings, and what didn't run"
 test("the verdict is the report's, never recomputed (L102)", () => {
   const passing = report({ results: [result({ check: "a" })], all_critical_passed: false });
   expect(verdict(passing).allCriticalPassed).toBe(false);
+});
+
+test("an empty note whose results all passed is empty", () => {
+  const passed = report({ results: [result({ check: "a" }), result({ check: "b" })] });
+  expect(isEmpty([], passed)).toBe(true);
+});
+
+test.each([
+  ["a claim", [claim({ id: 0 })], [result({ check: "a" })]],
+  ["a fired warning", [], [result({ check: "empty_note", passed: false })]],
+  ["an errored check", [], [result({ check: "a", passed: false, errored: true })]],
+  ["no results at all", [], []],
+])("a note with %s is not empty", (_name, claims, results) => {
+  expect(isEmpty(claims, report({ results }))).toBe(false);
 });

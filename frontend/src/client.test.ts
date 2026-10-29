@@ -42,6 +42,7 @@ test("an error in §9.4's shape keeps its status, code, and request id", async (
     status: 503,
     code: "budget_exhausted",
     requestId: "r2",
+    retryAfter: null,
   });
 });
 
@@ -54,10 +55,26 @@ test.each([
   ["a 2xx other than 200", 201, { note_id: "n" }],
 ])("%s keeps its status alone", async (_name, status, body) => {
   stubFetch(jsonResponse(status, body));
-  expect(await summarize("x")).toEqual({ kind: "error", status, code: null, requestId: null });
+  expect(await summarize("x")).toEqual({
+    kind: "error",
+    status,
+    code: null,
+    requestId: null,
+    retryAfter: null,
+  });
 });
 
 test("a fetch that gets no response is no response", async () => {
   stubFetch(new TypeError("network down"));
   expect(await summarize("x")).toEqual({ kind: "no-response" });
+});
+
+test.each([
+  ["whole seconds", "30", 30],
+  ["an HTTP date", "Wed, 21 Oct 2026 07:28:00 GMT", null],
+  ["a negative number", "-5", null],
+])("Retry-After as %s", async (_name, header, expected) => {
+  const limited = { error: "rate_limited", request_id: "r4" };
+  stubFetch(jsonResponse(429, limited, { "Retry-After": header }));
+  expect(await summarize("x")).toMatchObject({ kind: "error", retryAfter: expected });
 });
