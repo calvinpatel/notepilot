@@ -64,6 +64,14 @@ and the request id, then upstream_status (the two status-error handlers) or exc_
 other two). None reads the exception's message, its body, or its request, whose content is
 the whole paste; the one header read is RateLimitError's Retry-After.
 
+With cors_origins set, CORSMiddleware lets a page on a listed origin call the API, the React
+dev server's among them (§9.8, L359): POST with Content-Type, and Retry-After exposed so the
+page can read a 429's or a budget 503's wait. Registered last, it is the outermost
+middleware, so its headers reach every response, the catch-all's 500 included. Starlette
+answers a preflight itself, in plain text, the one body outside §9.4's shape. Unset, it isn't
+registered: the deploy's page shares the API's origin, and an OPTIONS request keeps §9.4's
+405 body.
+
 request_id is minted per request by RequestIdMiddleware (L73), a pure ASGI middleware, on
 request.state. The root logger is configured once here (§9.8): plain text with timestamp,
 level, and logger name; fields render in the message as key=value pairs via %-style args,
@@ -94,6 +102,7 @@ from uuid import UUID, uuid4
 from anthropic import APIError, APIStatusError, APITimeoutError, RateLimitError
 from fastapi import BackgroundTasks, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
@@ -235,6 +244,15 @@ app = FastAPI(title="NotePilot", responses=_documented(_ANY_ROUTE_ERRORS))
 # CatchAllMiddleware, which reads the id it minted.
 app.add_middleware(CatchAllMiddleware)
 app.add_middleware(RequestIdMiddleware)
+# L359: last, so outermost; its headers reach every response, the catch-all's 500 included.
+if settings.cors_origins is not None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[origin.strip() for origin in settings.cors_origins.split(",")],
+        allow_methods=["POST"],
+        allow_headers=["Content-Type"],
+        expose_headers=["Retry-After"],
+    )
 
 # Derived from this file, never the cwd (§9.10, L68).
 _INDEX_HTML: Final = Path(__file__).resolve().parent / "static" / "index.html"

@@ -9,9 +9,10 @@ bounds, each a validation error: the derived output ceiling, the input bounds, r
 database_url on the asyncpg driver (L341), a rate_limit that parses and admits a request,
 and, with a daily budget, no judge (L332), one validation attempt, and room for one request
 (L348). Nor may the environment hold a RATELIMIT_ variable, where slowapi reads settings of
-its own (L349), and forwarded_allow_ips must list addresses or networks, never * (L352). A
-boot error names its rule, never the input, which holds the key and the
-database password (L341).
+its own (L349), and forwarded_allow_ips must list addresses or networks, never * (L352).
+cors_origins must list origins shaped scheme://host[:port], in lower case, never *
+(L359). A boot error names its rule, never the input, which holds the key and the database
+password (L341).
 
 Tests run with dotenv disabled; see tests/conftest.py.
 """
@@ -22,6 +23,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, Self
+from urllib.parse import urlsplit
 
 from limits import parse_many
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -55,6 +57,22 @@ def _dotenv_path(env: Mapping[str, str]) -> Path | None:
     if env.get("NOTEPILOT_IGNORE_DOTENV") == "1":
         return None
     return _REPO_ROOT / ".env"
+
+
+def _is_origin(entry: str) -> bool:
+    """entry is http(s)://host[:port] in lower case, with no userinfo, path, query, or fragment."""
+    parts = urlsplit(entry)
+    try:
+        _ = parts.port  # a port that isn't a number in range raises
+    except ValueError:
+        return False
+    return (
+        parts.scheme in ("http", "https")
+        and bool(parts.hostname)
+        and "@" not in parts.netloc
+        and entry == f"{parts.scheme}://{parts.netloc}"
+        and entry == entry.lower()
+    )
 
 
 class Settings(BaseSettings):
@@ -140,6 +158,11 @@ class Settings(BaseSettings):
     host: str = Field("127.0.0.1", pattern="^[!-~]+$")  # never empty, never a space
     port: int = Field(8000, ge=1, le=65535)
     forwarded_allow_ips: str = "127.0.0.1,::1"
+
+    # CORS (§9.8, L359): the origins a page on another origin may call the API from, comma-
+    # separated, the React dev server's among them. Unset, the app registers no CORS middleware:
+    # the deploy serves its page from its own origin.
+    cors_origins: str | None = None
 
     def checks_config(self) -> ChecksConfig:
         """The verdict knobs, for the edge to pass inward: the domain reads no settings (L187)."""
@@ -337,6 +360,34 @@ class Settings(BaseSettings):
                     "address (§9.8, L352)",
                     {"value": value},
                 ) from None
+        return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _cors_origins_are_origins(cls, value: str | None) -> str | None:
+        """Never *, and each entry shaped like an Origin: scheme://host[:port] (L359).
+
+        Starlette's CORSMiddleware compares the Origin header with each entry exactly, so an
+        entry with a path, a trailing slash, or an upper-case letter would allow nothing,
+        silently.
+        """
+        if value is None:
+            return None
+        entries = [entry.strip() for entry in value.split(",")]
+        if "*" in entries:
+            raise PydanticCustomError(
+                "cors_origins_any",
+                "cors_origins may not be *: a page on any site could then call /summarize from "
+                "its visitors' browsers and spend the daily budget (§9.8, L359)",
+            )
+        if not all(_is_origin(entry) for entry in entries):
+            raise PydanticCustomError(
+                "cors_origins_invalid",
+                "cors_origins={value} must list origins, comma-separated, each "
+                "scheme://host[:port] in lower case with no path: Starlette compares Origin "
+                "with each exactly (§9.8, L359)",
+                {"value": value},
+            )
         return value
 
     @model_validator(mode="after")

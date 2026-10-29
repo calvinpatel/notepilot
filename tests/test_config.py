@@ -90,6 +90,7 @@ def _settings(
     host: str = "127.0.0.1",
     port: int = 8000,
     forwarded_allow_ips: str = "127.0.0.1,::1",
+    cors_origins: str | None = None,
 ) -> Settings:
     return Settings(
         anthropic_api_key=anthropic_api_key,
@@ -116,6 +117,7 @@ def _settings(
         host=host,
         port=port,
         forwarded_allow_ips=forwarded_allow_ips,
+        cors_origins=cors_origins,
     )
 
 
@@ -605,6 +607,61 @@ def test_forwarded_allow_ips_accepts_addresses_and_networks() -> None:
     # Two networks, one padded, and an IPv6 address, kept as given: uvicorn parses the list.
     value = "10.0.0.0/8, 35.191.0.0/16,::1"
     assert _settings(forwarded_allow_ips=value).forwarded_allow_ips == value
+
+
+# --- CORS: cors_origins (§9.8, §10; L359) ------------------------------------------------
+
+
+@pytest.mark.parametrize("value", ["*", "http://localhost:5173, *"], ids=["any", "listed-any"])
+def test_cors_origins_refuses_any_origin(value: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        _settings(cors_origins=value)
+    (err,) = exc.value.errors()
+    assert err["type"] == "cors_origins_any"
+    assert err["loc"] == ("cors_origins",)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://localhost:5173/",
+        "http://localhost:5173/app",
+        "http://localhost:5173?next=1",
+        "localhost:5173",
+        "ftp://localhost:5173",
+        "http://Localhost:5173",
+        "http://user@localhost:5173",
+        "http://localhost:port",
+        "http://localhost:5173,",
+        "",
+    ],
+    ids=[
+        "trailing-slash",
+        "path",
+        "query",
+        "no-scheme",
+        "other-scheme",
+        "upper-case",
+        "userinfo",
+        "port-not-a-number",
+        "trailing-comma",
+        "empty",
+    ],
+)
+def test_cors_origins_must_be_shaped_like_an_origin(value: str) -> None:
+    # Starlette matches the Origin header exactly: each of these would match no browser's
+    with pytest.raises(ValidationError) as exc:
+        _settings(cors_origins=value)
+    (err,) = exc.value.errors()
+    assert err["type"] == "cors_origins_invalid"
+    assert err["loc"] == ("cors_origins",)
+
+
+def test_cors_origins_accepts_origins_and_defaults_to_none() -> None:
+    # Two origins, one padded, and an IPv6 host, kept as given: api.py strips each entry.
+    value = "http://localhost:5173, https://notepilot.example,http://[::1]:5173"
+    assert _settings(cors_origins=value).cors_origins == value
+    assert _settings().cors_origins is None
 
 
 @pytest.mark.parametrize(

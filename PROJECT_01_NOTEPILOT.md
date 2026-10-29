@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.17** (patch — the documented error shape, October 2026). Supersedes
-v1.10.16.
+**Spec version: v1.10.18** (patch — CORS for the dev server, October 2026). Supersedes
+v1.10.17.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3170,7 +3170,8 @@ Every body has one shape — `{"error": <code>, "request_id": <id>}` — and **n
 exception's message (v1.3, L53). A Pydantic `ValidationError` string carries `input_value`,
 which here is model-emitted clinical text; v1.2's handlers returned `{"detail": str(exc)}`
 and echoed it to the client. Handlers resolve by the exception's MRO, so the specific
-subclasses (`OutputTruncatedError`, `APITimeoutError`) win over their parents.
+subclasses (`OutputTruncatedError`, `APITimeoutError`) win over their parents. A CORS
+preflight's answer, Starlette's own plain text, is the one exception (§9.8, L359).
 
 ```python
 @app.exception_handler(ModelOutputError)          # OutputTruncatedError inherits → its own code
@@ -3388,10 +3389,29 @@ channels and shipped a contract that could only express the first).
   engine (`asyncpg` pool via SQLAlchemy). Cheap; do it right.
 - **`/health` endpoint** — three lines; its *presence* signals you thought about deployment.
   Admission never reaches it: it is neither rate-limited nor charged to the budget (L351).
-- **CORS** (v1.1) — the React dev server runs on a different origin; without
-  `CORSMiddleware` (allow the frontend origin, configured in `config.py`) phase 3 begins
-  with a mystery evening. One middleware registration, specced now so future-me doesn't
-  debug it at midnight.
+- **CORS** (v1.1, L359) — the React dev server runs on a different origin, so with
+  `cors_origins` set (§10), `CORSMiddleware` lets a page on a listed origin call the API:
+  POST with `Content-Type`, and `Retry-After` exposed, so the dev page reads a 429's or a
+  budget 503's wait. Registered last, it is outermost, and its headers reach every response,
+  the catch-all's 500 included: a browser lets a page read no cross-origin body without
+  them. Unset, nothing is registered: the deploy serves its page from its own origin, so an
+  `OPTIONS` request keeps §9.4's 405 body, and the deploy checklist checks the service sets
+  no `CORS_ORIGINS`. Boot refuses `*`: `/summarize` takes only a JSON body (measured,
+  FastAPI 0.141.1: `text/plain`, a form, multipart, or no content type answers 422 before
+  the pipeline), so a cross-site call needs a preflight, and `*` would pass every site's,
+  letting any page spend the daily budget from its visitors' browsers, each its own
+  rate-limit key. Boot also refuses an entry outside an `Origin`'s shape,
+  `scheme://host[:port]` in lower case with nothing after it (a path, a trailing slash,
+  upper case): Starlette compares exactly, and the miss would be silent. The check is of
+  shape alone: an entry a browser would write differently, with a default port or a
+  non-ASCII host, passes it and allows nothing. Starlette answers a preflight itself, in
+  plain text: 200 `OK` for a listed origin, 400 `Disallowed CORS origin` otherwise. That
+  body is the one exception to §9.4's one shape: the browser reads it and no script does,
+  and it is a fixed string, protocol rather than content (L98's reasoning). *Test:* unset,
+  the middleware stack is the request-id and catch-all middleware alone, and a preflight is
+  a 405 in the one shape; set, in a fresh interpreter, CORS is outermost, a listed origin's
+  preflight is allowed and another's refused, a 422 carries the listed origin and exposes
+  `Retry-After`, and the catch-all's 500 carries the origin too.
 - **Logging / observability (v1.1; PHI-scoped v1.3).** stdlib `logging` configured once in
   `api.py` — plain text with timestamp, level, and logger name; fields rendered in the
   message as `key=value` (L79): per-request id, model, latency, token counts, error *codes*. v1.3 (L53) makes one
@@ -3592,10 +3612,10 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   `daily_token_budget` (None unless set: no cap, L332), `max_request_tokens` (L56; derived,
   never a field, L348); `rate_limit` (a slowapi limit string, None unless set: no limiter,
   L348); `host`, `port`, and `forwarded_allow_ips`, the proxy's range and never `*` (L58,
-  L352); `runs_path` (default `backend/evals/runs/corpus_runs.jsonl`, §13, L209); CORS
-  origins. Clinical knowledge — including `NEGATION_WINDOW` —
-  lives in `clinical/lexicons.py`. The literal numbers in this spec's code samples are
-  `settings.*` in the repo.
+  L352); `runs_path` (default `backend/evals/runs/corpus_runs.jsonl`, §13, L209);
+  `cors_origins` (comma-separated origins, never `*`; None unless set: no CORS, L359).
+  Clinical knowledge — including `NEGATION_WINDOW` — lives in `clinical/lexicons.py`. The
+  literal numbers in this spec's code samples are `settings.*` in the repo.
 - **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
   `max_validation_retries` and `sdk_transport_retries` `ge=0`, `llm_timeout_s` `gt=0`,
   `min_input_chars` `ge=1`, `fuzzy_score_cutoff` `ge=0, le=100` and finite (L105),
@@ -3610,12 +3630,13 @@ CI runs no JavaScript, so the design room runs the page against real bodies in j
   and `rate_limit` must parse with each limit at least 1. Boot refuses any `RATELIMIT_`
   variable in the environment (L349): slowapi reads settings of its own there, and
   `RATELIMIT_ENABLED=false` would turn the limit off with `rate_limit` set.
-  `forwarded_allow_ips` must list addresses or networks, never `*` (L352). With
-  `persist_enabled` on, another requires a `database_url` on the `postgresql+asyncpg://`
-  driver (L341): without one, `persist()` would fail on every request, logged and
-  swallowed (§9.6). `Settings` hides its input in validation errors (L341): a failed
-  check's message would otherwise end with the raw input, and a URL from `.env` arrives
-  raw, password and all; `errors()` still carries it.
+  `forwarded_allow_ips` must list addresses or networks, never `*` (L352), and
+  `cors_origins` must list origins shaped `scheme://host[:port]`, in lower case, never `*`
+  (L359). With `persist_enabled` on, another requires a `database_url` on the
+  `postgresql+asyncpg://` driver (L341): without one, `persist()` would fail on every
+  request, logged and swallowed (§9.6). `Settings` hides its input in validation errors
+  (L341): a failed check's message would otherwise end with the raw input, and a URL from
+  `.env` arrives raw, password and all; `errors()` still carries it.
   `ChecksConfig` (§4.2) re-declares its two fields'
   bounds, so a config built in a test can't go out of range either; a test pins the two
   copies equal (L187). `CorpusRunRecord`'s `repeats` and `concurrency` declare the two

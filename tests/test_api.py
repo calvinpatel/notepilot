@@ -25,6 +25,7 @@ together against the outcomes the error tests declare.
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -834,6 +835,94 @@ def test_user_middleware_order() -> None:
     # the id by the time an exception reaches it. Only the stack itself can pin it.
     classes: list[object] = [m.cls for m in app.user_middleware]
     assert classes == [RequestIdMiddleware, CatchAllMiddleware]
+
+
+# --- CORS (§9.8; L359) -------------------------------------------------------------------
+
+_DEV_ORIGIN: Final = "http://localhost:5173"
+_PREFLIGHT: Final = {
+    "access-control-request-method": "POST",
+    "access-control-request-headers": "content-type",
+}
+
+
+def test_without_cors_origins_a_preflight_is_a_405_in_the_one_shape(client: TestClient) -> None:
+    # L359: unset, as the suite runs it, no CORS middleware is registered (the order test
+    # above pins the stack), so an OPTIONS request is the router's 405, §9.4's shape
+    response = client.options("/summarize", headers={"origin": _DEV_ORIGIN, **_PREFLIGHT})
+    assert response.status_code == 405
+    body = response.json()
+    assert body == {"error": "method_not_allowed", "request_id": body.get("request_id")}
+    assert "access-control-allow-origin" not in response.headers
+
+
+# A fresh interpreter, because settings are read when backend.api is imported. It prints what
+# a page on the listed origin, and one on another, would see.
+_CORS_SCRIPT: Final = "\n".join(
+    [
+        "import json",
+        "from fastapi.testclient import TestClient",
+        "from backend.api import app",
+        "from backend.config import settings",
+        "from backend.orchestrator import get_client",
+        "class Unexpected(Exception): pass",
+        "def unexpected(): raise Unexpected",
+        f"origin = {_DEV_ORIGIN!r}",
+        f"preflight = {_PREFLIGHT!r}",
+        "client = TestClient(app)",
+        "listed = client.options('/summarize', headers={'origin': origin, **preflight})",
+        "other = client.options(",
+        "    '/summarize', headers={'origin': 'https://elsewhere.example', **preflight}",
+        ")",
+        "invalid = client.post('/summarize', json={'raw_text': 'hi'}, headers={'origin': origin})",
+        "app.dependency_overrides[get_client] = unexpected",
+        "crashed = client.post(",
+        "    '/summarize',",
+        "    json={'raw_text': 'x' * (settings.min_input_chars + 10)},",
+        "    headers={'origin': origin},",
+        ")",
+        "print(json.dumps({",
+        "    'middleware': [m.cls.__name__ for m in app.user_middleware],",
+        "    'listed': [",
+        "        listed.status_code,",
+        "        listed.headers.get('access-control-allow-origin'),",
+        "        listed.headers.get('access-control-allow-methods'),",
+        "    ],",
+        "    'other': [",
+        "        other.status_code,",
+        "        other.text,",
+        "        other.headers.get('access-control-allow-origin'),",
+        "    ],",
+        "    'invalid': [",
+        "        invalid.status_code,",
+        "        invalid.json()['error'],",
+        "        invalid.headers.get('access-control-allow-origin'),",
+        "        invalid.headers.get('access-control-expose-headers'),",
+        "    ],",
+        "    'crashed': [",
+        "        crashed.status_code,",
+        "        crashed.json()['error'],",
+        "        crashed.headers.get('access-control-allow-origin'),",
+        "    ],",
+        "}))",
+    ]
+)
+
+
+def test_cors_origins_registers_cors_outermost(monkeypatch: pytest.MonkeyPatch) -> None:
+    # L359: outermost, so the catch-all's 500 carries the listed origin too; a browser lets
+    # the page read no cross-origin body without it. The preflight is Starlette's plain text.
+    monkeypatch.setenv("CORS_ORIGINS", _DEV_ORIGIN)
+    for name in ("RATE_LIMIT", "DAILY_TOKEN_BUDGET", "JUDGE_ENABLED", "PERSIST_ENABLED"):
+        monkeypatch.delenv(name, raising=False)  # admission and the judge stay out of it
+    completed = run_fresh(_CORS_SCRIPT)
+    assert completed.returncode == 0, completed.stderr
+    seen = json.loads(completed.stdout.splitlines()[-1])
+    assert seen["middleware"] == ["CORSMiddleware", "RequestIdMiddleware", "CatchAllMiddleware"]
+    assert seen["listed"] == [200, _DEV_ORIGIN, "POST"]
+    assert seen["other"] == [400, "Disallowed CORS origin", None]
+    assert seen["invalid"] == [422, "input_invalid", _DEV_ORIGIN, "Retry-After"]
+    assert seen["crashed"] == [500, "internal_error", _DEV_ORIGIN]
 
 
 # --- 500 internal_error: the catch-all (§9.4, §9.8; L53, L69, L73, L79) ----------------

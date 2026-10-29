@@ -146,7 +146,7 @@ Then `gcloud iam service-accounts list` shows `notepilot-run`. Without it, the d
 - [ ] The `Dockerfile`'s base is the newest CPython patch released at least two weeks before today; a newer one moves in a commit of its own, pinned by digest.
 - [ ] The deploy runs from a fresh clone, never the working tree, whose `.env` holds the real key: `rm -rf /tmp/notepilot-deploy && git clone --depth 1 https://github.com/calvinpatel/notepilot /tmp/notepilot-deploy && cd /tmp/notepilot-deploy`. There, `gcloud meta list-files-for-upload` lists the repo's files and no `.env`; any other file in the list, your home folder's among them, means the shell is not in the clone.
 - [ ] `ANTHROPIC_LOG` is never set, on the service or in the shell: with `debug`, the SDK logs each request's options, the pasted note among them (§9.8).
-- [ ] After the deploy, `gcloud run services describe notepilot --region us-west1` shows the settings below and no `ANTHROPIC_LOG`, `JUDGE_ENABLED`, or `PERSIST_ENABLED`.
+- [ ] After the deploy, `gcloud run services describe notepilot --region us-west1` shows the settings below and no `ANTHROPIC_LOG`, `JUDGE_ENABLED`, `PERSIST_ENABLED`, or `CORS_ORIGINS`: the page shares the API's origin, and a listed origin's pages could call the API from their visitors' browsers (§9.8).
 
 ### Deploy
 
