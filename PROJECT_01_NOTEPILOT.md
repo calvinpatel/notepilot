@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.19** (patch — the frontend's scaffold and its CI job, October 2026).
-Supersedes v1.10.18.
+**Spec version: v1.10.20** (patch — where each finding shows, October 2026). Supersedes
+v1.10.19.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3547,9 +3547,15 @@ source-of-truth") with nothing backing it. The contract, minimally:
   Offsets count code points, Python's string index (L177): the UI slices `[...text]`, since
   `text.slice` counts UTF-16 units and every character past the BMP would shift the spans
   after it, and it slices the text it sent, not the paste box as it now stands.
-- **Findings join by `claim.id`.** The claim card shows grounding flags plus every
-  `EvalResult` whose `claim_ids` contains its id; the banner shows every result with
-  `claim_ids == ()`. The UI does no clinical reasoning; it renders two lists.
+- **Findings join by `claim.id`.** Each result goes where its own flags send it (L176,
+  L361). A fired one shows on the card of every claim its `claim_ids` names, and in the
+  banner when it names none, or names only ids no claim in the note has, so no finding goes
+  unshown. An errored one shows in the banner as "didn't run on this note" (§9.7), never as
+  passed; a passed one is listed by name below the note. Critical comes first, on a card and
+  in the banner. The claim card also shows its grounding flags. The verdict line reads
+  `all_critical_passed` beside the checks that ran, the fired warnings, and the checks that
+  didn't run, so an all-passed verdict over a note with warnings never stands alone. The UI
+  does no clinical reasoning; it renders two lists.
 - **Every state designed (v1.3, L24, L55, L58)** — keyed on the body's `error` code, never
   on parsing a message: loading; result; **empty** (no claims *and* no clinical entities →
   "no clinical content recognized," §10 — if the input *was* clinical, the result state
