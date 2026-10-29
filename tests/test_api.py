@@ -225,6 +225,31 @@ def test_happy_path_returns_note_report_and_metadata(
     assert fake.messages.calls[0].messages[0]["content"] == GROUNDED_PASTE  # L87: never mutated
 
 
+def test_the_body_carries_exactly_the_keys_each_schema_requires(
+    client: TestClient, install_fake: Installer
+) -> None:
+    # L357: the schema requires every field the wire carries; this pins the wire half
+    install_fake([tool_use_message(VALID_INPUT)])
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
+    assert response.status_code == 200
+    body = response.json()
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    report, metadata = body["report"], body["metadata"]
+    typed = [
+        ("SummarizeResponse", body),
+        ("SOAPNote", body["note"]),
+        ("ClinicalClaim", body["note"]["claims"][0]),
+        ("EvalReport", report),
+        ("EvalResult", report["results"][0]),
+        ("ChecksConfig", report["checks_config"]),
+        ("TokenUsage", report["judge_usage"]),
+        ("RunMetadata", metadata),
+        ("TokenUsage", metadata["usage"]),
+    ]
+    for name, value in typed:
+        assert set(value) == set(schemas[name].get("required", [])), name
+
+
 def _record_into(
     seen: list[tuple[SOAPNote, str, EvalCase | None, ChecksConfig]],
 ) -> CheckFn:

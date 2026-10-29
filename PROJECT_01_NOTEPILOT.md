@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.15** (patch — the OpenAPI snapshot, October 2026). Supersedes
-v1.10.14.
+**Spec version: v1.10.16** (patch — the response schema's required fields, October 2026).
+Supersedes v1.10.15.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -299,7 +299,8 @@ class SafetyFlag(str, Enum):
     PARAPHRASED  = "paraphrased"      # matched only fuzzily → drifted, low confidence
 
 class ClinicalClaim(ClaimDraft):                           # inherits the draft fields
-    model_config = ConfigDict(extra="forbid", frozen=True) # v1.3 (L6): D6, enforced
+    model_config = ConfigDict(extra="forbid", frozen=True, # v1.3 (L6): D6, enforced
+                              json_schema_serialization_defaults_required=True)  # L357
     id: int                                                # position in note.claims, stamped
                                                            #   by grounding — the anchor
                                                            #   every finding hangs on
@@ -377,7 +378,8 @@ class Severity(str, Enum):
     INFO     = "info"
 
 class TokenUsage(BaseModel):                # v1.3: one shape for every cost number
-    model_config = ConfigDict(frozen=True)  # v1.3.2 (L89): `usage += …` rebinds via __add__
+    model_config = ConfigDict(frozen=True,  # v1.3.2 (L89): `usage += …` rebinds via __add__
+                              json_schema_serialization_defaults_required=True)  # L357
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
 
@@ -386,7 +388,8 @@ class TokenUsage(BaseModel):                # v1.3: one shape for every cost num
                           output_tokens=self.output_tokens + other.output_tokens)
 
 class EvalResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True,
+                              json_schema_serialization_defaults_required=True)  # L357
     check: str                              # stamped by @register_check (§8.7) — the
     severity: Severity                      #   check function never spells these itself
     passed: bool
@@ -405,6 +408,7 @@ class EvalResult(BaseModel):
         return self
 
 class EvalReport(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)  # L357
     results: list[EvalResult]
     checks_run: frozenset[str]              # v1.3 (L44): what was SELECTED — lets the
                                             #   verdict tell "didn't fire" from "didn't run"
@@ -3134,6 +3138,15 @@ them, validates the outgoing shape, and generates live OpenAPI docs **for free.*
 The verdict travels with them (L102). `all_critical_passed` is a computed field, so it is in
 the body and in the OpenAPI schema. A consumer that recomputed it from `results` could drop
 the vacuous-truth guard (invariant 12); the page and the phase-3 UI read it instead.
+
+**Every property a response reaches is required in its schema (L357).** The body always
+carries a field with a default, and without a flag `/openapi.json` doesn't require one
+(measured), so a type generated from the schema (§9.10) would call `source_span` optional,
+where an unsupported claim's null span is the signal. `ClinicalClaim`, `EvalResult`,
+`EvalReport`, and `TokenUsage` set pydantic's `json_schema_serialization_defaults_required`,
+which changes what the schema says, not how a body serializes. *Test:* every property of
+every schema the 200 response reaches is required, and the happy path's body carries exactly
+the keys each of its objects' schemas require.
 
 ### 9.4 Error translation at the HTTP boundary
 

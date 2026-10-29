@@ -77,7 +77,10 @@ class SafetyFlag(str, Enum):  # noqa: UP042 — §4.1's form; StrEnum changes st
 
 class ClinicalClaim(ClaimDraft):
     # D6, enforced (L6): frozen blocks assignment, and tuples block in-place mutation.
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # L357: the schema requires the defaulted fields, as the wire always carries them.
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, json_schema_serialization_defaults_required=True
+    )
 
     id: int  # required: without grounding there is no enriched claim (§4.1)
     source_span: tuple[int, int] | None = None  # half-open [start, end) into the raw text
@@ -99,7 +102,8 @@ class SOAPNote(BaseModel):
 
 
 class TokenUsage(BaseModel):
-    model_config = ConfigDict(frozen=True)  # L89: `usage += ...` rebinds via __add__
+    # L89: `usage += ...` rebinds via __add__. L357: the schema requires both counts.
+    model_config = ConfigDict(frozen=True, json_schema_serialization_defaults_required=True)
 
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
@@ -133,7 +137,8 @@ class Severity(str, Enum):  # noqa: UP042 — §4.2's form; StrEnum changes str(
 
 
 class EvalResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    # L357: the schema requires the defaulted fields, as the wire always carries them.
+    model_config = ConfigDict(frozen=True, json_schema_serialization_defaults_required=True)
 
     check: str  # the check's registered name (§8.7)
     severity: Severity
@@ -150,6 +155,9 @@ class EvalResult(BaseModel):
 
 
 class EvalReport(BaseModel):
+    # L357: the schema requires judge_usage, as the wire always carries it.
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     results: list[EvalResult]
     checks_run: frozenset[str]  # L44: what was selected, so "didn't run" isn't "didn't fire"
     checks_version: str  # L45
