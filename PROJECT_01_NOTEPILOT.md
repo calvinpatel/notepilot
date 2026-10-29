@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.18** (patch — CORS for the dev server, October 2026). Supersedes
-v1.10.17.
+**Spec version: v1.10.19** (patch — the frontend's scaffold and its CI job, October 2026).
+Supersedes v1.10.18.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3531,10 +3531,13 @@ milestone holds `NoteRecord.judge_version` (L57).
 `frontend/` had a one-line description and a promise ("the frontend's type
 source-of-truth") with nothing backing it. The contract, minimally:
 
-- **Types are generated, not typed.** `openapi-typescript` runs against FastAPI's
-  `/openapi.json` and emits `frontend/src/api.d.ts`. `SOAPNote` and `EvalReport`
-  exist exactly once, in `schemas.py`, and `SummarizeResponse` once, in `api.py` (§13,
-  L76); the TypeScript is a build artifact. That's what makes the §12 receipt's last line true rather than aspirational.
+- **Types are generated, not typed.** `openapi-typescript` reads
+  `tests/snapshots/openapi.json`, which the suite holds equal to what FastAPI's
+  `/openapi.json` serves (L356), and writes `frontend/src/api.d.ts`; CI's `frontend` job
+  writes it again and fails if the result differs from the committed file or the committed
+  file is gone (L360). `SOAPNote` and `EvalReport` exist exactly once, in `schemas.py`, and
+  `SummarizeResponse` once, in `api.py` (§13, L76); the TypeScript is a build artifact.
+  That's what makes the §12 receipt's last line true rather than aspirational.
 - **One highlight at a time.** Spans can overlap (two claims from one sentence) and
   coincide (the duplicate-quote case, §6.5). The UI never paints all spans onto the
   source at once — it highlights the span of the claim under the cursor (or the one
@@ -3589,7 +3592,7 @@ note," never passed (invariant 12); a passed one by name. The page keys on no ch
 "DRAFT — unverified" stays: the checks are not a clinician. The join by `claim.id`, the
 banner, the highlight, every state above, `note_id`, and the per-code error copy are phase
 3's (§14). *Test:* the served page reads `report.all_critical_passed` and `result.errored`;
-CI runs no JavaScript, so the design room runs the page against real bodies in jsdom.
+CI runs none of this page's JavaScript, so the design room runs it on real bodies in jsdom.
 
 ---
 
@@ -3681,17 +3684,19 @@ kind* of CI than unit tests. And the cheap tiers verify the expensive one: `case
 unit-tested, and the injected corpus proves every check the model corpus relies on.
 
 **The workflow file:** the free tiers run in **GitHub Actions** (`.github/workflows/ci.yml`:
-`uv sync` → `ruff check` + `ruff format --check` → `mypy` → `pytest`; v1.3.3, L96) on
-every push **from phase 1** (v1.3, L60 — v1.2
-scheduled CI in phase 3 while CLAUDE.md said it ran on push; a green badge from the first
-commit is the cheapest credibility signal in the repo). The model corpus is deliberately not
-in the push workflow — it spends real money. Beside the free tiers, from phase 3, the
-`image` job builds the deploy's image and boots it (L353): the build context must be
-`.dockerignore`'s allowlist, with a `.env` and a bytecode cache planted for it to keep out;
-the server answers `/health` and the page as uid 10001, on the base image's Python at
-`.python-version`'s minor; a trust of `*` stops its boot, exit 1, by name and without the
-key; and a stop's SIGTERM ends it with exit 0. The job needs Docker, so the gates a session
-runs locally are the free tiers' (CLAUDE.md).
+`uv sync` → `ruff check` + `ruff format --check` → `mypy` → `pytest`; v1.3.3, L96) on every
+push **from phase 1** (v1.3, L60 — v1.2 scheduled CI in phase 3 while CLAUDE.md said it ran
+on push; a green badge from the first commit is the cheapest credibility signal in the
+repo). The model corpus is deliberately not in the push workflow — it spends real money.
+Beside the free tiers, from phase 3, the `image` job builds the deploy's image and boots it
+(L353): the build context must be `.dockerignore`'s allowlist, with a `.env` and a bytecode
+cache planted for it to keep out; the server answers `/health` and the page as uid 10001, on
+the base image's Python at `.python-version`'s minor; a trust of `*` stops its boot, exit 1,
+by name and without the key; and a stop's SIGTERM ends it with exit 0. The job needs Docker,
+so the gates a session runs locally are the free tiers' (CLAUDE.md). From phase 3 the
+`frontend` job is one of them (L360): `npm ci` from the lock → `frontend/src/api.d.ts`
+written again from the OpenAPI snapshot, failing on any difference or a missing file → `tsc`
+→ `vitest` in jsdom → `vite build`.
 
 **Free-tier tests the spec demands** (each guards a specific bug or claim):
 
@@ -3867,6 +3872,10 @@ notepilot/
 │                              versions/: the notes table's migrations
 ├── alembic.ini             ← committed, so it names no database (L346)
 ├── frontend/               ← React (phase 3): paste → SOAP view → hover-highlight + safety banner
+│   ├── package.json        ← exact versions; .npmrc holds installs 14 days old (L360)
+│   ├── package-lock.json   ← written by npm, never by hand
+│   ├── .nvmrc              ← Node 26.12.0, the frontend job's
+│   ├── index.html · vite.config.ts · tsconfig.json   ← Vite; tsc strict over src/
 │   └── src/api.d.ts        ← GENERATED by openapi-typescript (§9.10); never hand-edited
 ├── tests/                  ← unit + injected corpus + integration (deterministic, every commit)
 │   ├── snapshots/tool_schema.json

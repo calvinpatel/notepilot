@@ -131,6 +131,18 @@ uv run uvicorn backend.api:app --reload  # local app. ⚠️ every summarize is 
                                          # only with Cal's go-ahead.
 ```
 
+The frontend (§9.10, L360), from `frontend/`:
+
+```bash
+npm ci                           # install exactly the lock; fails if package.json disagrees
+npm run gen:api                  # write src/api.d.ts from tests/snapshots/openapi.json
+npm run typecheck                # tsc, strict, over src/
+npm test                         # vitest, in jsdom
+npm run build                    # vite, into dist/ (gitignored)
+npm install --before=<floor>     # a dependency change only: frontend/.npmrc holds every
+                                 #   install to versions 14 days old (min-release-age)
+```
+
 **`score_corpus` (§8.7) makes REAL API calls, × `corpus_repeats`: never run it
 unprompted.** It runs only with Cal's go-ahead, never in the push workflow (§11).
 
@@ -183,15 +195,17 @@ rather than repeating them. It names every invariant its step touches, read from
   prefix outlives its run, and inside the sandbox `mktemp -d` without a `$TMPDIR`
   template fails.
 - Reports state only numbers measured in this session: test counts, line numbers, hashes.
-- `gates` means the `check` job in `.github/workflows/ci.yml`, run locally with the same
-  commands. Its `image` job needs Docker and runs in CI only (L353).
+- `gates` means the `check` and `frontend` jobs in `.github/workflows/ci.yml`, run locally
+  with the same commands. Its `image` job needs Docker and runs in CI only (L353).
 
 ### Edits and commits
 
 - Repo files change through the Edit tool, so each change passes Cal's approval; Write
   only creates a file that doesn't exist yet. Never `sed -i`, a shell redirect, or a
   script. Mutation rows are the one exception, and the reverse: the driver writes them,
-  never the Edit tool.
+  never the Edit tool. Three files are written by their own command, never by hand:
+  `uv.lock` by uv, `frontend/package-lock.json` by npm, `frontend/src/api.d.ts` by
+  `npm run gen:api`.
 - Propose commits. Never commit, stage, or run a git command that changes the index or the
   working tree. A proposal is the commit's path list and its full message; the body says
   what the diff does, nothing it doesn't, and leaves nothing out.
@@ -219,6 +233,9 @@ rather than repeating them. It names every invariant its step touches, read from
   mypy reports an ignore it doesn't need, and CI fails.
 - Ruff enforces only the rules `pyproject.toml` selects; don't restyle code or add
   `# noqa` for any other.
+- In `frontend/`, the same rules hold in TypeScript: objects a test builds come from typed
+  builders, typed by `src/api.d.ts`, never an `as` cast; tsc is the type gate, and never
+  takes `@ts-ignore` or `@ts-expect-error`.
 
 ### Mutation rows
 
@@ -247,6 +264,8 @@ A row names a file, an exact pattern, its replacement, and the assertion meant t
   equivalent, with the reason.
 - The gates run last, after the driver has exited and its hashes are checked. A hash that
   matches the pre-driver file is not a gate run.
+- A row in `frontend/` runs the frontend's whole suite instead: `npx vitest run
+  --reporter=junit --outputFile=<scratchpad file>`, its kills read from that file.
 
 ### What code, tests, and comments may say
 

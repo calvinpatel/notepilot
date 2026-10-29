@@ -18,14 +18,14 @@
     "enabled": true,
     "allowUnsandboxedCommands": false,
     "network": {
-      "allowedDomains": ["pypi.org", "files.pythonhosted.org"],
+      "allowedDomains": ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"],
       "deniedDomains": ["api.anthropic.com"],
       "allowLocalBinding": true
     },
     "credentials": {
       "files": [{ "path": "./.env", "mode": "deny" }]
     },
-    "filesystem": { "allowWrite": ["~/.cache/uv"] }
+    "filesystem": { "allowWrite": ["~/.cache/uv", "~/.npm"] }
   },
   "autoMemoryEnabled": false,
   "skillOverrides": {

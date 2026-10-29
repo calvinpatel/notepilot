@@ -43,6 +43,33 @@ jobs:
       - run: uv run mypy backend/ tests/ alembic/
       - run: uv run pytest
 
+  # The frontend (spec §9.10, §11; L360): installed from the lock, its types regenerated from
+  # the OpenAPI snapshot and compared, type-checked, tested, and built.
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # Generated, never hand-edited (§9.10): a regenerated api.d.ts that differs from the
+      # committed one, or a committed one gone, leaves a status line and fails the job.
+      - name: api.d.ts is what the snapshot generates
+        run: |
+          npm run gen:api
+          git status --porcelain -- src/api.d.ts
+          test -z "$(git status --porcelain -- src/api.d.ts)"
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
   # The deploy's image (spec §11, L353): built, booted with a dummy key, and checked. It needs
   # Docker, so it runs here and not among the gates a session runs locally (CLAUDE.md).
   image:
