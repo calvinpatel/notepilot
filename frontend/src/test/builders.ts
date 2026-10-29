@@ -1,5 +1,6 @@
 import type { components } from "../api";
 
+type Body = components["schemas"]["SummarizeResponse"];
 type Claim = components["schemas"]["ClinicalClaim"];
 type Report = components["schemas"]["EvalReport"];
 type Result = components["schemas"]["EvalResult"];
@@ -40,4 +41,25 @@ export function report(fields: Partial<Report> & Pick<Report, "results">): Repor
     all_critical_passed: true,
     ...fields,
   };
+}
+
+/** A /summarize body for the given claims and report. */
+export function summarizeBody(fields: Partial<Body> & Pick<Body, "note" | "report">): Body {
+  return {
+    note_id: "6f1c2a9e-0000-4000-8000-000000000001",
+    metadata: {
+      model: "claude-test",
+      prompt_version: "306bbaa5126a",
+      usage: { input_tokens: 1899, output_tokens: 797 },
+      validation_attempts: 1,
+    },
+    ...fields,
+  };
+}
+
+/** A fetch response carrying body as JSON, or as text when it is a string. */
+export function jsonResponse(status: number, body: unknown): Response {
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  const type = typeof body === "string" ? "text/html" : "application/json";
+  return new Response(text, { status, headers: { "Content-Type": type } });
 }

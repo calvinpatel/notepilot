@@ -3,8 +3,7 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.20** (patch — where each finding shows, October 2026). Supersedes
-v1.10.19.
+**Spec version: v1.10.21** (patch — the review UI, October 2026). Supersedes v1.10.20.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2867,7 +2866,7 @@ know, stated plainly (v1.3):
   "Resume metformin in 48 hours" citing "resume in 48 hours" in "Metformin held for CT with
   contrast today, resume in 48 hours". Status is read from the same clause, so a borrowed
   drug at the wrong status still fires, but the highlighted quote the clinician sees may not
-  name the drug. Highlighting the clause is phase 3's (a patch on #3).
+  name the drug. Highlighting the clause is phase 3's, decided at v1.11 (#13 entry 50).
 - **A window that crosses a comma** (L121, L261, L276, L291). A pre-cue's window runs
   `NEGATION_WINDOW` words across a comma, so "Not on metformin, lisinopril 10 mg daily"
   reads the lisinopril stopped (measured), and a faithful "Lisinopril 10 mg daily" citing
@@ -3538,11 +3537,11 @@ source-of-truth") with nothing backing it. The contract, minimally:
   file is gone (L360). `SOAPNote` and `EvalReport` exist exactly once, in `schemas.py`, and
   `SummarizeResponse` once, in `api.py` (§13, L76); the TypeScript is a build artifact.
   That's what makes the §12 receipt's last line true rather than aspirational.
-- **One highlight at a time.** Spans can overlap (two claims from one sentence) and
-  coincide (the duplicate-quote case, §6.5). The UI never paints all spans onto the
-  source at once — it highlights the span of the claim under the cursor (or the one
-  clicked), and nothing else. This sidesteps overlap rendering entirely and matches
-  the product motion (§1: "hover → highlight"). A claim with `source_span: None`
+- **One highlight at a time.** Spans can overlap (two claims from one sentence) and coincide
+  (the duplicate-quote case, §6.5). The UI never paints all spans onto the source at once —
+  it highlights one claim's span: the hovered claim's, else the focused one's, else the one
+  a click pinned until clicked again (L362). This sidesteps overlap rendering entirely and
+  matches the product motion (§1: "hover → highlight"). A claim with `source_span: None`
   highlights nothing and shows its `UNSUPPORTED` badge; that absence *is* the signal.
   Offsets count code points, Python's string index (L177): the UI slices `[...text]`, since
   `text.slice` counts UTF-16 units and every character past the BMP would shift the spans
@@ -3571,6 +3570,19 @@ source-of-truth") with nothing backing it. The contract, minimally:
 - **Read-only in v1.** "Review, edit, sign off" (§1) is the product; edit and
   sign-off *persistence* is v2 (§15) — the v1 UI is a review surface. Naming that
   here is what makes it a decision instead of an omission.
+- **Compose, then review (L362).** The page shows the paste box, and for a result the text
+  as sent beside the note; "New paste" returns to the box with the text kept. While a
+  request is in flight the box and its button are held: a second click would reserve the
+  budget again (L333). Anything but a result shows under the box, which keeps the draft: the
+  HTTP status, with the code and request id when the body carries both, or a fixed line when
+  no response came (L92, L100). The page posts to `/summarize` on the origin that served it,
+  or on `VITE_API_BASE` from the dev server (§9.8's CORS). It trusts a 200's body to be the
+  schema's (the server side is pinned, L357) and checks an error body's shape only.
+- **The page stores nothing and writes no HTML (L362, #3 entry 2).** The paste and the
+  response stay in memory: no browser storage, no cookie. Text renders as text, never
+  through `dangerouslySetInnerHTML` or a DOM writer of HTML, since every `source_quote`
+  copies the paste verbatim. *Test:* a scan of `frontend/src/`, tests aside, fails on any of
+  those names; markup in a claim and its quote renders as text.
 - **The PHI banner** (§9.8) is above the paste box, always, not a dismissible toast.
 
 **Before the contract: the phase-1 display (L68).** §14's "minimal display" is a static
