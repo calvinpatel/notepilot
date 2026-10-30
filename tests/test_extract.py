@@ -1546,16 +1546,85 @@ def test_a_hold_an_interruption_or_a_refused_continue_reads_stopped(text: str) -
         ),
         # a negation past a content word refuses nothing (L271)
         ("No plan to stop apixaban", {"apixaban": {"stopped"}}),
-        # §8.8's cost (L297): a stop verb governs its window whatever its object
-        ("Interrupted sleep, takes metformin nightly", {"metformin": {"stopped"}}),
-        ("Holding pressure, takes apixaban", {"apixaban": {"stopped"}}),
-        ("Hold pressure, takes apixaban", {"apixaban": {"stopped"}}),
     ],
 )
 def test_a_refusal_ends_at_a_word_and_a_stop_verb_reads_its_window(
     text: str, statuses: dict[str, set[str]]
 ) -> None:
     assert extract_med_status(text) == statuses
+
+
+_OWN_OBJECT = [  # L365: a stop's window closes at a comma it reaches before any drug
+    ("Hold pressure, takes apixaban", {"apixaban": {"active"}}),
+    ("Holding pressure, takes apixaban", {"apixaban": {"active"}}),
+    ("Hold pressure for 10 minutes, apixaban tonight", {"apixaban": {"active"}}),
+    ("Holding pressure on the site, apixaban continued", {"apixaban": {"active", "continued"}}),
+    ("Held her breath, on metformin", {"metformin": {"active"}}),
+    ("Stopped by the pharmacy, picked up metformin", {"metformin": {"active"}}),
+    ("Interrupted sleep, takes metformin nightly", {"metformin": {"active"}}),
+    ("Interrupted by pain, metformin given", {"metformin": {"active"}}),
+    ("Pt holding her arm, on apixaban", {"apixaban": {"active"}}),
+    ("Interrupt the infusion if rash, apixaban tonight", {"apixaban": {"active"}}),
+]
+
+
+@pytest.mark.parametrize(("text", "statuses"), _OWN_OBJECT)
+def test_a_stop_verbs_own_object_ends_at_its_comma(
+    text: str, statuses: dict[str, set[str]]
+) -> None:
+    assert extract_med_status(text) == statuses
+
+
+_STOP_LISTS = [  # L365: once a stop reads a drug, or past an introducer, its list crosses commas
+    (
+        "Hold lisinopril, metformin, and apixaban",
+        {"lisinopril": {"stopped"}, "metformin": {"stopped"}, "apixaban": {"stopped"}},
+    ),
+    (
+        "Hold lisinopril 10 mg, metformin 500 mg",
+        {"lisinopril": {"stopped"}, "metformin": {"stopped"}},
+    ),
+    ("Hold all home meds, including metformin", {"metformin": {"stopped"}}),
+    (
+        "Hold nephrotoxic meds, such as lisinopril and ibuprofen",
+        {"lisinopril": {"stopped"}, "ibuprofen": {"stopped"}},
+    ),
+    ("Hold anticoagulants, especially apixaban", {"apixaban": {"stopped"}}),
+]
+
+
+@pytest.mark.parametrize(("text", "statuses"), _STOP_LISTS)
+def test_a_stop_crosses_a_comma_after_a_drug_or_before_an_introducer(
+    text: str, statuses: dict[str, set[str]]
+) -> None:
+    assert extract_med_status(text) == statuses
+
+
+_STOP_COSTS = [  # §8.8's costs (L365, L375)
+    # an object with no comma still reaches the drug after it
+    ("Stopped smoking 2 years ago and takes metformin", {"metformin": {"stopped"}}),
+    ("Stopped by the pharmacy to pick up metformin", {"metformin": {"stopped"}}),
+    # past a comma no introducer follows, a stop's list reads as charted
+    (
+        "Medications held, metformin and lisinopril",
+        {"metformin": {"active"}, "lisinopril": {"active"}},
+    ),
+    ("Hold, per cardiology, apixaban", {"apixaban": {"active"}}),
+    # an abbreviation's period ends its sentence
+    ("Stop all nephrotoxins, e.g. ibuprofen", {"ibuprofen": {"active"}}),
+]
+
+
+@pytest.mark.parametrize(("text", "statuses"), _STOP_COSTS)
+def test_the_comma_rules_costs_read_as_section_8_8_states(
+    text: str, statuses: dict[str, set[str]]
+) -> None:
+    assert extract_med_status(text) == statuses
+
+
+def test_a_start_crosses_a_comma_before_its_drug() -> None:
+    # L365 closes a stop's window, not a start's: a start still reaches its drug past a comma
+    assert new_prescriptions("Start tomorrow, metformin 500 mg daily") == {"metformin"}
 
 
 @pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE | MED_STOP_CUES))

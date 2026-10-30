@@ -427,6 +427,17 @@ MED_CONTINUE_CUES: set[str] = {
     "continued",
 }
 
+# Clinical sign-off: Calvin Patel, 2026-10-30.
+LIST_INTRODUCERS: set[str] = {
+    # "Hold all home meds, including metformin": the comma opens the stop's own list, so its
+    # window crosses that comma (L365).
+    "including",
+    # "Hold nephrotoxic meds, such as lisinopril and ibuprofen", as "including".
+    "such as",
+    # "Hold anticoagulants, especially apixaban": the list's member named first.
+    "especially",
+}
+
 # Clinical sign-off: Calvin Patel, 2026-10-20.
 INDICATION_CUES: set[str] = {
     # "Acetaminophen as needed for pain and fever": after a drug, the findings listed right

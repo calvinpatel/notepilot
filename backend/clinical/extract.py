@@ -10,6 +10,8 @@ same way and matched left to right, the longest first. Each cue carries its clas
 new pre-cue of any class replaces the open window, except that a start or stop cue a negation
 directly precedes, across function words only, is refused (L271, L288): a refused start reads
 negated, and a refused stop closes the window, its refusal reaching a stop cue joined after it.
+A stop pre-cue's window closes at a comma it reaches before governing any mention, unless a
+LIST_INTRODUCERS entry follows the comma (L365).
 A post-cue governs the mention immediately before it, across any mark but a comma or a
 terminator, and "present" after a negation's second mention, across a comma and no "and" or
 "or", takes that mention back (L291). A negation, stop, or start post-cue governs the whole list
@@ -68,6 +70,7 @@ from backend.clinical.lexicons import (
     FUNCTION_WORDS,
     GENERIC_DRUGS,
     INDICATION_CUES,
+    LIST_INTRODUCERS,
     MED_CONTINUE_CUES,
     MED_RESTART_CUES,
     MED_START_CUES,
@@ -159,6 +162,7 @@ _DRUGS = _phrases(GENERIC_DRUGS) | {
 }
 # what opens an indication after a drug (L266, L280)
 _INDICATIONS = _phrases(INDICATION_CUES)
+_INTRODUCERS = _phrases(LIST_INTRODUCERS)
 _NAMES = _DRUGS | {tuple(_tokens(name)): key for name, key in ALLERGY_ALIASES.items()}
 _DRUG_PRE = (
     _NEG_PRE
@@ -335,6 +339,11 @@ def _scope(
     return _scope_at(text, entities, pre, post, differential, drugs).mentions
 
 
+def _introduces(tokens: Sequence[str], k: int) -> bool:
+    """A LIST_INTRODUCERS entry starts at token k (L365)."""
+    return any(tuple(tokens[k : k + len(entry)]) == entry for entry in _INTRODUCERS)
+
+
 def _scope_at(
     text: str,
     entities: Mapping[_Phrase, str],
@@ -380,6 +389,7 @@ def _scope_at(
     pre_comma = False  # a comma since the open pre-cue (L290)
     pre_joined = False  # an "and" or "or" since the open pre-cue (L291)
     pre_read = 0  # the mentions the open pre-cue's window has read negated (L291)
+    stop_fresh = False  # the open window is a stop's that has read no mention (L365)
     for i, phrase in phrases:
         words = sum(map(_is_word, phrase))
         in_window = window > 0
@@ -451,6 +461,7 @@ def _scope_at(
                 window, label, opener = NEGATION_WINDOW, "negated" if negated else pre[phrase], i
                 pre_comma = pre_joined = False
                 pre_read = 0
+                stop_fresh = label == "stopped"
         elif phrase in entities:
             entity = entities[phrase]
             # L292: a window keeps a repeat; a confirming cue answers a certainty's workup
@@ -459,6 +470,7 @@ def _scope_at(
                 governing_label = "indication"
             if in_window:
                 governing.add(opener)
+                stop_fresh = False
             mentions.append((entity, governing_label))
             if governing_label == "negated":
                 pre_read += 1
@@ -481,6 +493,8 @@ def _scope_at(
                 allergy_run = []  # an allergy cue's allergens stay open across marks alone
         if phrase == (",",):
             pre_comma = True
+            if stop_fresh and not _introduces(tokens, i + 1):
+                window = 0  # L365: a stop's own object ends at its comma
         elif phrase in _JOINS:
             pre_joined = True
         # L193: a clause opens after . ; or a line break, or after a header's colon (a header
@@ -611,7 +625,7 @@ def _med_readings(text: str) -> list[tuple[str, set[MedStatus]]]:
         (drug, {_STATUS[label]} if drug in GENERIC_DRUGS and label in _STATUS else set())
         for drug, label in scoped.mentions
     ]
-    drugs = [k for k, (drug, statuses) in enumerate(readings) if statuses]
+    drugs = [k for k, (_, statuses) in enumerate(readings) if statuses]
 
     def before(i: int) -> list[int]:  # the drug mentions before token i, in its clause
         return [
