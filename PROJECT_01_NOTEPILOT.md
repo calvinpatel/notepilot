@@ -3,7 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.10.22** (patch — every state, October 2026). Supersedes v1.10.21.
+**Spec version: v1.10.23** (patch — the bundle, served from the image, October 2026).
+Supersedes v1.10.22.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3592,6 +3593,17 @@ source-of-truth") with nothing backing it. The contract, minimally:
   through `dangerouslySetInnerHTML` or a DOM writer of HTML, since every `source_quote`
   copies the paste verbatim. *Test:* a scan of `frontend/src/`, tests aside, fails on any of
   those names; markup in a claim and its quote renders as text.
+- **One origin, served from the image (L364).** `GET /` serves the build's `index.html` and
+  `GET /assets/{name}` its assets, from `settings.frontend_dist` (by default the repo's
+  `frontend/dist`, found from `config.py`, never the cwd), read when a request comes. An
+  asset's name is one file name of letters, digits, `.`, `_`, and `-`, never opening with a
+  dot, so no path reaches outside `assets/`. With no build, both answer 404 in §9.4's shape;
+  Starlette's static mount answers 500 there (measured). The page is revalidated on every
+  load, so a redeploy's page names its own assets; the assets, which Vite names by their
+  content's hash, are cached for good. Neither route is in `/openapi.json`. The image builds
+  the bundle in a Node stage from the lock and copies only `dist/` into the runtime image.
+  *Test:* each route against a temp build, with its headers, the paths that 404, and the
+  default; the image job checks the real bundle (§11).
 - **The PHI banner** (§9.8) is above the paste box, always, not a dismissible toast.
 
 **Before the contract: the phase-1 display (L68).** §14's "minimal display" is a static
@@ -3607,8 +3619,8 @@ in the paste would execute. `backend/static/` is deleted when `frontend/` replac
 phase 3. Anything but a result renders in its place (L92, L100): a response renders its
 HTTP status, plus the body's `error` code and `request_id` when the body carries both; a
 fetch that gets no response renders a fixed line that names no code, since there is none.
-The result area is never blank, or the L81 smoke run can fail without saying so. *Test:*
-`GET /` → 200, `text/html`; the served file contains no `innerHTML`.
+The result area is never blank, or the L81 smoke run can fail without saying so. *Test,
+until L364:* `GET /` → 200, `text/html`; the served file contains no `innerHTML`.
 
 **Phase 2a's page (L176).** The page renders the report beside the note, flat. A verdict
 line reads `all_critical_passed`, never recomputed (L102), with the count of checks that
@@ -3618,8 +3630,8 @@ with its severity, check, claim ids, and detail; an errored one under "didn't ru
 note," never passed (invariant 12); a passed one by name. The page keys on no check's name.
 "DRAFT — unverified" stays: the checks are not a clinician. The join by `claim.id`, the
 banner, the highlight, every state above, `note_id`, and the per-code error copy are phase
-3's (§14). *Test:* the served page reads `report.all_critical_passed` and `result.errored`;
-CI runs none of this page's JavaScript, so the design room runs it on real bodies in jsdom.
+3's (§14). *Test, until L364:* the served page reads `report.all_critical_passed` and
+`result.errored`; CI ran none of its JavaScript; the design room ran it in jsdom.
 
 ---
 
@@ -3643,7 +3655,8 @@ CI runs none of this page's JavaScript, so the design room runs it on real bodie
   never a field, L348); `rate_limit` (a slowapi limit string, None unless set: no limiter,
   L348); `host`, `port`, and `forwarded_allow_ips`, the proxy's range and never `*` (L58,
   L352); `runs_path` (default `backend/evals/runs/corpus_runs.jsonl`, §13, L209);
-  `cors_origins` (comma-separated origins, never `*`; None unless set: no CORS, L359).
+  `cors_origins` (comma-separated origins, never `*`; None unless set: no CORS, L359);
+  `frontend_dist` (default the repo's `frontend/dist`, found from `config.py`, L364).
   Clinical knowledge — including `NEGATION_WINDOW` — lives in `clinical/lexicons.py`. The
   literal numbers in this spec's code samples are `settings.*` in the repo.
 - **Configuration fails at boot, not per request (L77).** Every knob declares its domain:
@@ -3716,14 +3729,16 @@ push **from phase 1** (v1.3, L60 — v1.2 scheduled CI in phase 3 while CLAUDE.m
 on push; a green badge from the first commit is the cheapest credibility signal in the
 repo). The model corpus is deliberately not in the push workflow — it spends real money.
 Beside the free tiers, from phase 3, the `image` job builds the deploy's image and boots it
-(L353): the build context must be `.dockerignore`'s allowlist, with a `.env` and a bytecode
-cache planted for it to keep out; the server answers `/health` and the page as uid 10001, on
-the base image's Python at `.python-version`'s minor; a trust of `*` stops its boot, exit 1,
-by name and without the key; and a stop's SIGTERM ends it with exit 0. The job needs Docker,
-so the gates a session runs locally are the free tiers' (CLAUDE.md). From phase 3 the
-`frontend` job is one of them (L360): `npm ci` from the lock → `frontend/src/api.d.ts`
-written again from the OpenAPI snapshot, failing on any difference or a missing file → `tsc`
-→ `vitest` in jsdom → `vite build`.
+(L353): the build context must be `.dockerignore`'s allowlist, with a `.env`, a bytecode
+cache, and the frontend's `node_modules` and `dist` planted for it to keep out; the server
+answers `/health` and the page as uid 10001; the page is the bundle, revalidated, and its
+script JavaScript cached for good, `/app/frontend` holding only `dist` and the image no Node
+(L364); on the base image's Python at `.python-version`'s minor; a trust of `*` stops its
+boot, exit 1, by name and without the key; and a stop's SIGTERM ends it with exit 0. The job
+needs Docker, so the gates a session runs locally are the free tiers' (CLAUDE.md). From
+phase 3 the `frontend` job is one of them (L360): `npm ci` from the lock →
+`frontend/src/api.d.ts` written again from the OpenAPI snapshot, failing on any difference
+or a missing file → `tsc` → `vitest` in jsdom → `vite build`.
 
 **Free-tier tests the spec demands** (each guards a specific bug or claim):
 
@@ -3861,8 +3876,10 @@ notepilot/
 │                              anthropic>=1.9,<2 (L82) · [tool.mypy] strict = true (L91)
 ├── uv.lock                 ← the environment's source of truth
 ├── Dockerfile              ← the deploy's image (phase 3, L353): python -m backend.serve as
-│                              uid 10001, over uv sync --locked --no-dev
-├── .dockerignore           ← an allowlist: backend/ and the three files uv sync reads
+│                              uid 10001, over uv sync --locked --no-dev · a Node stage
+│                              builds the bundle, and only dist/ is kept (L364)
+├── .dockerignore           ← an allowlist: backend/ and the three files uv sync reads ·
+│                              the frontend's build inputs (L364)
 ├── .github/
 │   └── workflows/ci.yml    ← ruff check + format, mypy, pytest on push, FROM PHASE 1 (L96)
 │                              (model corpus: manual, $) · the image job: build, boot, and
@@ -3893,7 +3910,6 @@ notepilot/
 │   ├── corpus.py           ← EDGE (phase 2b, L188). score_corpus: settings · the API · git · runs/
 │   ├── api.py              ← EDGE. routes (composition root) · handlers · logging · rate limit · budget
 │   ├── serve.py            ← EDGE (phase 3, L352). the deploy's uvicorn, one worker
-│   ├── static/index.html   ← phase 1 only: the static display (§9.10, L68); frontend/ replaces it
 │   └── db.py               ← EDGE (phase 3). get_sessions, NoteRecord, persist()
 ├── alembic/                ← EDGE (phase 3, D3). env.py (the URL from settings, L346) ·
 │                              versions/: the notes table's migrations

@@ -79,13 +79,13 @@ jobs:
       ANTHROPIC_API_KEY: ci-image-dummy-key
     steps:
       - uses: actions/checkout@v7
-      # A working tree holds a .env and bytecode caches; a checkout holds neither. Plant both,
-      # so the allowlist has something to keep out.
-      - name: Plant a .env and a bytecode cache
+      # A working tree holds a .env, bytecode caches, and the frontend's node_modules and dist;
+      # a checkout holds none of them. Plant each, so the allowlist has something to keep out.
+      - name: Plant a .env, a bytecode cache, node_modules, and a dist
         run: |
           echo "ANTHROPIC_API_KEY=planted-dotenv-key" > .env
-          mkdir -p backend/__pycache__
-          touch backend/__pycache__/planted.pyc
+          mkdir -p backend/__pycache__ frontend/node_modules frontend/dist
+          touch backend/__pycache__/planted.pyc frontend/node_modules/planted frontend/dist/planted
       - name: The build context is the allowlist
         run: |
           docker build --output "type=local,dest=$RUNNER_TEMP/context" --file - . <<'EOF'
@@ -96,8 +96,19 @@ jobs:
           diff - "$RUNNER_TEMP/context.txt" <<'EOF'
           .python-version
           backend
+          frontend
           pyproject.toml
           uv.lock
+          EOF
+          ls -A "$RUNNER_TEMP/context/frontend" | LC_ALL=C sort > "$RUNNER_TEMP/frontend.txt"
+          diff - "$RUNNER_TEMP/frontend.txt" <<'EOF'
+          .npmrc
+          index.html
+          package-lock.json
+          package.json
+          src
+          tsconfig.json
+          vite.config.ts
           EOF
           test -z "$(find "$RUNNER_TEMP/context" -name __pycache__)"
       - name: Build
@@ -108,12 +119,23 @@ jobs:
           timeout 30 bash -c 'until curl --silent --fail --max-time 2 --output /dev/null http://127.0.0.1:8000/health; do sleep 1; done'
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/health)" = 200
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/)" = 200
-      - name: uid 10001, the base's Python at .python-version, no .env, tests/, or cache in /app
+      - name: The page is the bundle, revalidated; its script is cached for good
+        run: |
+          curl --silent --fail --dump-header "$RUNNER_TEMP/page.headers" --output "$RUNNER_TEMP/page.html" http://127.0.0.1:8000/
+          grep --quiet --ignore-case '^cache-control: no-cache' "$RUNNER_TEMP/page.headers"
+          script="$(grep --only-matching '/assets/[A-Za-z0-9._-]*\.js' "$RUNNER_TEMP/page.html" | head -n 1)"
+          test -n "$script"
+          curl --silent --fail --dump-header "$RUNNER_TEMP/script.headers" --output /dev/null "http://127.0.0.1:8000$script"
+          grep --quiet --ignore-case '^content-type: text/javascript' "$RUNNER_TEMP/script.headers"
+          grep --quiet --ignore-case '^cache-control: public, max-age=31536000, immutable' "$RUNNER_TEMP/script.headers"
+      - name: uid 10001, the base's Python, no .env, tests/, or cache, only the bundle, no Node
         run: |
           test "$(docker run --rm notepilot id -u)" = 10001
           docker run --rm notepilot /app/.venv/bin/python -c 'import sys; print(sys.base_prefix, "%d.%d" % sys.version_info[:2])' > "$RUNNER_TEMP/python.txt"
           echo "/usr/local $(cat .python-version)" | diff - "$RUNNER_TEMP/python.txt"
           docker run --rm notepilot sh -c 'test ! -e /app/.env && test ! -e /app/tests && test ! -e /app/backend/__pycache__'
+          test "$(docker run --rm notepilot ls -A /app/frontend)" = dist
+          docker run --rm notepilot sh -c 'test ! -e /app/frontend/dist/planted && ! command -v node'
       - name: A trust of * stops the boot, exit 1, by name and without the key
         run: |
           status=0

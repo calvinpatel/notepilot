@@ -1,8 +1,17 @@
-# An allowlist (L353): the build context holds only the four paths listed below, with no
-# bytecode cache under backend/. CI's image job lists the context and checks both.
+# An allowlist (L353, L364): the build context holds only the paths listed below, with no
+# bytecode cache under backend/: backend/ and the three files uv sync reads, and the
+# frontend's build inputs, never its node_modules or dist. CI's image job lists the context
+# and checks it.
 *
 !backend/
 !pyproject.toml
 !uv.lock
 !.python-version
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/.npmrc
+!frontend/index.html
+!frontend/tsconfig.json
+!frontend/vite.config.ts
+!frontend/src/
 backend/**/__pycache__

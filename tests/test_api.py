@@ -1540,8 +1540,8 @@ def test_summarize_documents_each_error_status_with_its_codes() -> None:
 def test_every_route_documents_the_catch_alls_500() -> None:
     # L358: CatchAllMiddleware can answer any route (L69)
     paths = _openapi()["paths"]
-    routes = [r for r in app.routes if isinstance(r, APIRoute)]
-    assert {r.path for r in routes} == {"/", "/health", "/summarize"}
+    routes = [r for r in app.routes if isinstance(r, APIRoute) and r.include_in_schema]
+    assert {r.path for r in routes} == {"/health", "/summarize"}
     for route in routes:
         assert route.methods, route.path
         for method in route.methods:

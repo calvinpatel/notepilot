@@ -6,10 +6,11 @@ the exact paste, awaits run_checks() in production mode, and returns the wire sh
 SummarizeRequest, SummarizeResponse, and ErrorBody are the HTTP edge shapes §13 sanctions
 outside schemas.py; SummarizationResult never goes on the wire (L76).
 
-GET / serves backend/static/index.html, the phase-1 page (§9.10, L68), by a path derived
-from this file, never from the cwd. The page renders the model's claims, and a source_quote
-copies the paste, so markup in a paste would execute through a string-to-HTML sink. The
-served page contains none of innerHTML, outerHTML, insertAdjacentHTML, or document.write.
+GET / serves the frontend's page and GET /assets/{name} its assets (§9.10, L364), from the
+build at settings.frontend_dist; with no build there, both answer 404. An asset's name is one
+file name that doesn't open with a dot, so no path reaches outside assets/. The page is
+revalidated on every load; the assets, which Vite names by their content's hash, are cached
+for good. Neither route is in /openapi.json: they serve the page, not the API.
 
 SummarizeRequest counts CONTENT (stripped length, L87) and never mutates raw_text: §6.2's
 source spans are offsets into the exact paste. An oversized paste fails honestly at
@@ -91,10 +92,10 @@ import asyncio
 import functools
 import logging
 import math
+import re
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID, uuid4
@@ -254,14 +255,28 @@ if settings.cors_origins is not None:
         expose_headers=["Retry-After"],
     )
 
-# Derived from this file, never the cwd (§9.10, L68).
-_INDEX_HTML: Final = Path(__file__).resolve().parent / "static" / "index.html"
+# The frontend's build (§9.10, L364).
+_ASSET_NAME: Final = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+_REVALIDATE: Final = {"Cache-Control": "no-cache"}
+_CACHE_FOR_GOOD: Final = {"Cache-Control": "public, max-age=31536000, immutable"}
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    """The phase-1 page (§9.10, L68)."""
-    return FileResponse(_INDEX_HTML)
+    """The frontend's page, from its build, or 404 with no build (L364)."""
+    page = settings.frontend_dist / "index.html"
+    if not page.is_file():
+        raise StarletteHTTPException(status_code=404)
+    return FileResponse(page, headers=_REVALIDATE)
+
+
+@app.get("/assets/{name}", include_in_schema=False)
+async def asset(name: str) -> FileResponse:
+    """One of the build's assets, by one file name, or 404 (L364)."""
+    path = settings.frontend_dist / "assets" / name
+    if _ASSET_NAME.fullmatch(name) is None or not path.is_file():
+        raise StarletteHTTPException(status_code=404)
+    return FileResponse(path, headers=_CACHE_FOR_GOOD)
 
 
 @app.get("/health")

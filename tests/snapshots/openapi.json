@@ -5,33 +5,6 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/": {
-      "get": {
-        "summary": "Index",
-        "description": "The phase-1 page (§9.10, L68).",
-        "operationId": "index__get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "500": {
-            "description": "internal_error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/health": {
       "get": {
         "summary": "Health",

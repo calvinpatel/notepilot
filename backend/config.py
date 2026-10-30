@@ -164,6 +164,11 @@ class Settings(BaseSettings):
     # the deploy serves its page from its own origin.
     cors_origins: str | None = None
 
+    # The frontend's build (§9.10, L364), which GET / and GET /assets/{name} serve: by default
+    # the repo's frontend/dist, found from this file and never the cwd. The image puts the
+    # bundle its Node stage builds there.
+    frontend_dist: Path = _REPO_ROOT / "frontend" / "dist"
+
     def checks_config(self) -> ChecksConfig:
         """The verdict knobs, for the edge to pass inward: the domain reads no settings (L187)."""
         return ChecksConfig(
