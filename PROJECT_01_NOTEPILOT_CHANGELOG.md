@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -13,6 +13,178 @@ predate the ledger; their deltas are cited by section.
 **Versioning.** Patch (v1.x.y): fills a detail the spec leaves unspecified, or resolves a
 conflict between two spec statements, citing both and naming which wins. Minor (v1.x):
 anything else. Every change gets the next `L#`.
+
+---
+
+## v1.11 — extraction before the public deploy (minor)
+
+Theme: phase 3's second revision, after the frontend and before the corpus workflow and the
+public deploy, so the live link's checks read the everyday phrasings the extraction entries
+found. The input is #13, the deferred amendments, with Cal's rulings of Oct 29 posted there:
+a decision sheet for entries 31 to 40, 43, 44, 45, 49, and 50, each option prototyped on
+`a92b463` against its filed rows and an adversarial pass, with the suite and the committed
+records' replay run under each. Adopted: 31 to 38, 40, 43 to 45, 49, and 50; four in a form
+the pass narrowed (32, 33, 34, 43) and three with a rule it added (31's confirming word,
+36's bind-back, 38's oral route). 39 failed its pass and moves to v1.12, after
+`v0.3-shipped` and before any phase-4 step, with five findings of this revision's own
+(entries 51 to 55); §8.8 states each meanwhile (L374, L375). Code order: 33, 35, 36 with 37,
+44, 43, 38, 31, 32, 34, 40, 45's check, its copy, 50, then 49's code and a `build(deps)`
+commit removing slowapi. No prompt or call field moves, so no smoke run precedes the
+re-baseline (§14, L283). #13 closes with this revision, and its open entries (2, 12, 15, 39,
+47, 48, 51 to 55) carry to the next. No invariant is added, removed, renumbered, or
+retitled, so CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L365 §7, §8.8 — a stop verb's window ends at its object's comma.** Amendment (#13 entry
+  33, option (d) with introducers). A stop pre-cue governed its window whatever its own
+  object, so "Hold pressure, takes apixaban" and "Interrupted sleep, takes metformin
+  nightly" read the drug stopped (L297). Its window now closes at a comma it reaches before
+  governing any mention, unless a `LIST_INTRODUCERS` entry follows the comma. Prototyped on
+  `a92b463`: the ten filed rows read as charted, and 36 of 36 everyday stops stay stopped.
+  The filed option, a stop governing only the list right after it as an indication does
+  (L280), kept 15 of 36: "Stop taking ibuprofen", "hold home lisinopril", "Hold PO
+  metformin", and the second drug of "Hold lisinopril 10 mg and metformin 500 mg" read
+  active. L288's four verbs alone read 5 of the 10 rows. The costs are §8.8's: an object
+  with no comma still reaches a drug, and a stop's list past a comma reads as charted. Three
+  L297 pins flip; replay unchanged.
+- **L366 §7, §8.8 — a comparative reads both its sides.** Amendment (#13 entry 35). "PE less
+  likely, PNA more likely" read the pneumonia definite, so "Pneumonia" citing "PNA more
+  likely" passed `diagnosis_in_quote`. "More likely" is a probable post-cue, "unlikely" and
+  "less likely" are possible pre-cues as well as post-cues, and `COMPARATIVE_CUES` reads "X
+  more likely than Y" as X probable and Y possible, and "less likely than" the reverse.
+  Prototyped: the three filed rows read right, the upgrade fires, and a faithful "Probable
+  pneumonia" passes. "Not likely PE" and "Likely PNA rather than PE" read the embolism
+  probable, as at `a92b463`: entries 52 and 53, for v1.12. One L292 pin flips; replay
+  unchanged.
+- **L367 §7, §8.8 — sides joined by "/" or "&", and a side after its site.** Amendment (#13
+  entry 36). "/" and "&" join sides, a bare letter counts before a join another side
+  follows, and a side naming no site after it at any width binds back to the nearest site
+  before it, across a mark or "on the". Prototyped: "Left & right", "Left/right", "L, R", "L
+  & R", and "L/R knee pain" read both sides, and "Right-sided chest pain" citing "Chest pain
+  on the left" fires. As first prototyped, a side with a forward site at one width alone
+  also bound back at the other, giving "Acute otitis media, left ear" a second reading and
+  "Right knee swelling, left ankle" a false "knee swelling" on both sides; no verdict in the
+  rows moved, and the rule as adopted reads both as `a92b463` does. The open question is
+  answered: a trailing side reaches the nearest site ("Knee and hip pain, right" reads the
+  hip alone). Five L306 pins flip; replay unchanged.
+- **L368 §7, §8.8 — a laterality label read at its own width.** Amendment (#13 entry 37).
+  Read one word wide, a "RLQ" label was kept by "Right lower lobe consolidation" or "RLE
+  edema", a "right lower lobe" one by "RLQ tenderness", and a "LUL" one by "Left upper
+  extremity weakness". A label is read at the widest width that gives it one side at one
+  site, and the note at that width: each of those now misses, CRITICAL (prototyped). The
+  cost, a label naming more than its site ("right knee pain"), is label review's. Two L307
+  pins flip; replay unchanged.
+- **L369 §7, §8.8 — "also" and "too" share a site.** Amendment (#13 entry 44). "Left knee
+  swollen, right knee also" read the right side at "knee also", so a faithful "Right knee
+  swollen" fired. `SHARED_SITE_WORDS` are read past inside a site, and a site they leave
+  short shares the earlier site in its clause that it begins. Prototyped: the "also", "too",
+  "as well", and "right also" rows pass, and "right knee also tender" reads "knee tender".
+  Two L338 pins flip; replay unchanged.
+- **L370 §7, §8.8 — a correction retires the side it corrects.** Amendment (#13 entry 43,
+  narrowed). Built as filed, a `CORRECTION_CUES` entry anywhere between two sides retired
+  the first: a false CRITICAL on "Right knee pain" citing "Right knee pain, I mean worse
+  than the left knee pain", and on "Right knee swelling" citing "Right knee swelling, sorry,
+  left knee also swollen" (prototyped). A cue retires the earlier side only when it leads
+  straight to the new one, across marks and function words, and no "also" or "too" follows;
+  the four filed rows then fire, and both of those pass. A correction past a sentence end
+  stays unread claim-locally (§8.8). Two L338 pins flip; replay unchanged.
+- **L371 §7, §8.4, §8.8, D17 — `route_consistency`.** Amendment (#13 entry 38, option (a)).
+  No check read a route (L331). `extract_routes` reads each listed drug's canonical routes
+  from its dose chain, which a comma ends, or directly before it; `DOSE_ROUTES` becomes the
+  forms' map, still what a prn reaches across. A swap is CRITICAL, and a dropped or supplied
+  non-default route a WARNING; a supplied oral route raises none, since a reader assumes
+  oral, as a dropped one loses nothing (§8.8). Prototyped: a dropped IV, IV for PO, and a
+  supplied IV or PR fire as ruled, and a supplied or dropped PO passes. Without the comma
+  rule, "Tylenol 650 mg q6h, PR interval 160 ms" read rectal, a false WARNING; with every
+  supplied route a WARNING, three committed repeats of `fidelity_nsaid_intolerance` gained
+  one for a supplied "PO"; as ruled, replay is unchanged. Options (b) and (c), a route kind
+  for `must_preserve`, were not probed. The check's cases land first: a trap for each
+  finding, controls for a kept route and a dropped PO, and D17's row.
+- **L372 §7, §8.8 — a diagnosis that names something else.** Amendment (#13 entry 31). A
+  diagnosis no cue governs read definite, so "PE workup pending." and "PNA coverage with
+  ceftriaxone." asserted it. A `DIAGNOSIS_HEADS` word directly after it or a
+  `DIAGNOSIS_OBJECT_CUES` entry directly before it reads it as named, neither asserted nor
+  excluded, and a `HEAD_CONFIRMING` word directly after the head, not followed by "for",
+  reads it as charted. Prototyped: the five filed rows assert nothing, "DVT/PE prophylaxis"
+  no longer asserts an embolism, and "PE workup positive." reads definite, while "PE workup
+  positive for DVT." and "PE workup with positive D-dimer, CTA pending." read no assertion.
+  A confirming word anywhere after the head would have read the D-dimer row as confirming, a
+  silent invented diagnosis. The cost is §8.8's: "PE protocol CT positive." fires on a
+  faithful claim. "PE workup negative." excludes nothing (entry 55, for v1.12). Clean suite;
+  replay unchanged.
+- **L373 §7, §8.8 — the chart contests a denial.** Amendment (#13 entry 34, narrowed). Built
+  as filed, any documentation cue after a denial reinstated the allergen, so "No PCN allergy
+  documented" read a penicillin allergy and fired both allergy checks beside amoxicillin
+  (prototyped). Only a denial a `DENIAL_VERBS` entry makes is contested, by a
+  `DOCUMENTED_CUES` entry later in its sentence that names no allergen of its own, and a
+  `DELABEL_CUES` entry in the sentence keeps the denial. Prototyped: the four filed rows
+  read the penicillin, and the "No … documented", "… on file", delabeled, and "in error"
+  rows read none. One L298 pin flips; replay unchanged.
+- **L374 §8.8 — a diagnosis's history, stated.** Fill (#13 entry 39, ruled to v1.12): §8.8
+  stated it only within the judge's quality. A history-cue reading through the scope engine
+  was prototyped. It read "Hx of", "history of", "h/o", "s/p", and "prior" right, and "No
+  history of PE" as negated through L271's guard, but a repeat in its window read as history
+  ("Hx of PE, now with recurrent PE", a false CRITICAL), a "PMH:" header sits outside its
+  claim's clause (L193), and `DIAGNOSES` lists three diagnoses, MI not among them, so its
+  live yield waits on the cases that add them.
+- **L375 §8.8 — five of this revision's own findings, stated.** Fill: the adversarial pass
+  found them, and the stopping rule (ruled Oct 24) sends them to v1.12 as #13 entries 51 to
+  55. An abbreviation's period ends its sentence ("Stop all nephrotoxins, e.g. ibuprofen"
+  reads the ibuprofen active); "Not likely PE" reads probable; "Likely PNA rather than PE"
+  reads the embolism probable; "Family history of PE" reads the patient's embolism definite
+  (each measured at `a92b463`); and "PE workup negative." excludes nothing (prototyped under
+  L372).
+
+**WARNING**
+- **L376 §7, §8.8 — an unlisted drug ends a dose's reach.** Amendment (#13 entry 32, option
+  (c)). A dose joined the most recent listed drug before it, so "Lisinopril 10 mg daily,
+  amlodipine 5 mg daily" read lisinopril 5 mg too, and "Lisinopril 5 mg daily" citing it
+  passed. A word opening a list item that no table lists ends the reach, and
+  `DOSE_TITRATION` entries don't. Prototyped: the filed rows and their "and", "/", and "&"
+  forms read one dose each, and every titration keeps both. The filed option, any unknown
+  word ending the reach, lost "increase to 1000 mg", "then 20 mg", "ER", "tablets", and
+  "dose", each a false WARNING on a faithful titration. Clean suite; replay unchanged.
+- **L377 §7, §8.8 — atorvastatin, and "nightly" as qhs.** Amendment (#13 entry 40).
+  Atorvastatin and Lipitor join the vocabulary with the case that exercises them (L171),
+  with no class entry, and "nightly" joins `DOSE_FREQUENCIES` as qhs, since it names a time
+  to take a dose, not any time of day (Cal, Oct 29). Prototyped: "Atorvastatin 40 mg
+  nightly" citing "atorvastatin 40 nightly" fires `dose_consistency`, and "daily" written
+  for a charted "nightly" draws the WARNING. Auditing the vocabulary against a common-drug
+  list would break its closure (L171). Replay unchanged.
+- **L378 §7, §8.4, §8.8 — `assessment_preserved`.** Amendment (#13 entry 45, option (b),
+  narrowed). A request in the paste drops a stated assessment, and no check fired (L330).
+  The check fires a note-level WARNING when no claim is in A and the paste charts an
+  `ASSESSMENT_HEADERS` header, at a line's start or after a period, with a body (its line's
+  rest, else the next line unless that line is a header) whose first word past a list marker
+  is no `NO_ASSESSMENT` entry. Prototyped on 34 rows: built as filed it missed 12
+  ("Assessment: deferred", "see HPI", an empty header before "Plan:", "BP 120/80.
+  Assessment: HTN.", "Dx:"), and narrowed none. No committed case charts such a header, so
+  the corpus can't measure it; the cost is a pasted radiology "Impression:" on a note with
+  no A claim. A WARNING check, it has no D17 row. Clean suite; replay unchanged.
+
+**INFO**
+- **L379 §8.8, §9.10 — the empty Assessment's copy.** Amendment (#13 entry 45's addendum,
+  the frontend sheet's F9). "No assessment documented" said the encounter documented none,
+  which L330 shows can be false. "No assessment in this summary" says what the note holds,
+  still D7's faithful state.
+- **L380 §7, §8.8, §9.1, §9.10 — the clause the checks read, tinted.** Amendment (#13 entry
+  50, option (a)). The claim-local checks read a span in its clause (L261), and the UI
+  highlighted the span alone. Measured on the seven committed records: 195 to 222 of 290 to
+  307 grounded claims a record have a clause wider than their span, by up to 58 characters,
+  and 56 to 68 a record read differently there. The response gains `clause_spans`, each
+  grounded claim's `clause_bounds` keyed by its id, which `evals/`'s `clause_spans` computes
+  for the route, so the UI reasons about nothing; the highlight tints the clause around the
+  span. `ClinicalClaim` gains no field (D6), and no grammar is ported to TypeScript. The
+  happy path's keys become five, and the OpenAPI snapshot and `api.d.ts` move.
+- **L381 §9.4, §9.8, §10 — the rate limit through `limits`.** Amendment (#13 entry 49,
+  option (b), ruled due at v1.11 on Oct 29). `admit` used slowapi for an empty decorated
+  function, and slowapi brought settings from the environment (L349) and a call Python 3.16
+  removes. `admit` hits a `limits` fixed window over in-process memory, keyed by the
+  client's address as slowapi's was, and raises `RateLimitedError`, whose handler answers
+  429 `rate_limited` with its Retry-After. Prototyped: the whole suite passes and its one
+  warning is gone, `tests/test_api.py` passing with deprecations as errors; `limits` reads
+  no environment, so L349's refusal goes. A `build(deps)` commit removes slowapi after the
+  code.
 
 ---
 
