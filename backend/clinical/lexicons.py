@@ -445,7 +445,7 @@ INDICATION_CUES: set[str] = {
     "for",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-21.
+# Clinical sign-off: Calvin Patel, 2026-10-30.
 CERTAINTY_CUES: dict[str, str] = {
     # §7's example: the commonest hedge ("likely pneumonia").
     "likely": "probable",
@@ -477,9 +477,13 @@ CERTAINTY_CUES: dict[str, str] = {
     "r/o": "rule_out",
     # Spelled out.
     "rule out": "rule_out",
+    # Weighed down before the diagnosis, as after it ("Unlikely PE") (L366).
+    "unlikely": "possible",
+    # As "unlikely" ("Less likely PE").
+    "less likely": "possible",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-21.
+# Clinical sign-off: Calvin Patel, 2026-10-30.
 CERTAINTY_POST: dict[str, str] = {
     # After the diagnosis ("pneumonia likely").
     "likely": "probable",
@@ -498,6 +502,24 @@ CERTAINTY_POST: dict[str, str] = {
     "is unlikely": "possible",
     # The copula form of "less likely".
     "is less likely": "possible",
+    # Weighed up after the diagnosis ("PNA more likely"), short of the definite a bare mention
+    # reads (L366).
+    "more likely": "probable",
+    # The copula form of "more likely".
+    "is more likely": "probable",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-30.
+COMPARATIVE_CUES: dict[str, tuple[str, str]] = {
+    # "PNA more likely than PE": the diagnosis before it favored, the one after it disfavored,
+    # read together as a differential's sides are (L366).
+    "more likely than": ("probable", "possible"),
+    # The copula form, which would otherwise separate the cue from its diagnosis.
+    "is more likely than": ("probable", "possible"),
+    # "PE less likely than PNA": the reverse.
+    "less likely than": ("possible", "probable"),
+    # The copula form of "less likely than".
+    "is less likely than": ("possible", "probable"),
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-21.

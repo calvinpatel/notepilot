@@ -36,6 +36,7 @@ from backend.clinical.lexicons import (
     BRAND_TO_GENERIC,
     CERTAINTY_CUES,
     CERTAINTY_POST,
+    COMPARATIVE_CUES,
     CONFIRMING_CUES,
     CONFIRMING_POST,
     CROSS_REACTIVITY,
@@ -1159,10 +1160,6 @@ _RO_DEFINITE = {"pulmonary embolism": {"rule_out", "definite"}}
         ("r/o PE, hx of PE", _RO),
         ("Likely PNA, PNA treated", {"pneumonia": {"probable"}}),
         ("r/o PE, PE on CTA", _RO),
-        (
-            "PE less likely, PNA more likely",
-            {"pulmonary embolism": {"possible"}, "pneumonia": {"definite"}},
-        ),
     ],
 )
 def test_a_window_keeps_a_repeat_until_a_confirming_cue_answers_it(
@@ -1202,6 +1199,49 @@ def test_a_differential_window_keeps_a_diagnosis_named_again() -> None:
         "pulmonary embolism": {"rule_out"},
         "pneumonia": {"possible"},
     }
+
+
+_PE, _PNA = "pulmonary embolism", "pneumonia"
+
+
+@pytest.mark.parametrize(
+    ("text", "certainties"),
+    [
+        # L366: a comparative weighs the diagnosis before it and the one after it together
+        ("PNA more likely than PE", {_PNA: {"probable"}, _PE: {"possible"}}),
+        ("PE is more likely than PNA", {_PE: {"probable"}, _PNA: {"possible"}}),
+        ("PNA less likely than PE", {_PNA: {"possible"}, _PE: {"probable"}}),
+        ("PNA is less likely than PE", {_PNA: {"possible"}, _PE: {"probable"}}),
+        ("PNA more likely than not", {_PNA: {"probable"}}),
+        # "more likely" after a diagnosis, and "unlikely" or "less likely" before one
+        ("PE less likely, PNA more likely", {_PE: {"possible"}, _PNA: {"probable"}}),
+        ("PNA more likely", {_PNA: {"probable"}}),
+        ("PNA is more likely", {_PNA: {"probable"}}),
+        ("Unlikely PE", {_PE: {"possible"}}),
+        ("Less likely PE", {_PE: {"possible"}}),
+        ("Unlikely to be PE", {_PE: {"possible"}}),
+    ],
+)
+def test_a_comparative_weighs_both_its_sides(text: str, certainties: dict[str, set[str]]) -> None:
+    assert extract_diagnoses(text) == certainties
+
+
+@pytest.mark.parametrize(
+    ("text", "certainties"),
+    [
+        # "rather than" is no comparative, so the pre-cue's window takes in the embolism
+        ("Likely PNA rather than PE", {_PNA: {"probable"}, _PE: {"probable"}}),
+        # a certainty post-cue stays adjacent
+        ("PNA & PE less likely", {_PNA: {"definite"}, _PE: {"possible"}}),
+        # a certainty pre-cue replaces a negation's window
+        ("Not likely PE", {_PE: {"probable"}}),
+    ],
+)
+def test_the_costs_of_comparatives_read_as_section_8_8_states(
+    text: str, certainties: dict[str, set[str]]
+) -> None:
+    # §8.8's costs (L366, L375)
+    assert extract_diagnoses(text) == certainties
 
 
 @pytest.mark.parametrize(
@@ -1616,7 +1656,7 @@ _STOP_COSTS = [  # §8.8's costs (L365, L375)
 
 
 @pytest.mark.parametrize(("text", "statuses"), _STOP_COSTS)
-def test_the_comma_rules_costs_read_as_section_8_8_states(
+def test_the_costs_of_the_comma_rule_read_as_section_8_8_states(
     text: str, statuses: dict[str, set[str]]
 ) -> None:
     assert extract_med_status(text) == statuses
@@ -1713,6 +1753,14 @@ def test_every_differential_cue_governs_both_its_sides(cue: str, certainty: str)
     assert extract_diagnoses(text) == {"pneumonia": {certainty}, "pulmonary embolism": {certainty}}
 
 
+@pytest.mark.parametrize(("cue", "sides"), sorted(COMPARATIVE_CUES.items()))
+def test_every_comparative_cue_weighs_each_side_its_own_way(
+    cue: str, sides: tuple[str, str]
+) -> None:
+    text = f"pneumonia {cue} pulmonary embolism"
+    assert extract_diagnoses(text) == {"pneumonia": {sides[0]}, "pulmonary embolism": {sides[1]}}
+
+
 @pytest.mark.parametrize("cue", sorted(FINDING_NEG_PRE))
 def test_every_pre_negation_cue_negates_the_diagnosis_after_it(cue: str) -> None:
     assert extract_diagnoses(f"{cue} pneumonia") == {}
@@ -1781,6 +1829,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "confirming": CONFIRMING_CUES,
         "confirming, post": CONFIRMING_POST,
         "differential": set(DIFFERENTIAL_CUES),
+        "comparative": set(COMPARATIVE_CUES),
         "negation": FINDING_NEG_PRE,
         "negation, post": FINDING_NEG_POST,
         "affirming, post": AFFIRMING_POST,

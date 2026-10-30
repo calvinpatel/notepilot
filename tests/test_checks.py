@@ -845,6 +845,14 @@ def test_diagnosis_in_quote_fires_on_an_upgrade() -> None:
     ]
 
 
+def test_diagnosis_in_quote_reads_a_comparative() -> None:
+    # L366: "PNA more likely" favors the pneumonia without asserting it
+    note, raw = _note(("Pneumonia", "PE less likely, PNA more likely"))
+    assert [
+        (f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)
+    ] == [("pneumonia: definite in the claim, probable in its source span", Severity.CRITICAL)]
+
+
 def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
     note, raw = _note(("Possible pneumonia", "pneumonia"))
     assert [
@@ -861,6 +869,7 @@ def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
         ("Likely PE", "r/o PE; PE likely given D-dimer"),
         ("PE ruled out", "CTA negative, PE ruled out"),
         ("PE ruled out", "r/o PE; CTA negative, PE ruled out"),
+        ("Probable pneumonia", "PE less likely, PNA more likely"),
     ],
     ids=[
         "same",
@@ -869,6 +878,7 @@ def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
         "strongest-matches",
         "exclusion",
         "workup-and-result",
+        "comparative",
     ],
 )
 def test_diagnosis_in_quote_passes_a_reading_the_span_supports(text: str, span: str) -> None:

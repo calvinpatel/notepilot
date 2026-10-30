@@ -27,8 +27,9 @@ refused one reading stopped (L288). Allergy context reaches further than the oth
 header at a line's start opens a section, and an allergy post-cue reaches back over any list,
 not only one that opens its clause. A denied allergy reads no allergen and no status (L290). A
 diagnosis sees negation and certainty, and a differential cue ("vs") governs both its sides
-(L135). Every window keeps a repeat, and in a certainty or differential window a confirming cue
-reads the repeat it governs definite (L265, L292).
+(L135), as a comparative ("more likely than") does, weighing each side its own way (L366).
+Every window keeps a repeat, and in a certainty or differential window a confirming cue reads
+the repeat it governs definite (L265, L292).
 
 Doses are read by a grammar over the same tokens (L131, L133): a number and a unit after a
 drug, in the drug's sentence, and the frequency charted after it. Past that interval, a prn
@@ -54,6 +55,7 @@ from backend.clinical.lexicons import (
     BRAND_TO_GENERIC,
     CERTAINTY_CUES,
     CERTAINTY_POST,
+    COMPARATIVE_CUES,
     CONFIRMING_CUES,
     CONFIRMING_POST,
     DENIED_ALLERGY_CUES,
@@ -213,8 +215,16 @@ _ENTITIES = _NAMES | _FINDINGS | _DIAGNOSES
 # a workup's answer reads its diagnosis definite, a repeat in a window among them (L292)
 _DX_PRE = _NEG_PRE | _certainty_cues(CERTAINTY_CUES) | _cues("confirmed", CONFIRMING_CUES)
 _DX_POST = _NEG_POST | _certainty_cues(CERTAINTY_POST) | _cues("confirmed", CONFIRMING_POST)
-_DIFFERENTIAL = _certainty_cues(DIFFERENTIAL_CUES)
-_NO_CUES: _Cues = {}
+# a cue weighing both its sides: a differential each the same, a comparative each its own
+# (L135, L366)
+_TWO_SIDED: Mapping[_Phrase, tuple[_Label, _Label]] = {
+    **{phrase: (label, label) for phrase, label in _certainty_cues(DIFFERENTIAL_CUES).items()},
+    **{
+        tuple(_tokens(cue)): (_CERTAINTY[before], _CERTAINTY[after])
+        for cue, (before, after) in COMPARATIVE_CUES.items()
+    },
+}
+_NO_SIDES: Mapping[_Phrase, tuple[_Label, _Label]] = {}
 _UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
 _FREQUENCIES = {tuple(_tokens(name)): freq for name, freq in DOSE_FREQUENCIES.items()}
 _ROUTES = _phrases(DOSE_ROUTES)  # what a prn reaches across past its interval (L293)
@@ -329,14 +339,14 @@ def _scope(
     entities: Mapping[_Phrase, str],
     pre: _Cues,
     post: _Cues,
-    differential: _Cues = _NO_CUES,
+    two_sided: Mapping[_Phrase, tuple[_Label, _Label]] = _NO_SIDES,
     drugs: Collection[_Phrase] = (),
 ) -> list[tuple[str, _Label | None]]:
     """Each entity mention in text, in order, with the label of the cue that governs it, or
     None if none does (L31, L121, L122, L124, L128, L135, L193, L265, L266, L271, L280, L288,
-    L290-L292).
+    L290-L292, L365, L366).
     """
-    return _scope_at(text, entities, pre, post, differential, drugs).mentions
+    return _scope_at(text, entities, pre, post, two_sided, drugs).mentions
 
 
 def _introduces(tokens: Sequence[str], k: int) -> bool:
@@ -349,7 +359,7 @@ def _scope_at(
     entities: Mapping[_Phrase, str],
     pre: _Cues,
     post: _Cues,
-    differential: _Cues = _NO_CUES,
+    two_sided: Mapping[_Phrase, tuple[_Label, _Label]] = _NO_SIDES,
     drugs: Collection[_Phrase] = (),
 ) -> _Scoped:
     """_scope's reading, with where each mention starts and which cues govern one. Given the
@@ -362,7 +372,7 @@ def _scope_at(
         entities,
         pre,
         post,
-        differential,
+        two_sided,
         drugs,
         _INDICATIONS,
         _AFFIRM_POST,
@@ -399,13 +409,14 @@ def _scope_at(
             window = 0
             if refusing:  # L288: "do not continue" is a stop, which _med_readings reads
                 refused.add(i)
-        elif phrase in differential:  # both sides: the mention before, unless governed, and after
+        elif phrase in two_sided:  # both sides: the mention before, unless governed, and after
             # a confirming cue asserts what a bare mention does, so it governs nothing here
             # ("CT shows PE vs atelectasis") (L302)
+            first, second = two_sided[phrase]  # a comparative weighs them apart (L366)
             if before is not None and mentions[before][1] in (None, "confirmed"):
-                mentions[before] = (mentions[before][0], differential[phrase])
+                mentions[before] = (mentions[before][0], first)
                 governing.add(i)
-            window, label, opener = NEGATION_WINDOW, differential[phrase], i
+            window, label, opener = NEGATION_WINDOW, second, i
         elif phrase in _AFFIRM_POST and before is not None:
             # L291: "present" after the second mention a negation reads, across a comma and no
             # "and" or "or", takes it back ("No fever, chills present")
@@ -861,7 +872,7 @@ def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
     and a negated one ("PE ruled out") isn't asserted (L135).
     """
     certainties: dict[str, set[Certainty]] = {}
-    for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _DIFFERENTIAL):
+    for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _TWO_SIDED):
         if label in _ASSERTED:
             certainties.setdefault(diagnosis, set()).add(_ASSERTED[label])
     return certainties
@@ -875,7 +886,7 @@ def extract_excluded_diagnoses(text: str) -> set[str]:
     """
     return {
         diagnosis
-        for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _DIFFERENTIAL)
+        for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _TWO_SIDED)
         if label == "negated"
     }
 
