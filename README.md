@@ -52,6 +52,7 @@ backend/
 ├── api.py            FastAPI routes (composition root)
 └── db.py             persistence                             [phase 3]
 tests/                unit + integration, deterministic, every commit
+frontend/             the review UI (React, TypeScript, Vite) [phase 3]
 ```
 
 ## Safety scorecard
@@ -89,24 +90,34 @@ Verdicts were stable in all seven runs: no case changed verdict across its three
 |---|---|---|
 | 1 | MVP spine: paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display | done (`v0.1-spine`) |
 | 2 | Grounding ladder, safety checks, synthetic trap corpus, run lineage, semantic judge | done (`v0.2a-safety`, `v0.2b-corpus`, `v0.2c-judge`) |
-| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | in progress (private preview deployed) |
+| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | in progress (private preview deployed, review UI live) |
 | 4 | RAG cross-check against drug-interaction and guideline references | planned |
 
 Out of scope for v1: EHR integration, real patient data, multi-user auth. NotePilot is a portfolio project and is not a medical device.
 
 ## Running it locally
 
-Requires [uv](https://docs.astral.sh/uv/) and an Anthropic API key.
+Requires [uv](https://docs.astral.sh/uv/), Node 26.12.0 (`frontend/.nvmrc`, which nvm reads), and an Anthropic API key.
 
 ```bash
 git clone git@github.com:calvinpatel/notepilot.git
 cd notepilot
 uv sync
 cp .env.example .env        # then add your ANTHROPIC_API_KEY
+(cd frontend && npm ci && npm run build)
 uv run uvicorn backend.api:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs for the API.
+Open http://127.0.0.1:8000/ for the review page and http://127.0.0.1:8000/docs for the API. The server serves the page from `frontend/dist`, the build; without one, `/` answers 404 and the API still works. Every summarize, here and in the loop below, is a real, paid API call.
+
+To work on the page with hot reload, run the API with the dev server's origin allowed, and Vite against it in a second terminal, then open http://localhost:5173:
+
+```bash
+CORS_ORIGINS=http://localhost:5173 uv run uvicorn backend.api:app --reload
+cd frontend && VITE_API_BASE=http://127.0.0.1:8000 npm run dev
+```
+
+`CORS_ORIGINS` is for this loop only: the deploy never sets it (§9.8).
 
 Persistence is off by default, and the public demo runs without it. To keep each note in a local Postgres 16, create a database, add two lines to `.env`, and migrate:
 
@@ -121,7 +132,10 @@ Each summarized note then lands in the `notes` table after its response.
 ```bash
 uv run pytest               # unit + integration (no API calls)
 uv run ruff check .         # lint
+(cd frontend && npm test && npm run typecheck)  # the page's tests and types
 ```
+
+`frontend/src/api.d.ts`, the page's types for the API, is generated: `npm run gen:api` writes it from `tests/snapshots/openapi.json`, and CI fails when the two differ.
 
 The database tests need a Postgres 16 they may empty: set `TEST_DATABASE_URL`, for example to `postgresql+asyncpg://localhost/notepilot_test`. Without it, they skip.
 
@@ -166,7 +180,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" "$URL/health"
 
 ### Probes
 
-After a deploy that changes the image or the proxy's trust, run P1 to P4 against a revision whose budget covers exactly two requests: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=145878`, twice what one request reserves at the defaults (72,939). The probes send synthetic text only, and at most two of their requests reach the model.
+After a deploy that changes the image or the proxy's trust, run P2 first, at the deploy's budget, then P1, P3, and P4 against a revision whose budget covers exactly two requests: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=145878`, twice what one request reserves at the defaults (72,939). Each update starts a revision with fresh counters, so P2's summarize spends none of the two. The probes send synthetic text only, and at most three of their requests reach the model.
 
 ```bash
 LOGS='resource.type="cloud_run_revision" AND resource.labels.service_name="notepilot"'
@@ -174,9 +188,10 @@ ACCESS='textPayload:"GET /health"'
 POSTS='textPayload:"POST /summarize"'
 paste_of() { python3 -c 'import json, sys; print(json.dumps({"raw_text": ("Synthetic visit, zebrafinch: mild headache for two days, no fever. " * 200)[: int(sys.argv[1])]}))' "$1"; }
 summarize() { curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@" --data @- "$URL/summarize"; echo; }
+headers_of() { curl -s -o /dev/null -D - "$1" | grep -iE '^(HTTP|content-type|cache-control)'; }
 ```
 
-- **P2, the page and `/health`.** Through the proxy, the page loads; the `curl` above prints `{"status":"ok"}`.
+- **P2, the review page and `/health`.** Through the proxy, the review page loads under the PHI banner; a synthetic note comes back as claims under the four sections with the verdict line; hovering a claim marks its quote in the source pane, and a click pins it. `headers_of http://localhost:8080/` shows `text/html` with `no-cache`, and `headers_of "http://localhost:8080$(curl -s http://localhost:8080/ | grep -o '/assets/[A-Za-z0-9._-]*\.js' | head -n 1)"` shows the page's script as `text/javascript` with `public, max-age=31536000, immutable`; both use GET, since the app answers HEAD with 405. The `curl` above prints `{"status":"ok"}`.
 - **P1, the proxy's address.** On a revision with the default trust (`gcloud run services update notepilot --region us-west1 --remove-env-vars FORWARDED_ALLOW_IPS`), `curl` `/health` once; then `gcloud logging read "$LOGS AND $ACCESS" --limit 3 --format 'value(textPayload)'` shows uvicorn's access line for it, and the address it starts with is the proxy's. It must lie in `169.254.0.0/16`. Restore the trust before P3, never with `*`: `gcloud run services update notepilot --region us-west1 --update-env-vars FORWARDED_ALLOW_IPS=169.254.0.0/16`.
 - **P3, a full paste.** `paste_of 12500 | summarize` prints `200`. `gcloud logging read "$LOGS AND textPayload:request_completed" --limit 3 --format 'value(textPayload)'` shows one `request_completed` line for it, and `gcloud logging read "$LOGS" --freshness 1h --format 'value(textPayload)' | grep -c zebrafinch` prints `0`: no paste text in the logs.
 - **P4, the budget.** `paste_of 40 | summarize` prints `200`, the budget's second request; the next, `paste_of 40 | summarize -D -`, prints `503` with a `Retry-After` header.
@@ -195,6 +210,16 @@ The private preview's first deploy, on Oct 28, 2026, across revisions `notepilot
 | P3 | A 12,500-character paste answered `200`, with one `request_completed` line (6,708 input and 96 output tokens); the paste's marker word appeared in the logs 0 times. |
 | P4 | The budget's second request answered `200`; the third, `503` `budget_exhausted` with `Retry-After: 8468`, the seconds left until UTC midnight. |
 | P1, the key | Seven requests with forged `X-Forwarded-For` values answered `429` `rate_limited`, every access line showing the client's own IPv6 address. |
+
+The review UI's deploy, on Oct 29, 2026, across revisions `notepilot-00005` to `notepilot-00009`:
+
+| Probe | Result |
+|---|---|
+| P2 | `/health` answered `{"status":"ok"}`. Through the proxy, the review page loaded under the PHI banner, and a synthetic note came back as 11 claims, each quoting the paste, with all 12 checks passed. Its receipt named the note, the model, and the tokens (1,814 input and 514 output) that its `request_completed` line logged, and hovering a claim marked its quote, `fever to 38.4 C`, in the source pane; a click pinned it, the claim's title bold, and the mark stayed with the card scrolled out of view. `/` answered `text/html` with `no-cache`; its script, `text/javascript` with `public, max-age=31536000, immutable`. |
+| P1, the address | The access line began with `169.254.169.126`, inside the trusted block. |
+| P3 | A 12,500-character paste answered `200`, with one `request_completed` line (6,708 input and 96 output tokens); the paste's marker word appeared in the logs 0 times. |
+| P4 | The budget's second request answered `200`; the third, `503` with `Retry-After: 76473`, the seconds left until UTC midnight. |
+| P1, the key | Seven requests with forged `X-Forwarded-For` values answered one `503`, the spent budget, and six `429`, every access line showing the client's own IPv6 address. |
 
 ## Author
 
