@@ -1,11 +1,11 @@
 # The deploy's image (§9.8, L353, L364): python -m backend.serve over the locked runtime
 # dependencies, with the frontend's bundle. CI's image job builds it, boots it, and checks it
-# (§11). The Python and uv images are pinned by the digest each tag resolved to in CI's first
-# build, the tag kept as a label.
+# (§11). Each image is pinned by the digest its tag resolved to in CI's first build, the tag
+# kept as a label.
 
 # The frontend's bundle, built from its lock (§9.10). Only dist/ leaves this stage, so the
 # runtime image holds no Node and no node_modules.
-FROM node:26.12.0-slim AS frontend
+FROM node:26.12.0-slim@sha256:e556a144463cc8dc53afe8de6d2fa0db5c132fd39ffa232c17641bd40df2bf11 AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 RUN npm ci --no-audit --no-fund
