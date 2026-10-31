@@ -1,7 +1,7 @@
-"""extract_laterality: a side and the site after it (L285, L304, L305).
+"""extract_laterality: a side and its site (L285, L304, L305, L367, L369, L370).
 
-The fills L304 and L305 make, and the costs §8.8 states (L306, L338), are pinned here; the
-check that reads these sides lands in its own commit (L286).
+The fills L304 and L305 make, and the costs §8.8 states (L367, L370, L382, L383), are pinned
+here; the check that reads these sides lands in its own commit (L286).
 """
 
 import pytest
@@ -98,10 +98,59 @@ type _Sides = dict[str, set[Side]]
         ("Knee pain (right)", {}, {}),
         ("Knee pain (R)", {}, {}),
         ("(R) knee pain", {}, {}),
-        # §8.8's cost (L338): a corrected side reads both sides at its site
+        # L370: a correction cue that leads straight to a side, across marks and function words,
+        # retires the side charted before it at that site, in its clause
         (
             "Right knee swelling, I mean left knee swelling",
-            {"knee swelling": {"left", "right"}},
+            {"knee swelling": {"left"}},
+            {"knee": {"left"}},
+        ),
+        ("Right knee pain, sorry, left knee pain", {"knee pain": {"left"}}, {"knee": {"left"}}),
+        ("right knee, sorry, scratch that, it's the left knee", {}, {"knee": {"left"}}),
+        ("Swelling of the right knee, correction: left knee", {}, {"knee": {"left"}}),
+        ("Right knee, no, left knee, is swollen", {}, {"knee": {"left"}}),
+        ("LLQ pain, I mean RLQ pain", {"lower quadrant": {"right"}}, {"lower": {"right"}}),
+        (
+            "Right knee swelling, I mean left knee swelling, also tender to touch",
+            {"knee swelling": {"left"}},
+            {"knee": {"left"}},
+        ),
+        # and retires nothing where words stand between, "also" or "too" follows the new side,
+        # nothing comes before it, or the site differs
+        (
+            "Right knee pain, I mean worse than the left knee pain",
+            {"knee pain": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Right knee pain, no swelling, left knee pain",
+            {"knee pain": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Right knee swelling, sorry, left knee also swollen",
+            {"knee swelling": {"right"}, "knee swollen": {"left"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Right knee pain, sorry, left knee pain too",
+            {"knee pain": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Sorry, right knee pain, left knee pain",
+            {"knee pain": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Right knee pain, correction: right hip pain",
+            {"knee pain": {"right"}, "hip pain": {"right"}},
+            {"knee": {"right"}, "hip": {"right"}},
+        ),
+        # §8.8's cost (L370): a correction past a sentence end retires nothing
+        (
+            "Right knee swelling. Sorry, I mean the left knee.",
+            {"knee swelling": {"right"}},
             {"knee": {"left", "right"}},
         ),
         # L369: "also", "too", and "as well" are read past, and a site they leave short shares

@@ -1023,6 +1023,22 @@ SHARED_SITE_WORDS: set[str] = {
     "as well",
 }
 
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+CORRECTION_CUES: set[str] = {
+    # "Right knee swelling, I mean left knee swelling": the speaker takes back the side before
+    # the cue, so the side after it replaces it at that site (L370).
+    "i mean",
+    # As "i mean" ("right knee, scratch that, it's the left knee").
+    "scratch that",
+    # As "i mean" ("right knee pain, sorry, left knee pain").
+    "sorry",
+    # As "i mean" ("swelling of the right knee, correction: left knee").
+    "correction",
+    # As "i mean" ("right knee, no, left knee"); with its comma, so "no swelling" stays a
+    # negation.
+    "no,",
+}
+
 # Clinical sign-off: Calvin Patel, 2026-10-30.
 # The words a site spans, longer first: a side's site is read two words wide, then one, so
 # "Left knee pain" meets "left knee" at "knee" (L285). must_preserve reads a label at the

@@ -58,6 +58,7 @@ from backend.clinical.lexicons import (
     COMPARATIVE_CUES,
     CONFIRMING_CUES,
     CONFIRMING_POST,
+    CORRECTION_CUES,
     DENIED_ALLERGY_CUES,
     DIAGNOSES,
     DIAGNOSIS_ALIASES,
@@ -246,6 +247,7 @@ _SIDE_JOINS = _JOINS | {("/",), ("&",)}  # sides join across a slash or an amper
 _SIDE_LINKS = frozenset({",", "-", ":"})  # the marks a side reaches back across (L367, L382)
 _ON_THE = ("on", "the")  # and these words (L367)
 _SHARED = _phrases(SHARED_SITE_WORDS)  # read past inside a site (L369)
+_CORRECTIONS = _phrases(CORRECTION_CUES)  # retire the side charted before (L370)
 # a number, and any letters fused to it ("500mg"); a decimal is one token already (L121)
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)([^\W\d_]*)")
 
@@ -929,6 +931,32 @@ def _clause_start(tokens: Sequence[str], i: int) -> int:
     return max((k + 1 for k in range(i) if (tokens[k],) in _CLAUSE_STARTS), default=0)
 
 
+def _correction_before(tokens: Sequence[str], i: int) -> int | None:
+    """Where a CORRECTION_CUES entry that leads straight to token i starts (L370): one ending
+    before i with only marks, function words, and a contraction's "s" between. None where
+    none does."""
+    j = i
+    while j > 0:
+        for cue in _CORRECTIONS:
+            if tuple(tokens[j - len(cue) : j]) == cue:
+                return j - len(cue)
+        token = tokens[j - 1]
+        contraction = token == "s" and j >= 2 and tokens[j - 2] == "'"
+        if _is_word(token) and token not in FUNCTION_WORDS and not contraction:
+            return None
+        j -= 1
+    return None
+
+
+def _shares_after(tokens: Sequence[str], k: int) -> bool:
+    """A SHARED_SITE_WORDS phrase among the words from token k to the next mark (L370)."""
+    while k < len(tokens) and _is_word(tokens[k]):
+        if any(tuple(tokens[k : k + len(p)]) == p for p in _SHARED):
+            return True
+        k += 1
+    return False
+
+
 def _site_before(tokens: Sequence[str], i: int, width: int) -> str | None:
     """The site a side at token i binds back to (L367, L382): the `width` words before it, past
     _SIDE_LINKS marks or "on the", none of them a side cue, side letter, or SIDE_SITES token.
@@ -938,7 +966,7 @@ def _site_before(tokens: Sequence[str], i: int, width: int) -> str | None:
         j -= 1
     if tuple(tokens[max(j - len(_ON_THE), 0) : j]) == _ON_THE:
         j -= len(_ON_THE)
-    found = tokens[j - width : j] if j >= width else []
+    found = tokens[j - width : j]
     if j == i or not _is_site(found, width):
         return None
     if any(
@@ -962,25 +990,35 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
     function word (L304). A side reaches back only across _SIDE_LINKS marks or "on the", to a
     site holding no side, so a side directly after a word names none. Inside a site, a
     SHARED_SITE_WORDS phrase ("also", "too") is read past, and a site it leaves short shares
-    the nearest earlier site in its clause that begins with the words read (L369).
+    the nearest earlier site in its clause that begins with the words read (L369). A
+    CORRECTION_CUES entry leading straight to a side retires the sides charted before it at
+    that site in its clause, unless a SHARED_SITE_WORDS phrase follows the new side (L370).
     """
     tokens = _tokens(text)
     phrases = list(_split(tokens, (_SIDE_CUES, _SIDE_LETTERS, _SIDE_SITES, _NOT_SIDES)))
-    sides: dict[str, set[Side]] = {}
     joined: list[Side] = []  # sides that share the site of the next one ("left and right knee")
-    seen: list[tuple[int, str]] = []  # each site charted, with its side's first token (L369)
+    charts: list[tuple[int, str, Side]] = []  # each side charted: its first token, its site
 
-    def charted(site: str, side: Side, at: int) -> None:
-        nonlocal joined
-        seen.append((at, site))
-        for each in (*joined, side):
-            sides.setdefault(site, set()).add(each)
+    def charted(site: str, side: Side, at: int, corrects: int | None = None) -> None:
+        """Chart the side, and any joined before it, at the site. `corrects`, where a correction
+        leading to it starts, first retires that site's sides charted earlier in the clause."""
+        nonlocal joined, charts
+        if corrects is not None:
+            start = _clause_start(tokens, at)
+            charts = [c for c in charts if not (c[1] == site and start <= c[0] < corrects)]
+        charts.extend((at, site, each) for each in (*joined, side))
         joined = []
+
+    def correction(i: int, phrase: _Phrase) -> int | None:
+        """Where a correction leading to the side at token i starts, unless "also" or "too"
+        follows the side before the next mark, which keeps the old one (L370)."""
+        corrects = _correction_before(tokens, i)
+        return None if corrects is None or _shares_after(tokens, i + len(phrase)) else corrects
 
     def shared_site(i: int, begun: list[str]) -> str | None:
         """The nearest site charted earlier in token i's clause that begins with `begun`."""
         start = _clause_start(tokens, i)
-        found = [site for at, site in seen if at >= start and site.split()[: len(begun)] == begun]
+        found = [s for at, s, _ in charts if at >= start and s.split()[: len(begun)] == begun]
         return found[-1] if found else None
 
     def side_at(k: int) -> Side | None:
@@ -1006,7 +1044,7 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
     for n, (i, phrase) in enumerate(phrases):
         if phrase in _SIDE_SITES:
             its_side, site = _SIDE_SITES[phrase]
-            charted(" ".join(site.split()[:words]), its_side, i)
+            charted(" ".join(site.split()[:words]), its_side, i, correction(i, phrase))
             continue
         if (side := side_at(n)) is None:
             continue
@@ -1015,19 +1053,23 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
             joined.append(side)
             continue
         after = i + len(phrase)
+        corrects = correction(i, phrase)
         ahead, shared = _words_after(tokens, after, words)
         if _is_site(ahead, words):
-            charted(" ".join(ahead), side, i)
+            charted(" ".join(ahead), side, i, corrects)
         elif shared and (earlier := shared_site(i, ahead)) is not None:
             # L369: "also" or "too" leaves the site short, so the side shares an earlier one
-            charted(earlier, side, i)
+            charted(earlier, side, i, corrects)
         elif not any(
             _is_site(_words_after(tokens, after, width)[0], width) for width in SITE_WORDS
         ):
             # L367: a side naming no site after it binds back to the nearest one before it
             if (before := _site_before(tokens, i, words)) is not None:
-                charted(before, side, i)
+                charted(before, side, i, corrects)
         joined = []
+    sides: dict[str, set[Side]] = {}
+    for _, site, each in charts:
+        sides.setdefault(site, set()).add(each)
     return sides
 
 

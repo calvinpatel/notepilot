@@ -1,6 +1,6 @@
 """Pins the roster and its helpers, and the reference labels' readings (spec §8.2, §8.4; D6,
-D8-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L306,
-L307, L310, L311, L338)."""
+D8-D17, L35, L55, L136-L174, L214-L219, L261-L263, L267, L272, L281, L285-L287, L310, L311,
+L367-L370, L382)."""
 
 from collections.abc import Callable
 
@@ -595,7 +595,7 @@ def test_presence_and_status_split_one_error_into_one_finding(
     assert _named(check_med_status_consistency(note, raw, config=CHECKS_CONFIG)) == status
 
 
-# --- laterality_consistency (§8.4, L285, L286, L306, L338) -------------------------------
+# --- laterality_consistency (§8.4, L285, L286, L367, L369, L370, L382) -------------------
 
 
 def test_laterality_consistency_is_a_reference_free_critical_check() -> None:
@@ -657,8 +657,13 @@ def test_laterality_consistency_is_a_reference_free_critical_check() -> None:
         ),
         # §8.8's cost (L382): a parenthesized side names none, so a swap of it passes
         ("Left knee pain", "Knee pain (right)", []),
-        # §8.8's cost (L338): a corrected side passes the side taken back
-        ("Right knee swelling", "Right knee swelling, I mean left knee swelling", []),
+        # L370: a corrected side is taken back, so a claim keeping it fires
+        (
+            "Right knee swelling",
+            "Right knee swelling, I mean left knee swelling",
+            ["knee swelling: right in the claim, left in its source span"],
+        ),
+        ("Right knee pain", "Right knee pain, I mean worse than the left knee pain", []),
         # L369: a finding shared by "also" passes the faithful side
         ("Right knee swollen", "Left knee swollen, right knee also", []),
     ],
@@ -669,6 +674,15 @@ def test_laterality_consistency_compares_sides_at_a_site_both_name(
     note, raw = _note((text, span))
     findings = check_laterality_consistency(note, raw, config=CHECKS_CONFIG)
     assert [(f.detail, f.claim_ids) for f in findings] == [(d, (0,)) for d in details]
+
+
+def test_laterality_consistency_reads_no_correction_past_its_claims_clause() -> None:
+    # §8.8's cost (L370): the claim's clause ends at the period, before the correction
+    note, raw = _note(
+        ("Right knee swelling", "Right knee swelling"),
+        raw="Right knee swelling. Sorry, I mean the left knee.",
+    )
+    assert check_laterality_consistency(note, raw, config=CHECKS_CONFIG) == []
 
 
 def test_laterality_consistency_finds_each_claim_once_and_skips_one_with_no_span() -> None:

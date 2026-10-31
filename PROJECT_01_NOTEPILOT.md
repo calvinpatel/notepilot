@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.2** (patch — the nearest shared site, October 2026).
-Supersedes v1.11.1.
+**Spec version: v1.11.3** (patch — a correction's reach, October 2026).
+Supersedes v1.11.2.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1774,8 +1774,9 @@ reads the left side at "chest pain", and "Knee and hip pain, right" at "hip pain
 a site they leave short shares the nearest earlier site a side charted in its clause that it
 begins (L383), so "Left knee swollen, right knee also" reads both sides at "knee swollen"
 (L369). A `CORRECTION_CUES` entry ("scratch that", "I mean", "sorry") that leads straight to
-a side, across marks and function words, retires the side charted before it at that site,
-unless "also" or "too" follows the new side: "Right knee swelling, I mean left knee
+a side, across marks, function words, and a contraction's "s" ("it's the left knee"),
+retires the sides charted before it at that site in its clause, unless "also" or "too"
+follows the new side before the next mark (L384): "Right knee swelling, I mean left knee
 swelling" reads the left knee alone, and "Right knee pain, I mean worse than the left knee
 pain" both (L370). Bilateral supports left and right, and left with right supports
 bilateral. `laterality_consistency` reads a claim and its clause at each width, the longer
