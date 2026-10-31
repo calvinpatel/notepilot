@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11** (minor — extraction before the public deploy, October 2026).
-Supersedes v1.10.23.
+**Spec version: v1.11.1** (patch — a side's links, named, October 2026).
+Supersedes v1.11.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1767,23 +1767,24 @@ quadrant" does. A `NOT_SIDES` phrase ("left AMA", "right away") names none, and 
 tokenizer keeps "L4", "LAD", and "RA" whole. Sides joined by "and", "or", a comma, "/", or
 "&" share the site after them ("left and right knee", "L/R knee"), a bare letter counting as
 a side before a join another side follows ("L, R knee pain") (L367). A side that names no
-site after it at any width binds back to the nearest site before it, across a mark or "on
-the": "Chest pain on the left" reads the left side at "chest pain", and "Knee and hip pain,
-right" at "hip pain" alone (L367). Inside a site, "also", "too", and "as well"
-(`SHARED_SITE_WORDS`) are read past, and a site they leave short shares the earlier site in
-its clause that it begins, so "Left knee swollen, right knee also" reads both sides at "knee
-swollen" (L369). A `CORRECTION_CUES` entry ("scratch that", "I mean", "sorry") that leads
-straight to a side, across marks and function words, retires the side charted before it at
-that site, unless "also" or "too" follows the new side: "Right knee swelling, I mean left
-knee swelling" reads the left knee alone, and "Right knee pain, I mean worse than the left
-knee pain" both (L370). Bilateral supports left and right, and left with right supports
-bilateral. `laterality_consistency` reads a claim and its clause at each width, the longer
-first, comparing sides at a site both name, and where they share no site at either width it
-compares their sides whole (§8.4, L286); `must_preserve` reads a laterality label at the
-widest width that gives it one side at one site, and the note at that width, so a "RLQ"
-label asks for the right lower quadrant, not for "lower" (L368). The reading runs on the
-scope engine's tokens and phrase split, and its joins are `_JOINS` with "/" and "&". The eye
-and ear abbreviations, "both", and comparisons ("Edema L>R") read no side (§8.8).
+site after it at any width binds back to the nearest site before it, across a comma, a
+hyphen, a colon, or "on the", to a site holding no side (L382): "Chest pain on the left"
+reads the left side at "chest pain", and "Knee and hip pain, right" at "hip pain" alone
+(L367). Inside a site, "also", "too", and "as well" (`SHARED_SITE_WORDS`) are read past, and
+a site they leave short shares the earlier site in its clause that it begins, so "Left knee
+swollen, right knee also" reads both sides at "knee swollen" (L369). A `CORRECTION_CUES`
+entry ("scratch that", "I mean", "sorry") that leads straight to a side, across marks and
+function words, retires the side charted before it at that site, unless "also" or "too"
+follows the new side: "Right knee swelling, I mean left knee swelling" reads the left knee
+alone, and "Right knee pain, I mean worse than the left knee pain" both (L370). Bilateral
+supports left and right, and left with right supports bilateral. `laterality_consistency`
+reads a claim and its clause at each width, the longer first, comparing sides at a site both
+name, and where they share no site at either width it compares their sides whole (§8.4,
+L286); `must_preserve` reads a laterality label at the widest width that gives it one side
+at one site, and the note at that width, so a "RLQ" label asks for the right lower quadrant,
+not for "lower" (L368). The reading runs on the scope engine's tokens and phrase split, and
+its joins are `_JOINS` with "/" and "&". The eye and ear abbreviations, "both", and
+comparisons ("Edema L>R") read no side (§8.8).
 
 **Classes and side chains (L148, L149, L150).** D9's ladder reads three tables, and
 `contraindication` in `evals/checks.py` walks it. `DRUG_CLASS` classes the vocabulary:
@@ -2911,14 +2912,17 @@ know, stated plainly (v1.3):
   there. A claim that drops the side names none and passes; live, that omission is a CI-only
   gap, which `must_preserve` covers through a laterality label (D17, L286). In the three
   committed runs, 73 claims restate a side, and none drops, swaps, or adds one (measured). A
-  side directly after its site, with no mark or "on the" between, names none, so "Edema
-  bilaterally" reads no side, and a trailing side binds to the nearest site alone, so in
-  "Knee and hip pain, right" the knee reads none (prototyped, L367). A laterality label
-  naming more than its site asks the note for all of it: a "right knee pain" label isn't
-  kept by "Right knee swelling and pain" (prototyped, L368), which label review holds. A
-  correction a sentence end separates from the side it corrects can't be read claim-locally:
-  "Right knee swelling" citing "Right knee swelling" in "Right knee swelling. Sorry, I mean
-  the left knee." passes (prototyped, L370).
+  side directly after its site, with no comma, hyphen, colon, or "on the" between, names
+  none, so "Edema bilaterally" reads no side, and a trailing side binds to the nearest site
+  alone, so in "Knee and hip pain, right" the knee reads none (prototyped, L367). A
+  parenthesis is no link, and a side letter counts only before a word or a join another side
+  follows, so "Knee pain (right)" and "(R) knee pain" read no side, and "Left knee pain"
+  citing either passes (prototyped, L382); the deferred-amendments issue holds it for v1.12
+  (entry 56). A laterality label naming more than its site asks the note for all of it: a
+  "right knee pain" label isn't kept by "Right knee swelling and pain" (prototyped, L368),
+  which label review holds. A correction a sentence end separates from the side it corrects
+  can't be read claim-locally: "Right knee swelling" citing "Right knee swelling" in "Right
+  knee swelling. Sorry, I mean the left knee." passes (prototyped, L370).
 - **A quote that borrows from its clause** (L261). The claim-local family reads a span in
   its clause, so a quote naming no drug passes `drug_in_quote` when its clause names one:
   "Resume metformin in 48 hours" citing "resume in 48 hours" in "Metformin held for CT with

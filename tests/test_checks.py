@@ -648,13 +648,15 @@ def test_laterality_consistency_is_a_reference_free_critical_check() -> None:
         ("Pt left AMA with right knee pain", "Signed out AMA, right knee pain", []),
         # D17: a claim that drops the side names none
         ("Knee pain after a fall", "Right knee pain after a fall", []),
-        # §8.8's costs (L306): "&" joins no sides, and a side after its site names none
+        # L367: "&" joins sides, and a side after its site binds back to it
+        ("Left knee pain", "Left & right knee pain", []),
         (
-            "Left knee pain",
-            "Left & right knee pain",
-            ["knee pain: left in the claim, right in its source span"],
+            "Right-sided chest pain",
+            "Chest pain on the left",
+            ["chest pain: right in the claim, left in its source span"],
         ),
-        ("Right-sided chest pain", "Chest pain on the left", []),
+        # §8.8's cost (L382): a parenthesized side names none, so a swap of it passes
+        ("Left knee pain", "Knee pain (right)", []),
         # §8.8's costs (L338): a corrected side passes the side taken back, and a finding
         # shared by "also" fires on the faithful side
         ("Right knee swelling", "Right knee swelling, I mean left knee swelling", []),

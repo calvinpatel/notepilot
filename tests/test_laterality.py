@@ -55,11 +55,49 @@ type _Sides = dict[str, set[Side]]
         # L304: a site holds no function word
         ("R knee and L ankle", {}, {"knee": {"right"}, "ankle": {"left"}}),
         ("Tender left of the sternum", {}, {}),
-        # §8.8's costs (L306): "&" and "/" join no sides, a bare letter before a comma is none,
-        # and a side after its site names none
-        ("Left & right knee pain", {"knee pain": {"right"}}, {"knee": {"right"}}),
-        ("L, R knee pain", {"knee pain": {"right"}}, {"knee": {"right"}}),
-        ("Chest pain on the left", {}, {}),
+        # L367: "/" and "&" join sides too, and a bare letter is a side before a join another
+        # side follows
+        ("Left & right knee pain", {"knee pain": {"left", "right"}}, {"knee": {"left", "right"}}),
+        ("Left/right knee pain", {"knee pain": {"left", "right"}}, {"knee": {"left", "right"}}),
+        ("L, R knee pain", {"knee pain": {"left", "right"}}, {"knee": {"left", "right"}}),
+        ("L & R knee pain", {"knee pain": {"left", "right"}}, {"knee": {"left", "right"}}),
+        ("L/R knee pain", {"knee pain": {"left", "right"}}, {"knee": {"left", "right"}}),
+        ("L/S spine tenderness", {}, {}),
+        # L367: a side naming no site after it binds back to the nearest site, across a comma,
+        # a hyphen, a colon, or "on the"
+        ("Chest pain on the left", {"chest pain": {"left"}}, {"pain": {"left"}}),
+        ("Decreased breath sounds on the left", {"breath sounds": {"left"}}, {"sounds": {"left"}}),
+        ("Knee pain, right", {"knee pain": {"right"}}, {"pain": {"right"}}),
+        ("Knee pain - right", {"knee pain": {"right"}}, {"pain": {"right"}}),
+        ("Knee pain: right", {"knee pain": {"right"}}, {"pain": {"right"}}),
+        (
+            "Edema in the lower extremity, left",
+            {"lower extremity": {"left"}},
+            {"extremity": {"left"}},
+        ),
+        # and only where no width finds a site after it, to a site holding no side, and across
+        # something
+        (
+            "Right knee swelling, left ankle",
+            {"knee swelling": {"right"}},
+            {"knee": {"right"}, "ankle": {"left"}},
+        ),
+        ("Left knee, right", {}, {"knee": {"left", "right"}}),
+        ("R knee, left", {}, {"knee": {"left", "right"}}),
+        (
+            "RLQ tenderness, left",
+            {"lower quadrant": {"right"}},
+            {"lower": {"right"}, "tenderness": {"left"}},
+        ),
+        ("Patient left, knee pain resolved", {}, {}),
+        # §8.8's costs (L367): a side directly after its site names none, and a trailing side
+        # reaches the nearest site alone
+        ("Edema bilaterally", {}, {}),
+        ("Knee and hip pain, right", {"hip pain": {"right"}}, {"pain": {"right"}}),
+        # §8.8's cost (L382): a parenthesis is neither a link nor the word or join a letter needs
+        ("Knee pain (right)", {}, {}),
+        ("Knee pain (R)", {}, {}),
+        ("(R) knee pain", {}, {}),
         # §8.8's costs (L338): a corrected side reads both sides at its site, and a finding
         # shared by "also" stays at the first side's two-word site
         (

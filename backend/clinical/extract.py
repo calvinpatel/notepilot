@@ -85,6 +85,7 @@ from backend.clinical.lexicons import (
     SIDE_CUES,
     SIDE_LETTERS,
     SIDE_SITES,
+    SITE_WORDS,
     TERMINATORS,
 )
 
@@ -240,6 +241,9 @@ _SIDE_SITES: Mapping[_Phrase, tuple[Side, str]] = {
     tuple(_tokens(token)): (_SIDES[side], site) for token, (side, site) in SIDE_SITES.items()
 }
 _NOT_SIDES = _phrases(NOT_SIDES)
+_SIDE_JOINS = _JOINS | {("/",), ("&",)}  # sides join across a slash or an ampersand too (L367)
+_SIDE_LINKS = frozenset({",", "-", ":"})  # the marks a side reaches back across (L367, L382)
+_ON_THE = ("on", "the")  # and these words (L367)
 # a number, and any letters fused to it ("500mg"); a decimal is one token already (L121)
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)([^\W\d_]*)")
 
@@ -891,16 +895,47 @@ def extract_excluded_diagnoses(text: str) -> set[str]:
     }
 
 
-def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
-    """site -> the sides charted for it, a site being the `words` words after a side (L285).
-    "Left knee pain", words=2 -> {"knee pain": {"left"}}; "RLQ", words=2 ->
-    {"lower quadrant": {"right"}}.
+def _is_site(found: Sequence[str], width: int) -> bool:
+    """found is a site `width` words wide: that many words, none a function word (L304)."""
+    return (
+        len(found) == width
+        and all(map(_is_word, found))
+        and not any(token in FUNCTION_WORDS for token in found)
+    )
 
-    A side is a SIDE_CUES phrase; a SIDE_LETTERS letter before a word and not after a number;
-    or a SIDE_SITES token, whose spelled-out site is cut to `words`. A NOT_SIDES phrase names
-    none. Sides joined by "and", "or", or a comma share the site after the last (_JOINS). A
-    site is that many words, none of them a function word (L304), so a side before a mark or
-    at the text's end names none.
+
+def _site_before(tokens: Sequence[str], i: int, width: int) -> str | None:
+    """The site a side at token i binds back to (L367, L382): the `width` words before it, past
+    _SIDE_LINKS marks or "on the", none of them a side cue, side letter, or SIDE_SITES token.
+    None where nothing lies between."""
+    j = i
+    while j > 0 and tokens[j - 1] in _SIDE_LINKS:
+        j -= 1
+    if tuple(tokens[max(j - len(_ON_THE), 0) : j]) == _ON_THE:
+        j -= len(_ON_THE)
+    found = tokens[j - width : j] if j >= width else []
+    if j == i or not _is_site(found, width):
+        return None
+    if any(
+        (token,) in _SIDE_CUES or (token,) in _SIDE_LETTERS or (token,) in _SIDE_SITES
+        for token in found
+    ):
+        return None
+    return " ".join(found)
+
+
+def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
+    """site -> the sides charted for it, a site being the `words` words after a side (L285),
+    or, for a side naming none after it at any SITE_WORDS width, the words before it (L367).
+    "Left knee pain", words=2 -> {"knee pain": {"left"}}; "RLQ", words=2 ->
+    {"lower quadrant": {"right"}}; "Chest pain on the left", words=2 -> {"chest pain": {"left"}}.
+
+    A side is a SIDE_CUES phrase; a SIDE_LETTERS letter before a word, or before a join another
+    side follows, and not after a number; or a SIDE_SITES token, whose spelled-out site is cut
+    to `words`. A NOT_SIDES phrase names none. Sides joined by "and", "or", a comma, "/", or "&"
+    share the site after the last (_SIDE_JOINS). A site is that many words, none of them a
+    function word (L304). A side reaches back only across _SIDE_LINKS marks or "on the", to a
+    site holding no side, so a side directly after a word names none.
     """
     tokens = _tokens(text)
     phrases = list(_split(tokens, (_SIDE_CUES, _SIDE_LETTERS, _SIDE_SITES, _NOT_SIDES)))
@@ -914,8 +949,8 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
         joined = []
 
     def side_at(k: int) -> Side | None:
-        """The side phrase k names: a SIDE_CUES phrase, or a SIDE_LETTERS letter before a word
-        and not after a number."""
+        """The side phrase k names: a SIDE_CUES phrase, or a SIDE_LETTERS letter before a word,
+        or before a join another side follows, and not after a number (L367)."""
         if k >= len(phrases):
             return None
         i, phrase = phrases[k]
@@ -924,7 +959,10 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
         if (
             phrase in _SIDE_LETTERS
             and k + 1 < len(phrases)
-            and all(map(_is_word, phrases[k + 1][1]))
+            and (
+                all(map(_is_word, phrases[k + 1][1]))
+                or (phrases[k + 1][1] in _SIDE_JOINS and side_at(k + 2) is not None)
+            )
             and not (i and tokens[i - 1][:1].isdigit())
         ):
             return _SIDE_LETTERS[phrase]
@@ -938,16 +976,17 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
         if (side := side_at(n)) is None:
             continue
         # a join holds the side only for a side that follows it (L285)
-        if n + 1 < len(phrases) and phrases[n + 1][1] in _JOINS and side_at(n + 2) is not None:
+        if n + 1 < len(phrases) and phrases[n + 1][1] in _SIDE_JOINS and side_at(n + 2) is not None:
             joined.append(side)
             continue
-        site_tokens = tokens[i + len(phrase) : i + len(phrase) + words]
-        if (
-            len(site_tokens) == words
-            and all(map(_is_word, site_tokens))
-            and not any(token in FUNCTION_WORDS for token in site_tokens)
-        ):
-            charted(" ".join(site_tokens), side)
+        after = i + len(phrase)
+        ahead = tokens[after : after + words]
+        if _is_site(ahead, words):
+            charted(" ".join(ahead), side)
+        elif not any(_is_site(tokens[after : after + width], width) for width in SITE_WORDS):
+            # L367: a side naming no site after it binds back to the nearest one before it
+            if (before := _site_before(tokens, i, words)) is not None:
+                charted(before, side)
         joined = []
     return sides
 
