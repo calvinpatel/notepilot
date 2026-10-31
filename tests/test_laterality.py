@@ -98,18 +98,65 @@ type _Sides = dict[str, set[Side]]
         ("Knee pain (right)", {}, {}),
         ("Knee pain (R)", {}, {}),
         ("(R) knee pain", {}, {}),
-        # §8.8's costs (L338): a corrected side reads both sides at its site, and a finding
-        # shared by "also" stays at the first side's two-word site
+        # §8.8's cost (L338): a corrected side reads both sides at its site
         (
             "Right knee swelling, I mean left knee swelling",
             {"knee swelling": {"left", "right"}},
             {"knee": {"left", "right"}},
         ),
+        # L369: "also", "too", and "as well" are read past, and a site they leave short shares
+        # the nearest earlier site in its clause that begins with the words read
         (
             "Left knee swollen, right knee also",
-            {"knee swollen": {"left"}, "knee also": {"right"}},
+            {"knee swollen": {"left", "right"}},
             {"knee": {"left", "right"}},
         ),
+        (
+            "Left knee swollen, right knee too",
+            {"knee swollen": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Left knee swollen, right knee as well",
+            {"knee swollen": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Left knee swollen, right also",
+            {"knee swollen": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        ("Right knee also swollen", {"knee swollen": {"right"}}, {"knee": {"right"}}),
+        (
+            "Left knee swollen, right knee also tender",
+            {"knee swollen": {"left"}, "knee tender": {"right"}},
+            {"knee": {"left", "right"}},
+        ),
+        (
+            "Left knee swollen, left knee tender, right knee also",
+            {"knee swollen": {"left"}, "knee tender": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        # and only a site that begins with the words read, in the same clause
+        (
+            "Left knee swollen, right hip too",
+            {"knee swollen": {"left"}},
+            {"knee": {"left"}, "hip": {"right"}},
+        ),
+        (
+            "Left knee swollen. Right knee also",
+            {"knee swollen": {"left"}},
+            {"knee": {"left", "right"}},
+        ),
+        # §8.8's cost (L383): a bare side shares the nearest site a side charted, past a finding
+        # no side names
+        (
+            "Left knee swollen, hip tender, right also",
+            {"knee swollen": {"left", "right"}},
+            {"knee": {"left", "right"}},
+        ),
+        # with no earlier site to share, a side binds back past them (L367)
+        ("Knee pain, right too", {"knee pain": {"right"}}, {"pain": {"right"}}),
         # §8.8 (L285): no table lists these
         ("Edema L>R, both knees swollen, OD pain", {}, {}),
     ],

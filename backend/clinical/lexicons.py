@@ -1013,6 +1013,17 @@ NOT_SIDES: set[str] = {
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-30.
+SHARED_SITE_WORDS: set[str] = {
+    # "Left knee swollen, right knee also": the finding before it, shared by the side after it,
+    # so the side shares the earlier site its own words begin (L369).
+    "also",
+    # As "also" ("right knee too").
+    "too",
+    # As "also" ("right knee as well").
+    "as well",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-30.
 # The words a site spans, longer first: a side's site is read two words wide, then one, so
 # "Left knee pain" meets "left knee" at "knee" (L285). must_preserve reads a label at the
 # widest width that gives it one side at one site, and the note at that width (L368).

@@ -657,14 +657,10 @@ def test_laterality_consistency_is_a_reference_free_critical_check() -> None:
         ),
         # §8.8's cost (L382): a parenthesized side names none, so a swap of it passes
         ("Left knee pain", "Knee pain (right)", []),
-        # §8.8's costs (L338): a corrected side passes the side taken back, and a finding
-        # shared by "also" fires on the faithful side
+        # §8.8's cost (L338): a corrected side passes the side taken back
         ("Right knee swelling", "Right knee swelling, I mean left knee swelling", []),
-        (
-            "Right knee swollen",
-            "Left knee swollen, right knee also",
-            ["knee swollen: right in the claim, left in its source span"],
-        ),
+        # L369: a finding shared by "also" passes the faithful side
+        ("Right knee swollen", "Left knee swollen, right knee also", []),
     ],
 )
 def test_laterality_consistency_compares_sides_at_a_site_both_name(
