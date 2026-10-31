@@ -231,8 +231,8 @@ def check_negation_consistency(
     return _compare_per_key(note, raw_text, extract_findings, _polarities)
 
 
-# The narrowest SITE_WORDS width: a laterality label's, the note's it is kept by, and the one
-# a claim's and its span's sides are compared whole at (L286)
+# The narrowest SITE_WORDS width, the one a claim's and its span's sides are compared whole at
+# (L286)
 _NARROWEST = min(SITE_WORDS)
 
 
@@ -712,6 +712,15 @@ def _diagnosis(text: str) -> tuple[str, _Reading] | None:
     return (name, (certainties, excluded)) if len(certainties) + excluded == 1 else None
 
 
+def _label_side(text: str) -> tuple[int, tuple[str, Side]] | None:
+    """A laterality label's width and reading: the widest SITE_WORDS width at which it reads one
+    side at one site (L368), so "RLQ" reads the lower quadrant and "right knee" the knee."""
+    for width in sorted(SITE_WORDS, reverse=True):
+        if (reading := _one(extract_laterality(text, width))) is not None:
+            return width, reading
+    return None
+
+
 def read_label(item: PreserveItem | NotAddItem) -> tuple[str, LabelValue] | None:
     """The one entity a label's text names and the one reading it states, else None (L214)."""
     match item.kind:
@@ -726,8 +735,9 @@ def read_label(item: PreserveItem | NotAddItem) -> tuple[str, LabelValue] | None
             return _one(extract_findings(item.text))
         case "diagnosis":
             return _diagnosis(item.text)
-        case "laterality":  # one side at one site, read at the narrowest width (L286)
-            return _one(extract_laterality(item.text, _NARROWEST))
+        case "laterality":  # one side at one site, at the widest width giving one (L286, L368)
+            found = _label_side(item.text)
+            return None if found is None else found[1]
 
 
 def label_problem(item: PreserveItem | NotAddItem) -> str | None:
@@ -817,10 +827,10 @@ def preserve_miss(item: PreserveItem, texts: Sequence[str]) -> Severity | None:
             readings = [_diagnosis_readings(t).get(name, (set(), False)) for t in texts]
             said: set[Certainty] = set().union(*(certainties for certainties, _ in readings))
             return _diagnosis_miss(wanted, (said, any(excluded for _, excluded in readings)))
-        case "laterality":  # the side, some claim charting it at its site (L286)
-            site, side = _one(extract_laterality(item.text, _NARROWEST)) or _unreadable(item)
+        case "laterality":  # the side, some claim charting it at its site, at the label's width
+            width, (site, side) = _label_side(item.text) or _unreadable(item)  # (L286, L368)
             kept = any(
-                side in supported_sides(extract_laterality(t, _NARROWEST).get(site, set()))
+                side in supported_sides(extract_laterality(t, width).get(site, set()))
                 for t in texts
             )
             return None if kept else Severity.CRITICAL

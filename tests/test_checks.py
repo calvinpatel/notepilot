@@ -1786,10 +1786,11 @@ async def test_a_judge_that_times_out_errors_its_check_and_moves_no_other_result
         ("diagnosis", "pulmonary embolism", ("pulmonary embolism", ({"definite"}, False))),
         ("diagnosis", "r/o pulmonary embolism", ("pulmonary embolism", ({"rule_out"}, False))),
         ("diagnosis", "pulmonary embolism ruled out", ("pulmonary embolism", (set(), True))),
-        # L286: one side at one site, read at the narrowest width
+        # L286, L368: one side at one site, read at the widest width that gives one
         ("laterality", "right knee", ("knee", "right")),
         ("laterality", "bilateral knee", ("knee", "bilateral")),
-        ("laterality", "RLQ", ("lower", "right")),
+        ("laterality", "RLQ", ("lower quadrant", "right")),
+        ("laterality", "right knee pain", ("knee pain", "right")),
     ],
 )
 def test_read_label_reads_one_entity_and_one_reading(
@@ -1933,9 +1934,16 @@ def _miss(text: str, kind: str, note: list[str], present: bool = True) -> Severi
         ("right knee", ["Knee pain after a fall"], Severity.CRITICAL),
         ("right knee", ["Left knee pain after a fall"], Severity.CRITICAL),
         ("right knee", ["Right hip pain", "Knee pain"], Severity.CRITICAL),
-        # §8.8's cost (L307): one word wide, a quadrant, a lobe, and a limb share a site
-        ("RLQ", ["Right lower lobe consolidation"], None),
-        ("RLQ", ["RLE edema"], None),
+        # L368: a label read at its own width asks the note for that site, at that width
+        ("RLQ", ["RLQ tenderness"], None),
+        ("RLQ", ["Right lower quadrant tenderness"], None),
+        ("RLQ", ["Right lower lobe consolidation"], Severity.CRITICAL),
+        ("RLQ", ["RLE edema"], Severity.CRITICAL),
+        ("right lower lobe", ["RLQ tenderness"], Severity.CRITICAL),
+        ("LUL", ["Left upper extremity weakness"], Severity.CRITICAL),
+        ("right knee pain", ["Right knee pain after a fall"], None),
+        # §8.8's cost (L368): a label naming more than its site asks the note for all of it
+        ("right knee pain", ["Right knee swelling and pain"], Severity.CRITICAL),
     ],
 )
 def test_a_laterality_label_keeps_its_side(

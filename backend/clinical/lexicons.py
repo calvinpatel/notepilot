@@ -1012,7 +1012,8 @@ NOT_SIDES: set[str] = {
     "left-handed",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-22.
+# Clinical sign-off: Calvin Patel, 2026-10-30.
 # The words a site spans, longer first: a side's site is read two words wide, then one, so
-# "Left knee pain" meets "left knee" at "knee" (L285). must_preserve reads the narrowest (L286).
+# "Left knee pain" meets "left knee" at "knee" (L285). must_preserve reads a label at the
+# widest width that gives it one side at one site, and the note at that width (L368).
 SITE_WORDS: tuple[int, ...] = (2, 1)
