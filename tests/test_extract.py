@@ -976,6 +976,135 @@ def test_every_route_word_keeps_a_prn_in_reach(route: str) -> None:
     assert extract_doses(f"Tylenol 650 mg q6h {route} prn") == {"acetaminophen": {_Q6H_PRN}}
 
 
+@pytest.mark.parametrize(
+    ("text", "doses"),
+    [
+        # L376: an unlisted word opening a list item ends the listed drug's reach
+        (
+            "Lisinopril 10 mg daily, amlodipine 5 mg daily",
+            {"lisinopril": {Dose(10.0, "mg", "daily", False)}},
+        ),
+        (
+            "Lisinopril 10 mg daily and amlodipine 5 mg daily",
+            {"lisinopril": {Dose(10.0, "mg", "daily", False)}},
+        ),
+        (
+            "Lisinopril 10 mg daily / amlodipine 5 mg daily",
+            {"lisinopril": {Dose(10.0, "mg", "daily", False)}},
+        ),
+        (
+            "Lisinopril 10 mg daily & amlodipine 5 mg daily",
+            {"lisinopril": {Dose(10.0, "mg", "daily", False)}},
+        ),
+        (
+            "Metformin 500 mg bid, glipizide 5 mg daily",
+            {"metformin": {Dose(500.0, "mg", "bid", False)}},
+        ),
+        (
+            "Tylenol 650 mg q6h, Zofran 4 mg prn nausea",
+            {"acetaminophen": {Dose(650.0, "mg", "q6h", False)}},
+        ),
+        (
+            "Lisinopril 10 mg daily, metformin 500 mg bid",
+            {
+                "lisinopril": {Dose(10.0, "mg", "daily", False)},
+                "metformin": {Dose(500.0, "mg", "bid", False)},
+            },
+        ),
+        # a number, a function word, a route, a dose, or a DOSE_TITRATION entry keeps it
+        (
+            "Tylenol 325 mg, 2 tabs q6h, then 650 mg q6h",
+            {"acetaminophen": {Dose(325.0, "mg", "q6h", False), Dose(650.0, "mg", "q6h", False)}},
+        ),
+        (
+            "Metformin 500 mg bid, and in the evening 1000 mg",
+            {"metformin": {Dose(500.0, "mg", "bid", False), Dose(1000.0, "mg", None, False)}},
+        ),
+        (
+            "Tylenol 650 mg, PO, then 1000 mg",
+            {"acetaminophen": {Dose(650.0, "mg", None, False), Dose(1000.0, "mg", None, False)}},
+        ),
+        (
+            "Lisinopril 10 mg, 20 mg if BP high",
+            {"lisinopril": {Dose(10.0, "mg", None, False), Dose(20.0, "mg", None, False)}},
+        ),
+        (
+            "Lisinopril 10 mg daily, then 20 mg daily",
+            {"lisinopril": {Dose(10.0, "mg", "daily", False), Dose(20.0, "mg", "daily", False)}},
+        ),
+        (
+            "Metformin 500 mg bid, increase to 1000 mg bid",
+            {"metformin": {Dose(500.0, "mg", "bid", False), Dose(1000.0, "mg", "bid", False)}},
+        ),
+        (
+            "Metformin 500 mg bid, increased to 1000 mg bid",
+            {"metformin": {Dose(500.0, "mg", "bid", False), Dose(1000.0, "mg", "bid", False)}},
+        ),
+        (
+            "Metformin 500 mg bid, increasing to 1000 mg bid",
+            {"metformin": {Dose(500.0, "mg", "bid", False), Dose(1000.0, "mg", "bid", False)}},
+        ),
+        (
+            "Apixaban 5 mg bid, decrease to 2.5 mg bid",
+            {"apixaban": {Dose(5.0, "mg", "bid", False), Dose(2.5, "mg", "bid", False)}},
+        ),
+        (
+            "Apixaban 5 mg bid, decreased to 2.5 mg bid",
+            {"apixaban": {Dose(5.0, "mg", "bid", False), Dose(2.5, "mg", "bid", False)}},
+        ),
+        (
+            "Apixaban 5 mg bid, decreasing to 2.5 mg bid",
+            {"apixaban": {Dose(5.0, "mg", "bid", False), Dose(2.5, "mg", "bid", False)}},
+        ),
+        (
+            "Metformin 500 mg bid, titrate to 1000 mg bid",
+            {"metformin": {Dose(500.0, "mg", "bid", False), Dose(1000.0, "mg", "bid", False)}},
+        ),
+        (
+            "Metformin 500 mg bid, titrated to 1000 mg bid",
+            {"metformin": {Dose(500.0, "mg", "bid", False), Dose(1000.0, "mg", "bid", False)}},
+        ),
+        (
+            "Lisinopril 20 mg daily, taper to 10 mg daily",
+            {"lisinopril": {Dose(20.0, "mg", "daily", False), Dose(10.0, "mg", "daily", False)}},
+        ),
+        (
+            "Lisinopril 20 mg daily, tapered to 10 mg daily",
+            {"lisinopril": {Dose(20.0, "mg", "daily", False), Dose(10.0, "mg", "daily", False)}},
+        ),
+        # an interval before the drug's first dose ends its reach, one after a dose keeps it (L388)
+        ("Metformin, twice daily, 500 mg", {}),
+        (
+            "Metformin 500 mg bid, daily, 1000 mg bid",
+            {"metformin": {Dose(500.0, "mg", "bid", False), Dose(1000.0, "mg", "bid", False)}},
+        ),
+        # §8.8's costs (L376, L387): a run-on list, after a dose too, and a maximum after a comma
+        (
+            "Lisinopril 10 mg daily amlodipine 5 mg daily",
+            {"lisinopril": {Dose(10.0, "mg", "daily", False), Dose(5.0, "mg", "daily", False)}},
+        ),
+        (
+            "Lisinopril 10 mg, 20 mg amlodipine 5 mg daily",
+            {
+                "lisinopril": {
+                    Dose(10.0, "mg", None, False),
+                    Dose(20.0, "mg", None, False),
+                    Dose(5.0, "mg", "daily", False),
+                }
+            },
+        ),
+        (
+            "Tylenol 650 mg q6h prn pain, max 3000 mg daily",
+            {"acetaminophen": {Dose(650.0, "mg", "q6h", True)}},
+        ),
+    ],
+)
+def test_a_dose_belongs_to_the_listed_drug_whose_reach_it_is_in(
+    text: str, doses: dict[str, set[Dose]]
+) -> None:
+    assert extract_doses(text) == doses
+
+
 _ROUTE_FORMS = [  # L371: each DOSE_ROUTES form and the route it reads as
     ("po", "oral"),
     ("by mouth", "oral"),

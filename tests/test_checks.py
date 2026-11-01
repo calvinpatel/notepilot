@@ -1070,6 +1070,32 @@ def test_route_consistency_compares_routes_for_drugs_both_name(
     assert all(f.claim_ids == (0,) for f in findings)
 
 
+@pytest.mark.parametrize(
+    ("text", "span", "fired"),
+    [
+        # L376: an unlisted drug's dose belongs to no listed drug
+        (
+            "Lisinopril 5 mg daily",
+            "Lisinopril 10 mg daily, amlodipine 5 mg daily",
+            ["lisinopril: 5 mg daily in the claim, 10 mg daily in its source span"],
+        ),
+        # a titration keeps both doses
+        ("Increase metformin to 1000 mg bid", "Metformin 500 mg bid, increase to 1000 mg bid", []),
+        # §8.8's cost (L387): a maximum after a comma belongs to no drug
+        (
+            "Tylenol max 3 g daily",
+            "Tylenol 650 mg q6h prn pain, max 3000 mg daily",
+            ["acetaminophen: 3 g daily in the claim, 650 mg q6h prn in its source span"],
+        ),
+    ],
+)
+def test_dose_consistency_reads_a_dose_in_its_drug_s_reach(
+    text: str, span: str, fired: list[str]
+) -> None:
+    note, raw = _note((text, span))
+    assert [f.detail for f in check_dose_consistency(note, raw, config=CHECKS_CONFIG)] == fired
+
+
 def test_dose_consistency_is_a_reference_free_warning() -> None:
     check = REGISTRY["dose_consistency"]
     assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (

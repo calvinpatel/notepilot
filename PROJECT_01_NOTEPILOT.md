@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.4** (patch — a route's default and reach, October 2026).
-Supersedes v1.11.3.
+**Spec version: v1.11.5** (patch — a dose's reach, exactly, October 2026).
+Supersedes v1.11.4.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1706,22 +1706,22 @@ unit and frequency carries its own sign-off. A dose is a number and a unit ("500
 "500mg", "1,000mg") after a listed drug, in that drug's sentence. It belongs to the most
 recent drug before it, whatever that mention's status, unless a word opens a list item
 between them, after a comma, "and", "or", "/", or "&", that is no number, function word,
-listed name, unit, interval, route, or `DOSE_TITRATION` entry ("then", "increase"): that
-word ends the drug's reach, so "Lisinopril 10 mg daily, amlodipine 5 mg daily" reads one
-lisinopril dose, and a titration keeps both doses (L376). It takes the first interval
-charted after its unit, before the next dose, drug, or terminator, else none. A prn in that
-reach sets `prn` beside it, so "q6h prn" and "prn q6h" both read q6h as needed, and a prn
-alone reads as needed with no interval (L267). Past its interval, a prn counts only across
-marks and route words (`DOSE_ROUTES`: "po", "iv"), so "q6h, prn" and "q6h po prn" read as
-needed and "Tylenol 650 mg q6h, Zofran prn nausea" doesn't (L293). Units are canonical but
-never converted ("1 g" stays grams). Neither number of a range is a dose, so a range changed
-to a fixed dose still differs from its source: a hyphen joins a range whether or not its
-numbers carry units ("5-10 mg", "5mg-10mg"), and "to" joins one only after a number without
-a unit ("5 to 10 mg"), since "from 500 mg to 1000 mg" is a titration. A dose before its drug
-("500 mg of amoxicillin") or in the next sentence reads as nothing, the accepted costs.
-`dose_consistency` reads 1 g as 1000 mg through `DOSE_MASS_UG`, and a dose charting no
-interval and no prn as matching any (§8.4, L141); a dose that charts either, a prn alone
-included, matches only at its prn too (L267, L281).
+`DOSE_TITRATION` entry ("then", "increase"), listed drug, route, or dose, nor an interval
+after one of the drug's doses: that word ends the drug's reach, so "Lisinopril 10 mg daily,
+amlodipine 5 mg daily" reads one lisinopril dose, and a titration keeps both doses (L376,
+L388). It takes the first interval charted after its unit, before the next dose, drug, or
+terminator, else none. A prn in that reach sets `prn` beside it, so "q6h prn" and "prn q6h"
+both read q6h as needed, and a prn alone reads as needed with no interval (L267). Past its
+interval, a prn counts only across marks and route words (`DOSE_ROUTES`: "po", "iv"), so
+"q6h, prn" and "q6h po prn" read as needed and "Tylenol 650 mg q6h, Zofran prn nausea"
+doesn't (L293). Units are canonical but never converted ("1 g" stays grams). Neither number
+of a range is a dose, so a range changed to a fixed dose still differs from its source: a
+hyphen joins a range whether or not its numbers carry units ("5-10 mg", "5mg-10mg"), and
+"to" joins one only after a number without a unit ("5 to 10 mg"), since "from 500 mg to 1000
+mg" is a titration. A dose before its drug ("500 mg of amoxicillin") or in the next sentence
+reads as nothing, the accepted costs. `dose_consistency` reads 1 g as 1000 mg through
+`DOSE_MASS_UG`, and a dose charting no interval and no prn as matching any (§8.4, L141); a
+dose that charts either, a prn alone included, matches only at its prn too (L267, L281).
 
 **Routes (L371).** `extract_routes` reads drug to routes: a `DOSE_ROUTES` form in the drug's
 dose chain, the run after it of its doses, units, intervals, numbers, marks, and function
@@ -3020,7 +3020,10 @@ know, stated plainly (v1.3):
   39 and 54).
 - **An unlisted drug's dose** (L133, L296, L376). An unlisted drug ends a listed one's reach
   only where it opens a list item, so a run-on list, "Lisinopril 10 mg daily amlodipine 5 mg
-  daily", reads lisinopril 5 mg daily beside 10 mg daily (prototyped).
+  daily", reads lisinopril 5 mg daily beside 10 mg daily (prototyped). A maximum after a
+  comma ends the reach as an unlisted drug does, so "Tylenol max 3 g daily" citing "Tylenol
+  650 mg q6h prn pain, max 3000 mg daily" draws a WARNING (prototyped, L387); the
+  deferred-amendments issue holds it for v1.12 (entry 59).
 - **A route** (L293, L331, L371). `route_consistency` reads the listed drugs' routes alone
   (Vocabulary, above). A supplied oral route raises no finding, since a reader assumes oral:
   "Tylenol 1 g PO TID as needed" citing "Tylenol 1 g tid prn" passes, as a dropped "PO" does

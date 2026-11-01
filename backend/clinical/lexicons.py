@@ -744,6 +744,33 @@ DOSE_FREQUENCIES: dict[str, str] = {
 }
 
 # Clinical sign-off: Calvin Patel, 2026-10-31.
+DOSE_TITRATION: set[str] = {
+    # "Lisinopril 10 mg daily, then 20 mg daily": a titration's next step, so the dose after it
+    # still belongs to the drug before the list item it opens (L376).
+    "then",
+    # "Metformin 500 mg bid, increase to 1000 mg bid", as "then".
+    "increase",
+    # As "increase".
+    "increased",
+    # As "increase".
+    "increasing",
+    # "Apixaban 5 mg bid, decrease to 2.5 mg bid", as "then".
+    "decrease",
+    # As "decrease".
+    "decreased",
+    # As "decrease".
+    "decreasing",
+    # "Metformin 500 mg bid, titrate to 1000 mg bid", as "then".
+    "titrate",
+    # As "titrate".
+    "titrated",
+    # "Prednisone 40 mg daily, taper to 20 mg daily", as "then".
+    "taper",
+    # As "taper".
+    "tapered",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-31.
 DOSE_ROUTES: dict[str, str] = {
     # By mouth: past its interval, a prn reaches across a route word, as across a mark
     # ("q6h po prn") (L293). Each form maps to its route, which route_consistency compares

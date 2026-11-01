@@ -67,6 +67,7 @@ from backend.clinical.lexicons import (
     DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
     DOSE_ROUTES,
+    DOSE_TITRATION,
     DOSE_UNITS,
     FINDING_ALIASES,
     FINDING_NEG_POST,
@@ -237,6 +238,7 @@ _TWO_SIDED: Mapping[_Phrase, tuple[_Label, _Label]] = {
 _NO_SIDES: Mapping[_Phrase, tuple[_Label, _Label]] = {}
 _UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
 _FREQUENCIES = {tuple(_tokens(name)): freq for name, freq in DOSE_FREQUENCIES.items()}
+_TITRATION = _phrases(DOSE_TITRATION)  # a dose's reach crosses an item it opens (L376)
 # each route form's route (L371), the forms a prn reaches across past its interval (L293)
 _ROUTES: Mapping[_Phrase, str] = {
     phrase: DOSE_ROUTES[form] for phrase, form in _phrases(DOSE_ROUTES).items()
@@ -253,7 +255,7 @@ _SIDE_SITES: Mapping[_Phrase, tuple[Side, str]] = {
     tuple(_tokens(token)): (_SIDES[side], site) for token, (side, site) in SIDE_SITES.items()
 }
 _NOT_SIDES = _phrases(NOT_SIDES)
-_SIDE_JOINS = _JOINS | {("/",), ("&",)}  # sides join across a slash or an ampersand too (L367)
+_LIST_JOINS = _JOINS | {("/",), ("&",)}  # what joins a list: sides (L367), dose items (L376)
 _SIDE_LINKS = frozenset({",", "-", ":"})  # the marks a side reaches back across (L367, L382)
 _ON_THE = ("on", "the")  # and these words (L367)
 _SHARED = _phrases(SHARED_SITE_WORDS)  # read past inside a site (L369)
@@ -854,7 +856,10 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
     A dose belongs to the most recent drug before it in the same sentence, whatever that
     mention's status, and takes the first interval charted after its unit before the next
     dose, drug, or terminator (L133); a prn in that reach sets its prn, beside any interval
-    (L267), though past the interval only across marks and route words (L293).
+    (L267), though past the interval only across marks and route words (L293). A word that
+    opens a list item, after one of _LIST_JOINS, ends the drug's reach unless it is a number, a
+    function word, or a DOSE_TITRATION entry, so an unlisted drug's dose belongs to none
+    (L376).
     """
     tables = (_TERMINATORS, _NAMES, _UNITS, _FREQUENCIES, _ROUTES)
     phrases = [p for _, p in _split(_tokens(text), tables)]
@@ -864,6 +869,7 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
     freq: str | None = None  # the first interval charted in the pending dose's reach
     prn = False  # a prn charted in the pending dose's reach (L267)
     adjacent = False  # only marks and route words since the interval (L293)
+    opened = False  # a join since the last word, so a list item opens here (L376)
 
     def settle() -> None:
         nonlocal pending, freq, prn, adjacent
@@ -894,10 +900,20 @@ def extract_doses(text: str) -> dict[str, set[Dose]]:
             settle()
             value, unit, width = dose
             pending = None if drug is None else (drug, value, unit)
+            opened = False  # a dose's words close the item it opens (L376)
             i += width
             continue
         elif any(map(_is_word, phrase)):
             adjacent = False
+            if opened and not (
+                phrase in _TITRATION
+                or all(token in FUNCTION_WORDS or token[:1].isdigit() for token in phrase)
+            ):
+                drug = None  # L376: an unlisted word opening a list item ends the drug's reach
+        if phrase in _LIST_JOINS:
+            opened = True
+        elif any(map(_is_word, phrase)):
+            opened = False
         i += 1
     settle()
     return doses
@@ -1055,7 +1071,7 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
     A side is a SIDE_CUES phrase; a SIDE_LETTERS letter before a word, or before a join another
     side follows, and not after a number; or a SIDE_SITES token, whose spelled-out site is cut
     to `words`. A NOT_SIDES phrase names none. Sides joined by "and", "or", a comma, "/", or "&"
-    share the site after the last (_SIDE_JOINS). A site is that many words, none of them a
+    share the site after the last (_LIST_JOINS). A site is that many words, none of them a
     function word (L304). A side reaches back only across _SIDE_LINKS marks or "on the", to a
     site holding no side, so a side directly after a word names none. Inside a site, a
     SHARED_SITE_WORDS phrase ("also", "too") is read past, and a site it leaves short shares
@@ -1103,7 +1119,7 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
             and k + 1 < len(phrases)
             and (
                 all(map(_is_word, phrases[k + 1][1]))
-                or (phrases[k + 1][1] in _SIDE_JOINS and side_at(k + 2) is not None)
+                or (phrases[k + 1][1] in _LIST_JOINS and side_at(k + 2) is not None)
             )
             and not (i and tokens[i - 1][:1].isdigit())
         ):
@@ -1118,7 +1134,7 @@ def extract_laterality(text: str, words: int) -> dict[str, set[Side]]:
         if (side := side_at(n)) is None:
             continue
         # a join holds the side only for a side that follows it (L285)
-        if n + 1 < len(phrases) and phrases[n + 1][1] in _SIDE_JOINS and side_at(n + 2) is not None:
+        if n + 1 < len(phrases) and phrases[n + 1][1] in _LIST_JOINS and side_at(n + 2) is not None:
             joined.append(side)
             continue
         after = i + len(phrase)
