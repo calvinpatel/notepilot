@@ -25,6 +25,7 @@ from backend.clinical.extract import (
     extract_excluded_diagnoses,
     extract_findings,
     extract_med_status,
+    extract_routes,
     new_prescriptions,
 )
 from backend.clinical.lexicons import (
@@ -975,6 +976,68 @@ def test_every_route_word_keeps_a_prn_in_reach(route: str) -> None:
     assert extract_doses(f"Tylenol 650 mg q6h {route} prn") == {"acetaminophen": {_Q6H_PRN}}
 
 
+_ROUTE_FORMS = [  # L371: each DOSE_ROUTES form and the route it reads as
+    ("po", "oral"),
+    ("by mouth", "oral"),
+    ("orally", "oral"),
+    ("oral", "oral"),
+    ("iv", "iv"),
+    ("intravenous", "iv"),
+    ("intravenously", "iv"),
+    ("im", "im"),
+    ("intramuscular", "im"),
+    ("intramuscularly", "im"),
+    ("sq", "subcutaneous"),
+    ("sc", "subcutaneous"),
+    ("subq", "subcutaneous"),
+    ("subcutaneous", "subcutaneous"),
+    ("subcutaneously", "subcutaneous"),
+    ("subcut", "subcutaneous"),
+    ("sl", "sublingual"),
+    ("sublingual", "sublingual"),
+    ("sublingually", "sublingual"),
+    ("pr", "rectal"),
+    ("per rectum", "rectal"),
+    ("rectal", "rectal"),
+    ("rectally", "rectal"),
+]
+
+
+def test_the_route_forms_above_are_the_table_s() -> None:
+    assert sorted(form for form, _ in _ROUTE_FORMS) == sorted(DOSE_ROUTES)
+
+
+@pytest.mark.parametrize(("form", "route"), _ROUTE_FORMS)
+def test_each_route_form_reads_as_its_route(form: str, route: str) -> None:
+    assert extract_routes(f"Tylenol 650 mg {form} q6h") == {"acetaminophen": {route}}
+
+
+@pytest.mark.parametrize(
+    ("text", "routes"),
+    [
+        # L371: a route in its drug's dose chain, or directly before the drug
+        ("Azithromycin 500 mg IV daily", {"azithromycin": {"iv"}}),
+        ("IV ampicillin 2 g q6h", {"ampicillin": {"iv"}}),
+        (
+            "Ibuprofen 400 mg po q6h / acetaminophen 650 mg iv",
+            {"ibuprofen": {"oral"}, "acetaminophen": {"iv"}},
+        ),
+        # a comma, a sentence's end, or any other word ends the chain
+        ("Tylenol 650 mg q6h, PR interval 160 ms", {}),
+        ("Tylenol 1 g. IV fluids", {}),
+        ("Metformin 500 mg bid with NYHA class IV", {}),
+        # §8.8's costs (L371): a route after another word, or set off by commas, reads none
+        ("Tylenol 1 g given IV", {}),
+        ("Azithromycin 500 mg, IV, daily", {}),
+        # §8.8's costs (L385): a route form before another word still reads as its route
+        ("Tylenol 650 mg q6h PR interval 160 ms", {"acetaminophen": {"rectal"}}),
+        ("Azithromycin 500 mg daily IV fluids", {"azithromycin": {"iv"}}),
+    ],
+)
+def test_a_route_reads_in_its_drug_s_dose_chain(text: str, routes: dict[str, set[str]]) -> None:
+    assert extract_routes(text) == routes
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -1818,7 +1881,7 @@ def test_a_phrase_has_one_role_unless_it_is_a_pre_and_post_cue_of_one_class() ->
         "denied allergy": DENIED_ALLERGY_CUES,
         "dose unit": set(DOSE_UNITS),
         "frequency": set(DOSE_FREQUENCIES),
-        "route": DOSE_ROUTES,
+        "route": set(DOSE_ROUTES),
         "side": set(SIDE_CUES),
         "side letter": set(SIDE_LETTERS),
         "side site": set(SIDE_SITES),

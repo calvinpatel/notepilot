@@ -15,6 +15,7 @@ from backend.evals.checks import (
     check_must_not_add,
     check_must_preserve,
     check_negation_consistency,
+    check_route_consistency,
 )
 from backend.evals.registry import REGISTRY, CheckFn
 from backend.schemas import ClinicalClaim, EvalCase, SafetyFlag, Severity, SOAPNote
@@ -28,6 +29,7 @@ FAMILY: dict[str, CheckFn] = {
     "laterality_consistency": check_laterality_consistency,
     "med_status_consistency": check_med_status_consistency,
     "negation_consistency": check_negation_consistency,
+    "route_consistency": check_route_consistency,
 }
 
 # every CRITICAL check a row below covers
@@ -93,6 +95,31 @@ def _claim(raw: str, quote: str, claim_id: int = 0) -> ClinicalClaim:
         source_quote=quote,
         source_span=(start, start + len(quote)),
     )
+
+
+def test_a_dropped_route_fires_where_the_reader_would_assume_another() -> None:
+    # §8.4's row for route_consistency (L371): a dropped non-default route is its subject, a
+    # WARNING; a dropped oral route loses nothing a reader wouldn't assume
+    raw = "Azithromycin 500 mg IV daily. Tylenol 650 mg PO q6h."
+    claims = []
+    for claim_id, (text, quote) in enumerate(
+        [
+            ("Azithromycin 500 mg daily", "Azithromycin 500 mg IV daily"),
+            ("Tylenol 650 mg q6h", "Tylenol 650 mg PO q6h"),
+        ]
+    ):
+        start = raw.index(quote)
+        claims.append(
+            ClinicalClaim(
+                id=claim_id,
+                text=text,
+                section="P",
+                source_quote=quote,
+                source_span=(start, start + len(quote)),
+            )
+        )
+    findings = check_route_consistency(SOAPNote(claims=tuple(claims)), raw, config=CHECKS_CONFIG)
+    assert [(f.claim_ids, f.severity) for f in findings] == [((0,), Severity.WARNING)]
 
 
 def test_an_omitted_allergy_still_reaches_the_contraindication() -> None:

@@ -31,6 +31,7 @@ from backend.evals.checks import (
     check_negation_consistency,
     check_new_prescription_preserved,
     check_quote_informativeness,
+    check_route_consistency,
     check_text_entailment_judge,
     clause_text,
     contraindication,
@@ -974,6 +975,61 @@ def test_diagnosis_in_quote_finds_each_diagnosis_once_in_name_order() -> None:
 
 
 # --- dose_consistency (§8.4, D1, L141) ----------------------------------------------------
+
+
+def test_route_consistency_is_a_reference_free_critical_check() -> None:
+    check = REGISTRY["route_consistency"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.CRITICAL,
+        False,
+        False,
+        "model",
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "span", "fired"),
+    [
+        # L371: a route the span charts otherwise is a swap, CRITICAL
+        (
+            "Azithromycin 500 mg PO daily",
+            "Azithromycin 500 mg IV daily",
+            [("azithromycin: oral in the claim, iv in its source span", None)],
+        ),
+        # a non-default route dropped or supplied is a WARNING
+        (
+            "Azithromycin 500 mg daily",
+            "Azithromycin 500 mg IV daily",
+            [("azithromycin: no route in the claim, iv in its source span", Severity.WARNING)],
+        ),
+        (
+            "Tylenol 1 g IV q8h as needed",
+            "Tylenol 1 g q8h prn",
+            [("acetaminophen: iv in the claim, no route in its source span", Severity.WARNING)],
+        ),
+        # a kept route, and the oral one dropped or supplied (§8.8), change nothing
+        ("Azithromycin 500 mg IV daily", "Azithromycin 500 mg IV daily", []),
+        ("Tylenol 1 g tid prn", "Tylenol 1 g PO tid prn", []),
+        ("Tylenol 1 g PO TID as needed", "Tylenol 1 g tid prn", []),
+        # §8.8's cost (L371): a route set off by commas reads none
+        ("Azithromycin 500 mg daily", "Azithromycin 500 mg, IV, daily", []),
+        # §8.8's cost (L385): a route form before another word reads, so a faithful claim warns
+        (
+            "Azithromycin 500 mg daily",
+            "Azithromycin 500 mg daily IV fluids",
+            [("azithromycin: no route in the claim, iv in its source span", Severity.WARNING)],
+        ),
+        # a drug its span doesn't name is drug_in_quote's
+        ("Ampicillin 2 g IV q6h", "Azithromycin 500 mg PO daily", []),
+    ],
+)
+def test_route_consistency_compares_routes_for_drugs_both_name(
+    text: str, span: str, fired: list[tuple[str, Severity | None]]
+) -> None:
+    note, raw = _note((text, span))
+    findings = check_route_consistency(note, raw, config=CHECKS_CONFIG)
+    assert [(f.detail, f.severity) for f in findings] == fired
+    assert all(f.claim_ids == (0,) for f in findings)
 
 
 def test_dose_consistency_is_a_reference_free_warning() -> None:

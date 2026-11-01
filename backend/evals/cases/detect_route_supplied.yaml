@@ -1,0 +1,12 @@
+id: detect_route_supplied
+species: detection
+raw_text: |
+  Fever to 38.9 overnight.
+  Tylenol 1 g q8h prn fever.
+trap: "a claim supplies an intravenous route its source span never charts (§8.4, L371)"
+draft:
+  claims:
+    - text: "Tylenol 1 g IV q8h as needed for fever"
+      section: P
+      source_quote: "Tylenol 1 g q8h prn fever"
+expected_flags: [route_consistency]

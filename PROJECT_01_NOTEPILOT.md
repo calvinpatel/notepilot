@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.3** (patch — a correction's reach, October 2026).
-Supersedes v1.11.2.
+**Spec version: v1.11.4** (patch — a route's default and reach, October 2026).
+Supersedes v1.11.3.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1859,6 +1859,7 @@ DOSE_FREQUENCIES:  dict[str, str]    # "t.i.d." -> "tid", "twice daily" -> "bid"
 DOSE_TITRATION:    set[str]          # "then", "increase": a dose's reach crosses (L376)
 DOSE_ROUTES:       dict[str, str]    # "po" -> "oral", "iv" -> "iv": a form's route (L371);
                                      #   the forms a prn reaches across (L293)
+DEFAULT_ROUTE:     str               # "oral": the route a reader assumes (L371, L386)
 DOSE_MASS_UG:      dict[str, int]    # "g" -> 1_000_000: a mass unit's size in μg; ml, units none (L141)
 FINDINGS:          set[str]          # "chest pain", "fever", "sob", ... (MVP: what the corpus needs)
 FINDING_ALIASES:   dict[str, tuple[str, ...]]  # "n/v" -> ("nausea", "vomiting"): other names (L173)
@@ -3025,7 +3026,10 @@ know, stated plainly (v1.3):
   "Tylenol 1 g PO TID as needed" citing "Tylenol 1 g tid prn" passes, as a dropped "PO" does
   (prototyped), and only the judge, off in the deploy (§9.8), holds it (L327). A route after
   another word or set off by commas reads none, so "Azithromycin 500 mg daily" citing
-  "Azithromycin 500 mg, IV, daily" passes (prototyped).
+  "Azithromycin 500 mg, IV, daily" passes (prototyped). A route form before another word
+  still reads, so "Azithromycin 500 mg daily" citing "Azithromycin 500 mg daily IV fluids"
+  draws a WARNING, and "Tylenol 650 mg q6h PR interval 160 ms" reads the acetaminophen
+  rectal (prototyped, L385); the deferred-amendments issue holds it for v1.12 (entry 58).
 - **Labels read through the extractors** (L220). The loader checks a label against the raw
   text through the same extractor the check uses (L219), so a label can't state what the
   extractor misreads, and a misread label loads: "apixaban continued, then held" reads

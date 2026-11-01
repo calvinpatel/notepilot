@@ -32,10 +32,12 @@ from backend.clinical.extract import (
     extract_findings,
     extract_laterality,
     extract_med_status,
+    extract_routes,
     new_prescriptions,
 )
 from backend.clinical.lexicons import (
     CROSS_REACTIVITY,
+    DEFAULT_ROUTE,
     DOSE_MASS_UG,
     DRUG_CLASS,
     R1_GROUP,
@@ -452,6 +454,53 @@ def check_dose_consistency(
                         claim_ids=(claim.id,),
                     )
                 )
+    return findings
+
+
+def _routes(routes: set[str]) -> str:
+    """'iv', 'iv and oral', or 'no route', for a finding's detail."""
+    return " and ".join(sorted(routes)) or "no route"
+
+
+@register_check(name="route_consistency", severity=Severity.CRITICAL)
+def check_route_consistency(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
+    """One finding per drug a claim and its span both name, at a route the span doesn't chart.
+
+    routes(text) ⊆ routes(span), canonical (§8.4, L371): a route the span charts otherwise is
+    a swap. A non-default route the claim supplies where the span charts none, or the span's
+    that the claim drops, is a WARNING; DEFAULT_ROUTE supplied or dropped changes nothing,
+    since a reader assumes it. A drug the span doesn't name is drug_in_quote's. A claim with
+    no span is skipped (§8.4).
+
+    Omission (D17): a dropped non-default route is this check's subject, so it fires, a
+    WARNING; a dropped DEFAULT_ROUTE loses nothing; an omitted claim leaves nothing to compare.
+    """
+    findings: list[Finding] = []
+    for claim in note.claims:
+        span = clause_text(claim, raw_text)
+        if span is None:
+            continue
+        in_text, in_span = extract_routes(claim.text), extract_routes(span)
+        for drug in sorted(named_drugs(claim.text) & named_drugs(span)):
+            said, charted = in_text.get(drug, set()), in_span.get(drug, set())
+            if said and charted and not said <= charted:
+                severity = None
+            elif (said and not charted and said - {DEFAULT_ROUTE}) or (
+                charted and not said and charted - {DEFAULT_ROUTE}
+            ):
+                severity = Severity.WARNING
+            else:
+                continue
+            findings.append(
+                Finding(
+                    detail=f"{drug}: {_routes(said)} in the claim, "
+                    f"{_routes(charted)} in its source span",
+                    claim_ids=(claim.id,),
+                    severity=severity,
+                )
+            )
     return findings
 
 

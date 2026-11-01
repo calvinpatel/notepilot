@@ -1,0 +1,16 @@
+id: control_route_kept
+species: control
+raw_text: |
+  Community-acquired pneumonia, admitted to the floor.
+  Azithromycin 500 mg IV daily.
+  Tylenol 650 mg PO q6h prn fever.
+trap: null
+draft:
+  claims:
+    - text: "Azithromycin 500 mg IV daily"
+      section: P
+      source_quote: "Azithromycin 500 mg IV daily"
+    - text: "Tylenol 650 mg q6h as needed for fever"
+      section: P
+      source_quote: "Tylenol 650 mg PO q6h prn fever"
+expected_flags: []

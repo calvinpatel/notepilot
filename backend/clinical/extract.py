@@ -230,7 +230,10 @@ _TWO_SIDED: Mapping[_Phrase, tuple[_Label, _Label]] = {
 _NO_SIDES: Mapping[_Phrase, tuple[_Label, _Label]] = {}
 _UNITS = {tuple(_tokens(name)): unit for name, unit in DOSE_UNITS.items()}
 _FREQUENCIES = {tuple(_tokens(name)): freq for name, freq in DOSE_FREQUENCIES.items()}
-_ROUTES = _phrases(DOSE_ROUTES)  # what a prn reaches across past its interval (L293)
+# each route form's route (L371), the forms a prn reaches across past its interval (L293)
+_ROUTES: Mapping[_Phrase, str] = {
+    phrase: DOSE_ROUTES[form] for phrase, form in _phrases(DOSE_ROUTES).items()
+}
 # the sides a side table may name, so a misspelled one fails at import (L285)
 _SIDES: Mapping[str, Side] = {"left": "left", "right": "right", "bilateral": "bilateral"}
 _SIDE_CUES: Mapping[_Phrase, Side] = {
@@ -805,6 +808,37 @@ def _dose_at(phrases: Sequence[_Phrase], i: int) -> tuple[float, str, int] | Non
     if ends or starts:
         return None
     return float(digits), unit, width
+
+
+def extract_routes(text: str) -> dict[str, set[str]]:
+    """v1.11 (L371): drug -> the routes charted for it, canonical, read in its dose chain or
+    directly before it. "Azithromycin 500 mg IV daily" -> {"azithromycin": {"iv"}}.
+
+    A drug's dose chain is the run after it, in its sentence, of its doses, units, intervals,
+    numbers, marks, and function words; a comma or any other word ends it. A DOSE_ROUTES form
+    in the chain, or directly before the drug ("IV ampicillin"), reads as its route.
+    """
+    phrases = [
+        p for _, p in _split(_tokens(text), (_TERMINATORS, _NAMES, _UNITS, _FREQUENCIES, _ROUTES))
+    ]
+    routes: dict[str, set[str]] = {}
+    drug: str | None = None
+    for n, phrase in enumerate(phrases):
+        name = _NAMES.get(phrase)
+        if phrase in _TERMINATORS or phrase == (",",):
+            drug = None
+        elif name is not None and name in GENERIC_DRUGS:
+            drug = name
+        elif phrase in _ROUTES:
+            following = _NAMES.get(phrases[n + 1]) if n + 1 < len(phrases) else None
+            owner = following if following is not None and following in GENERIC_DRUGS else drug
+            if owner is not None:
+                routes.setdefault(owner, set()).add(_ROUTES[phrase])
+        elif phrase in _UNITS or phrase in _FREQUENCIES or not any(map(_is_word, phrase)):
+            pass
+        elif not all(token in FUNCTION_WORDS or token[:1].isdigit() for token in phrase):
+            drug = None
+    return routes
 
 
 def extract_doses(text: str) -> dict[str, set[Dose]]:

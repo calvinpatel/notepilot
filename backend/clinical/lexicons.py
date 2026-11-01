@@ -697,56 +697,62 @@ DOSE_FREQUENCIES: dict[str, str] = {
     "as needed": "prn",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-21.
-DOSE_ROUTES: set[str] = {
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+DOSE_ROUTES: dict[str, str] = {
     # By mouth: past its interval, a prn reaches across a route word, as across a mark
-    # ("q6h po prn") (L293).
-    "po",
+    # ("q6h po prn") (L293). Each form maps to its route, which route_consistency compares
+    # (L371).
+    "po": "oral",
     # Intravenous ("q6h IV prn").
-    "iv",
+    "iv": "iv",
     # Intramuscular.
-    "im",
+    "im": "im",
     # Subcutaneous, as commonly charted.
-    "sq",
+    "sq": "subcutaneous",
     # Subcutaneous.
-    "sc",
+    "sc": "subcutaneous",
     # Subcutaneous, spelled as charted.
-    "subq",
+    "subq": "subcutaneous",
     # Sublingual.
-    "sl",
+    "sl": "sublingual",
     # Per rectum.
-    "pr",
+    "pr": "rectal",
     # "po" spelled out ("q6h by mouth prn").
-    "by mouth",
+    "by mouth": "oral",
     # As "by mouth".
-    "orally",
+    "orally": "oral",
     # As "orally", the adjective.
-    "oral",
+    "oral": "oral",
     # "iv" spelled out.
-    "intravenous",
+    "intravenous": "iv",
     # As "intravenous".
-    "intravenously",
+    "intravenously": "iv",
     # "im" spelled out.
-    "intramuscular",
+    "intramuscular": "im",
     # As "intramuscular".
-    "intramuscularly",
+    "intramuscularly": "im",
     # "sc" spelled out.
-    "subcutaneous",
+    "subcutaneous": "subcutaneous",
     # As "subcutaneous".
-    "subcutaneously",
+    "subcutaneously": "subcutaneous",
     # As "subcutaneous", shortened as charted.
-    "subcut",
+    "subcut": "subcutaneous",
     # "sl" spelled out.
-    "sublingual",
+    "sublingual": "sublingual",
     # As "sublingual".
-    "sublingually",
+    "sublingually": "sublingual",
     # "pr" spelled out.
-    "per rectum",
+    "per rectum": "rectal",
     # As "per rectum".
-    "rectal",
+    "rectal": "rectal",
     # As "per rectum".
-    "rectally",
+    "rectally": "rectal",
 }
+
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+# The route a reader assumes where none is charted, so a claim that supplies it or drops it
+# changes nothing (L371).
+DEFAULT_ROUTE: str = "oral"
 
 # Clinical sign-off: Calvin Patel, 2026-10-07.
 FINDINGS: set[str] = {

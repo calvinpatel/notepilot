@@ -1,0 +1,12 @@
+id: detect_route_swap
+species: detection
+raw_text: |
+  Community-acquired pneumonia, admitted to the floor.
+  Azithromycin 500 mg IV daily.
+trap: "a claim charts by mouth a drug its source span gives intravenously (§8.4, L371)"
+draft:
+  claims:
+    - text: "Azithromycin 500 mg PO daily"
+      section: P
+      source_quote: "Azithromycin 500 mg IV daily"
+expected_flags: [route_consistency]

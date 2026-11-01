@@ -19,6 +19,7 @@ from backend.clinical.extract import (
     extract_excluded_diagnoses,
     extract_findings,
     extract_laterality,
+    extract_routes,
     new_prescriptions,
 )
 from backend.clinical.lexicons import SITE_WORDS
@@ -83,6 +84,14 @@ def _shares_a_site(case: EvalCase, note: SOAPNote) -> bool:
     return False
 
 
+def _shares_a_route(case: EvalCase, note: SOAPNote) -> bool:
+    for claim in note.claims:
+        span = span_text(claim, case.raw_text)
+        if span is not None and extract_routes(claim.text).keys() & extract_routes(span).keys():
+            return True
+    return False
+
+
 def _names_a_drug(case: EvalCase, note: SOAPNote) -> bool:
     return any(named_drugs(claim.text) for claim in note.claims)
 
@@ -125,6 +134,7 @@ EXERCISES: dict[str, Callable[[EvalCase, SOAPNote], bool]] = {
     "must_not_add": _carries_a_not_add_label,
     "must_preserve": _carries_a_preserve_label,
     "negation_consistency": _shares_a_finding,
+    "route_consistency": _shares_a_route,
 }
 
 
