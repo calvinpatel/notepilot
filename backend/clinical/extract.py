@@ -62,6 +62,8 @@ from backend.clinical.lexicons import (
     DENIED_ALLERGY_CUES,
     DIAGNOSES,
     DIAGNOSIS_ALIASES,
+    DIAGNOSIS_HEADS,
+    DIAGNOSIS_OBJECT_CUES,
     DIFFERENTIAL_CUES,
     DOSE_FREQUENCIES,
     DOSE_ROUTES,
@@ -72,6 +74,7 @@ from backend.clinical.lexicons import (
     FINDINGS,
     FUNCTION_WORDS,
     GENERIC_DRUGS,
+    HEAD_CONFIRMING,
     INDICATION_CUES,
     LIST_INTRODUCERS,
     MED_CONTINUE_CUES,
@@ -120,6 +123,7 @@ type _Label = Literal[
     "rule_out",
     "indication",
     "confirmed",
+    "named",
 ]
 type _Cues = Mapping[_Phrase, _Label]
 
@@ -218,6 +222,9 @@ _ENTITIES = _NAMES | _FINDINGS | _DIAGNOSES
 # a workup's answer reads its diagnosis definite, a repeat in a window among them (L292)
 _DX_PRE = _NEG_PRE | _certainty_cues(CERTAINTY_CUES) | _cues("confirmed", CONFIRMING_CUES)
 _DX_POST = _NEG_POST | _certainty_cues(CERTAINTY_POST) | _cues("confirmed", CONFIRMING_POST)
+_HEADS = _phrases(DIAGNOSIS_HEADS)  # after a diagnosis, it names their object (L372)
+_OBJECT_CUES = _phrases(DIAGNOSIS_OBJECT_CUES)  # before a diagnosis, the same (L372)
+_HEAD_CONFIRMING = _phrases(HEAD_CONFIRMING)  # after a head, the workup's answer (L372)
 # a cue weighing both its sides: a differential each the same, a comparative each its own
 # (L135, L366)
 _TWO_SIDED: Mapping[_Phrase, tuple[_Label, _Label]] = {
@@ -907,14 +914,46 @@ _ASSERTED: Mapping[_Label | None, Certainty] = {
 }
 
 
+def _names_something_else(tokens: Sequence[str], start: int, end: int) -> bool:
+    """A diagnosis at tokens[start:end] names a workup's, a plan's, or a score's object (L372):
+    a DIAGNOSIS_HEADS word directly after it, unless a HEAD_CONFIRMING word directly after the
+    head answers it ("PE workup positive", but not "positive for DVT"), or a
+    DIAGNOSIS_OBJECT_CUES entry directly before it."""
+    for head in _HEADS:
+        if tuple(tokens[end : end + len(head)]) == head:
+            after = end + len(head)
+            for word in _HEAD_CONFIRMING:
+                if tuple(tokens[after : after + len(word)]) == word:
+                    return tuple(tokens[after + len(word) : after + len(word) + 1]) == ("for",)
+            return True
+    return any(tuple(tokens[start - len(cue) : start]) == cue for cue in _OBJECT_CUES)
+
+
+def _diagnosis_mentions(text: str) -> list[tuple[str, _Label | None]]:
+    """Each diagnosis mention with its label, one no cue governs that names something else
+    reading as named, neither asserted nor excluded (L372)."""
+    scoped = _scope_at(text, _DIAGNOSES, _DX_PRE, _DX_POST, _TWO_SIDED)
+    at = dict(scoped.phrases)
+    return [
+        (
+            diagnosis,
+            "named"
+            if label is None and _names_something_else(scoped.tokens, start, start + len(at[start]))
+            else label,
+        )
+        for (diagnosis, label), start in zip(scoped.mentions, scoped.starts, strict=True)
+    ]
+
+
 def extract_diagnoses(text: str) -> dict[str, set[Certainty]]:
     """diagnosis -> certainties asserted (D12). "r/o PE" -> {"pulmonary embolism": {"rule_out"}}.
 
     Names resolve to their canonical diagnosis (L134). A diagnosis no cue governs is definite,
-    and a negated one ("PE ruled out") isn't asserted (L135).
+    unless it names a workup's, a plan's, or a score's object ("PE workup pending"), and a
+    negated one ("PE ruled out") isn't asserted (L135, L372).
     """
     certainties: dict[str, set[Certainty]] = {}
-    for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _TWO_SIDED):
+    for diagnosis, label in _diagnosis_mentions(text):
         if label in _ASSERTED:
             certainties.setdefault(diagnosis, set()).add(_ASSERTED[label])
     return certainties
@@ -926,11 +965,7 @@ def extract_excluded_diagnoses(text: str) -> set[str]:
     extract_diagnoses' sibling: the negated mentions it drops, so a check can see an exclusion.
     One statement can both rule a diagnosis out and exclude it.
     """
-    return {
-        diagnosis
-        for diagnosis, label in _scope(text, _DIAGNOSES, _DX_PRE, _DX_POST, _TWO_SIDED)
-        if label == "negated"
-    }
+    return {diagnosis for diagnosis, label in _diagnosis_mentions(text) if label == "negated"}
 
 
 def _is_site(found: Sequence[str], width: int) -> bool:

@@ -1231,6 +1231,57 @@ def test_a_window_keeps_a_repeat_until_a_confirming_cue_answers_it(
     assert extract_diagnoses(text) == certainties
 
 
+_PE_DEFINITE = {"pulmonary embolism": {"definite"}}
+
+
+@pytest.mark.parametrize(
+    ("text", "certainties"),
+    [
+        # L372: a diagnosis naming a workup's, a plan's, or a score's object asserts nothing
+        ("PE workup pending.", {}),
+        ("PE work-up pending.", {}),
+        ("PE w/u pending.", {}),
+        ("PE protocol CT ordered.", {}),
+        ("PNA coverage with ceftriaxone.", {}),
+        ("PE precautions.", {}),
+        ("DVT/PE prophylaxis", {}),
+        ("DVT/PE ppx with heparin", {}),
+        ("PE risk factors: OCP use", {}),
+        ("Wells score low for PE.", {}),
+        ("Wells score intermediate for PE.", {}),
+        ("Pretest probability moderate for PE.", {}),
+        ("Wells score high for PE.", {}),
+        ("High risk for PE", {}),
+        # a confirming word directly after the head, not before "for", reads it as charted
+        ("PE workup positive.", _PE_DEFINITE),
+        ("PE workup confirmed.", _PE_DEFINITE),
+        ("PE workup confirms it.", _PE_DEFINITE),
+        ("PE workup positive for DVT.", {}),
+        ("PE workup with positive D-dimer, CTA pending.", {}),
+        # a cue still governs its diagnosis, and a mark stands between a head and its object
+        ("Rule out PE. PE protocol CT ordered.", _RO),
+        ("r/o PE workup in progress", _RO),
+        ("Known PE, workup for source", _PE_DEFINITE),
+        # §8.8's costs (L372, L375): a modality between head and result, and a negative result
+        ("PE protocol CT positive.", {}),
+        ("PE workup negative.", {}),
+    ],
+)
+def test_a_diagnosis_that_names_something_else_asserts_nothing(
+    text: str, certainties: dict[str, set[str]]
+) -> None:
+    assert extract_diagnoses(text) == certainties
+    assert extract_excluded_diagnoses(text) == set()
+
+
+@pytest.mark.parametrize("table", [X._HEADS, X._HEAD_CONFIRMING], ids=["heads", "confirming"])
+def test_no_entry_begins_another_so_the_first_match_is_the_only_one(
+    table: dict[tuple[str, ...], str],
+) -> None:
+    # L372: a diagnosis takes the first head, then the first confirming word, that matches
+    assert [(a, b) for a in table for b in table if a != b and b[: len(a)] == a] == []
+
+
 @pytest.mark.parametrize("cue", sorted(CONFIRMING_CUES))
 def test_every_confirming_cue_answers_the_workup_before_it(cue: str) -> None:
     assert extract_diagnoses(f"r/o PE, {cue} PE") == _RO_DEFINITE

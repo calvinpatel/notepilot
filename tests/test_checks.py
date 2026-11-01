@@ -866,6 +866,42 @@ def test_diagnosis_in_quote_reads_a_comparative() -> None:
     ] == [("pneumonia: definite in the claim, probable in its source span", Severity.CRITICAL)]
 
 
+@pytest.mark.parametrize(
+    ("text", "span", "detail"),
+    [
+        # L372: a diagnosis its span only names as a workup's or a plan's object is invented
+        (
+            "Pulmonary embolism",
+            "PE workup pending.",
+            "pulmonary embolism: definite in the claim, not named in its source span",
+        ),
+        (
+            "Pneumonia",
+            "PNA coverage with ceftriaxone.",
+            "pneumonia: definite in the claim, not named in its source span",
+        ),
+        # §8.8's costs (L372, L375): a modality between head and result, a negative result
+        (
+            "Pulmonary embolism",
+            "PE protocol CT positive.",
+            "pulmonary embolism: definite in the claim, not named in its source span",
+        ),
+        (
+            "No pulmonary embolism",
+            "PE workup negative.",
+            "pulmonary embolism: excluded in the claim, not named in its source span",
+        ),
+    ],
+)
+def test_diagnosis_in_quote_fires_on_a_diagnosis_its_span_names_as_an_object(
+    text: str, span: str, detail: str
+) -> None:
+    note, raw = _note((text, span))
+    assert [
+        (f.detail, f.severity) for f in check_diagnosis_in_quote(note, raw, config=CHECKS_CONFIG)
+    ] == [(detail, Severity.CRITICAL)]
+
+
 def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
     note, raw = _note(("Possible pneumonia", "pneumonia"))
     assert [
@@ -883,6 +919,7 @@ def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
         ("PE ruled out", "CTA negative, PE ruled out"),
         ("PE ruled out", "r/o PE; CTA negative, PE ruled out"),
         ("Probable pneumonia", "PE less likely, PNA more likely"),
+        ("Pulmonary embolism", "PE workup positive."),
     ],
     ids=[
         "same",
@@ -892,6 +929,7 @@ def test_diagnosis_in_quote_lowers_a_downgrade_to_a_warning() -> None:
         "exclusion",
         "workup-and-result",
         "comparative",
+        "workup-answered",
     ],
 )
 def test_diagnosis_in_quote_passes_a_reading_the_span_supports(text: str, span: str) -> None:

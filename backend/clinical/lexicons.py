@@ -553,6 +553,52 @@ DIFFERENTIAL_CUES: dict[str, str] = {
     "versus": "possible",
 }
 
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+DIAGNOSIS_HEADS: set[str] = {
+    # "PE workup pending": the diagnosis names the workup's object and asserts nothing (L372).
+    "workup",
+    # As "workup", hyphenated.
+    "work-up",
+    # As "workup", abbreviated as charted ("PE w/u").
+    "w/u",
+    # "PE protocol CT ordered": the protocol's object.
+    "protocol",
+    # "PNA coverage with ceftriaxone": the antibiotic's target.
+    "coverage",
+    # "PE precautions": the plan's object.
+    "precautions",
+    # "DVT/PE prophylaxis": what the prophylaxis prevents.
+    "prophylaxis",
+    # As "prophylaxis", abbreviated as charted.
+    "ppx",
+    # "PE risk factors": the risk's object.
+    "risk",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+DIAGNOSIS_OBJECT_CUES: set[str] = {
+    # "Wells score low for PE": a score's object, which asserts no diagnosis (L372).
+    "low for",
+    # As "low for" ("Wells score intermediate for PE").
+    "intermediate for",
+    # As "low for" ("pretest probability moderate for PE").
+    "moderate for",
+    # As "low for".
+    "high for",
+    # "High risk for PE": the risk's object.
+    "risk for",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+HEAD_CONFIRMING: set[str] = {
+    # "PE workup positive": the workup's answer, so the diagnosis reads as charted (L372).
+    "positive",
+    # As "positive".
+    "confirmed",
+    # As "positive" ("PE workup confirms").
+    "confirms",
+}
+
 # Clinical sign-off: Calvin Patel, 2026-10-09.
 # A drug's class, for D9's ladder; a class name is its own class. Acetaminophen, apixaban, and
 # metformin have no entry: no class allergy covers them.
