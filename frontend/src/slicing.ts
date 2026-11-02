@@ -35,3 +35,35 @@ export function segments(
     after: points.slice(end).join(""),
   };
 }
+
+/** A claim's span inside its clause (§9.10, L380): the clause's rest is tinted lighter. */
+export interface ClauseSegments {
+  readonly before: string;
+  readonly lead: string;
+  readonly marked: string;
+  readonly trail: string;
+  readonly after: string;
+}
+
+/**
+ * The text cut around a clause and the span inside it, or null when either doesn't fit the
+ * text or the clause doesn't hold the span: a caller then tints the span alone.
+ */
+export function clauseSegments(
+  points: readonly string[],
+  clause: readonly [number, number],
+  span: readonly [number, number],
+): ClauseSegments | null {
+  const cut = segments(points, span);
+  const [start, end] = clause;
+  if (cut === null || segments(points, clause) === null || start > span[0] || span[1] > end) {
+    return null;
+  }
+  return {
+    before: points.slice(0, start).join(""),
+    lead: points.slice(start, span[0]).join(""),
+    marked: cut.marked,
+    trail: points.slice(span[1], end).join(""),
+    after: points.slice(end).join(""),
+  };
+}

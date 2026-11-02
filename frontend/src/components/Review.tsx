@@ -32,7 +32,7 @@ export function Review({ sent, body }: Props) {
   if (isEmpty(note.claims, report)) {
     return (
       <div className="review">
-        <SourcePane points={points} span={null} paraphrased={false} />
+        <SourcePane points={points} span={null} clause={null} paraphrased={false} />
         <section className="note" aria-label="Note">
           <p>No clinical content recognized in this paste.</p>
           <Receipt body={body} />
@@ -45,6 +45,7 @@ export function Review({ sent, body }: Props) {
       <SourcePane
         points={points}
         span={claim?.source_span ?? null}
+        clause={claim === null ? null : (body.clause_spans[String(claim.id)] ?? null)}
         paraphrased={claim?.flags.includes("paraphrased") ?? false}
       />
       <section className="note" aria-label="Note">

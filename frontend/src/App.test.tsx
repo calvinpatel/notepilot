@@ -138,6 +138,37 @@ test("one span is marked: the hovered claim's, else the focused, else the pinned
   expect(marked()?.textContent).toBe("Denies fever"); // the pinned, alone
 });
 
+test("the active claim's clause is tinted around its span, from clause_spans", async () => {
+  // L380: the clause the claim-local checks read, which the response names by claim id
+  const cough = { ...GROUNDED, source_span: [13, 18] as [number, number] };
+  await review({ ...only(cough), clause_spans: { "0": [0, 29] } });
+  fireEvent.mouseEnter(card(0).closest("li") ?? card(0));
+  const clause = source().querySelector(".clause");
+  expect(clause?.className).toBe("clause grounded");
+  expect(clause?.textContent).toBe("😷 Pt reports cough for 3 days");
+  expect(marked()?.textContent).toBe("cough");
+  expect(sourceText()).toBe(SENT);
+});
+
+test("a paraphrased claim's clause is tinted yellow", async () => {
+  const paraphrased = { ...GROUNDED, flags: ["paraphrased" as const] };
+  await review({ ...only(paraphrased), clause_spans: { "0": [0, 29] } });
+  fireEvent.click(card(0));
+  expect(source().querySelector(".clause")?.className).toBe("clause paraphrased");
+});
+
+test.each<[string, Record<string, [number, number]>]>([
+  ["no clause for the claim", {}],
+  ["a clause that doesn't hold its span", { "0": [30, 44] }],
+  ["a clause past the text", { "0": [0, 400] }],
+])("with %s, the tint is the span alone", async (_name, spans) => {
+  await review({ ...only(GROUNDED), clause_spans: spans });
+  fireEvent.click(card(0));
+  expect(source().querySelector(".clause")?.textContent).toBe("cough for 3 days");
+  expect(marked()?.textContent).toBe("cough for 3 days");
+  expect(sourceText()).toBe(SENT);
+});
+
 test("a paraphrased claim's span is marked yellow", async () => {
   await review(only({ ...GROUNDED, flags: ["paraphrased"] }));
   fireEvent.click(card(0));

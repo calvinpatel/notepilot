@@ -9,6 +9,8 @@
   --phi-fg: #5c4400;
   --mark-grounded: #d6e4ff;
   --mark-paraphrased: #ffe68a;
+  --clause-grounded: #edf3ff;
+  --clause-paraphrased: #fff6cc;
   --critical: #b3261e;
   --warning: #8a5300;
   --info: #5f6368;
@@ -29,6 +31,8 @@
     --phi-fg: #ffe3a3;
     --mark-grounded: #23406e;
     --mark-paraphrased: #6b5a12;
+    --clause-grounded: #1c2a40;
+    --clause-paraphrased: #443624;
     --critical: #ff8a80;
     --warning: #ffc266;
     --info: #a0a0a8;
@@ -151,6 +155,15 @@ mark.grounded {
 mark.paraphrased {
   background: var(--mark-paraphrased);
   color: inherit;
+}
+
+/* L380: the rest of the active claim's clause, a lighter tint of its mark's */
+.clause.grounded {
+  background: var(--clause-grounded);
+}
+
+.clause.paraphrased {
+  background: var(--clause-paraphrased);
 }
 
 .draft {

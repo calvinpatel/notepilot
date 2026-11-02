@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { codePoints, segments } from "./slicing";
+import { clauseSegments, codePoints, segments } from "./slicing";
 
 test("a span cuts the text into before, marked, and after", () => {
   expect(segments(codePoints("cough for 3 days"), [0, 5])).toEqual({
@@ -27,4 +27,23 @@ test.each([
   ["fractional", [0.5, 2]],
 ] as const)("a span that doesn't fit the text marks nothing: %s", (_name, span) => {
   expect(segments(codePoints("abc"), span)).toBeNull();
+});
+
+test("a clause around its span cuts the text into five parts (L380)", () => {
+  const points = codePoints("Pt reports cough for 3 days. No fever.");
+  expect(clauseSegments(points, [0, 27], [11, 16])).toEqual({
+    before: "",
+    lead: "Pt reports ",
+    marked: "cough",
+    trail: " for 3 days",
+    after: ". No fever.",
+  });
+});
+
+test.each([
+  ["a clause that doesn't hold the span", [0, 3], [2, 5]],
+  ["a clause past the end", [0, 9], [0, 2]],
+  ["a span that doesn't fit", [0, 3], [2, 1]],
+] as const)("%s cuts nothing", (_name, clause, span) => {
+  expect(clauseSegments(codePoints("abcdefgh"), clause, span)).toBeNull();
 });
