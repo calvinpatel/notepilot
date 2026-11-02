@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.5** (patch — a dose's reach, exactly, October 2026).
-Supersedes v1.11.4.
+**Spec version: v1.11.6** (patch — what contests a denial, October 2026).
+Supersedes v1.11.5.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -1689,7 +1689,8 @@ canonical name mapping to itself, and drug allergens come through `GENERIC_DRUGS
 NKA. A CRLF line break is one token, which sections need. A denied allergy reads no allergen
 and no status (L290), unless the chart contests the denial (L373): a denial a `DENIAL_VERBS`
 entry makes ("denies", "denied") is taken back by a `DOCUMENTED_CUES` entry later in its
-sentence ("chart lists", "on file") that names no allergen of its own, where no
+sentence ("chart lists", "on file") that names no allergen of its own before the next comma,
+with no negation between it and the allergen or the comma before it (L390), where no
 `DELABEL_CUES` entry ("delabeled", "in error") stands in the sentence, so "Patient denies
 PCN allergy but chart lists it" reads penicillin and "No PCN allergy documented" none.
 Before its drug, a denied-allergy cue (`DENIED_ALLERGY_CUES`: "not allergic to", "no allergy
@@ -3002,7 +3003,9 @@ know, stated plainly (v1.3):
   no allergen, and beside "Start amoxicillin 500 mg tid" no allergy check fires
   (prototyped), where a documented allergy should be honored until it is delabeled. Only a
   denial verb's denial is contested: "No PCN allergy documented" and "No sulfa allergy on
-  file" record none (prototyped).
+  file" record none (prototyped). A chart that lists none still contests: "Denies PCN
+  allergy, chart lists none" reads the penicillin (prototyped, L389); the
+  deferred-amendments issue holds it for v1.12 (entry 61).
 - **A diagnosis that names something else** (L135, L296, L372). A confirming word reads a
   named diagnosis as charted only directly after its head, so a faithful "Pulmonary
   embolism" citing "PE protocol CT positive." fires `diagnosis_in_quote` (prototyped). A

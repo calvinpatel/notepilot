@@ -1260,6 +1260,40 @@ def test_dose_consistency_finds_each_drug_once_in_name_order() -> None:
 # --- allergy_preserved (§8.4, D10, D17, L144) ---------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("raw", "fired"),
+    [
+        # L373: the chart contests a denial verb's denial, so the allergy stands beside the start
+        (
+            "Patient denies PCN allergy but chart lists it. Start amoxicillin 500 mg tid.",
+            [
+                ("allergy_preserved", "penicillin: in the source, not the note"),
+                (
+                    "allergy_contraindication",
+                    "penicillin allergy on record; "
+                    "amoxicillin: in the allergen's class (penicillin)",
+                ),
+            ],
+        ),
+        # and a denial no denial verb makes stands
+        ("No PCN allergy documented. Start amoxicillin 500 mg tid.", []),
+    ],
+)
+def test_a_contested_denial_reaches_both_allergy_checks(
+    raw: str, fired: list[tuple[str, str]]
+) -> None:
+    note, raw = _note(("Start amoxicillin 500 mg tid", "Start amoxicillin 500 mg tid"), raw=raw)
+    found = [
+        (name, f.detail)
+        for name, check in (
+            ("allergy_preserved", check_allergy_preserved),
+            ("allergy_contraindication", check_allergy_contraindication),
+        )
+        for f in check(note, raw, config=CHECKS_CONFIG)
+    ]
+    assert found == fired
+
+
 def test_allergy_preserved_is_a_reference_free_critical_check() -> None:
     check = REGISTRY["allergy_preserved"]
     assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (

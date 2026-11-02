@@ -776,13 +776,54 @@ def test_a_denied_allergy_in_either_form_names_no_allergen(text: str) -> None:
         ("No PCN, sulfa allergies", {"sulfa"}),
         ("PCN allergy, denied", {"penicillin"}),
         ("PCN allergy: none", {"penicillin"}),
-        ("Patient denies PCN allergy but chart lists it", set()),
         ("Denies PCN allergy; chart lists PCN allergy", {"penicillin"}),
         ("No PCN allergy or sulfa allergy", {"sulfa"}),
         ("Denies PCN allergy and sulfa allergy", {"sulfa"}),
     ],
 )
 def test_a_denial_reaches_only_what_it_denies(text: str, allergens: set[str]) -> None:
+    assert extract_allergies(text) == allergens
+
+
+@pytest.mark.parametrize(
+    ("text", "allergens"),
+    [
+        # L373: a documentation cue later in a denial verb's sentence takes the denial back
+        ("Patient denies PCN allergy but chart lists it", {"penicillin"}),
+        ("PCN allergy denied, but listed in chart", {"penicillin"}),
+        ("Denies PCN allergy, but listed as hives", {"penicillin"}),
+        ("Denies PCN allergy, though documented in the chart", {"penicillin"}),
+        ("Denies PCN allergy but on file", {"penicillin"}),
+        ("Denies PCN allergy but allergic per chart", {"penicillin"}),
+        ("Denies PCN allergy but in chart", {"penicillin"}),
+        ("Denies PCN allergy but charted", {"penicillin"}),
+        ("Denies allergy to PCN but chart lists it", {"penicillin"}),
+        ("Denies PCN allergy, chart lists it, start amoxicillin 500 mg tid", {"penicillin"}),
+        # and none of these does: another negation, a cue naming its own allergen, a delabel
+        ("No PCN allergy documented", set()),
+        ("No sulfa allergy on file", set()),
+        ("Not allergic to PCN per patient, chart lists it", set()),
+        ("Denies PCN allergy, chart lists NKDA", {"nkda"}),
+        ("Denies PCN allergy, chart lists sulfa allergy", {"sulfa"}),
+        ("Denies PCN allergy, not listed in chart", set()),
+        ("Denies PCN allergy, never documented", set()),
+        ("Denies PCN allergy, no allergy documented", set()),
+        ("Denies PCN allergy, delabeled, chart lists it", set()),
+        ("Denies PCN allergy but delabelled, chart lists it", set()),
+        ("Denies PCN allergy, allergy removed but still in chart", set()),
+        ("Denies PCN allergy but chart lists it in error", set()),
+        ("Denies PCN allergy, tolerated amoxicillin, chart lists it", set()),
+        ("Patient denies PCN allergy, has been documented to tolerate cephalosporins", set()),
+        ("Denies PCN allergy, tolerates amoxicillin, chart lists it", set()),
+        ("Denies PCN allergy, negative challenge, chart lists it", set()),
+        ("Allergy delabeled, patient denies PCN allergy, chart lists it", set()),
+        # §8.8's costs (L373, L389): the chart contests only within the sentence, and a chart
+        # listing none still contests
+        ("Patient denies PCN allergy; chart lists it", set()),
+        ("Denies PCN allergy, chart lists none", {"penicillin"}),
+    ],
+)
+def test_the_chart_contests_a_denial_verb_s_denial(text: str, allergens: set[str]) -> None:
     assert extract_allergies(text) == allergens
 
 

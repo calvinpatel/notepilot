@@ -59,12 +59,15 @@ from backend.clinical.lexicons import (
     CONFIRMING_CUES,
     CONFIRMING_POST,
     CORRECTION_CUES,
+    DELABEL_CUES,
+    DENIAL_VERBS,
     DENIED_ALLERGY_CUES,
     DIAGNOSES,
     DIAGNOSIS_ALIASES,
     DIAGNOSIS_HEADS,
     DIAGNOSIS_OBJECT_CUES,
     DIFFERENTIAL_CUES,
+    DOCUMENTED_CUES,
     DOSE_FREQUENCIES,
     DOSE_ROUTES,
     DOSE_TITRATION,
@@ -351,6 +354,7 @@ class _Scoped(NamedTuple):
     mentions: list[tuple[str, _Label | None]]
     starts: list[int]  # each mention's first token
     governing: set[int]  # the first token of each cue that governs a mention
+    deniers: dict[int, int]  # each denied mention's denying cue's first token (L373)
     refused: set[int]  # the first token of each terminator a negation refuses (L288)
 
 
@@ -403,6 +407,7 @@ def _scope_at(
     mentions: list[tuple[str, _Label | None]] = []
     starts: list[int] = []
     governing: set[int] = set()
+    deniers: dict[int, int] = {}
     refused: set[int] = set()
     window = 0  # the words the open pre-cue still governs
     label: _Label | None = None  # the open pre-cue's class
@@ -452,6 +457,7 @@ def _scope_at(
             # L290: a negation post-cue directly after an allergy cue denies its allergens
             for m in allergy_run:
                 mentions[m] = (mentions[m][0], "denied")
+                deniers[m] = i
             governing.add(i)
         elif phrase in post and before is not None:  # tested ahead of pre, per L121
             cue = post[phrase]
@@ -463,6 +469,7 @@ def _scope_at(
                     # L290: a negation with no comma before the allergy cue denies it, and
                     # the denial ends the negation's window
                     mentions[m] = (mentions[m][0], "denied")
+                    deniers[m] = opener
                     denied = True
                 elif m == before or mentions[m][1] is None:
                     mentions[m] = (mentions[m][0], cue)
@@ -503,6 +510,8 @@ def _scope_at(
                 governing.add(opener)
                 stop_fresh = False
             mentions.append((entity, governing_label))
+            if governing_label == "denied":  # L373: a denied-allergy cue's window denies it
+                deniers[len(mentions) - 1] = opener
             if governing_label == "negated":
                 pre_read += 1
             starts.append(i)
@@ -553,7 +562,7 @@ def _scope_at(
         elif not (words and all(token in FUNCTION_WORDS for token in phrase)):
             refusing = stop_list = False
     _allergy_lists(phrases, entities, post, mentions, starts)
-    return _Scoped(tokens, phrases, mentions, starts, governing, refused)
+    return _Scoped(tokens, phrases, mentions, starts, governing, deniers, refused)
 
 
 # what opens the list an allergy post-cue governs right after it (L264): a parenthesis, a
@@ -745,18 +754,59 @@ def new_prescriptions(text: str) -> set[str]:
     return {drug for drug, label in mentions if label == "started" and drug in GENERIC_DRUGS}
 
 
+_DENIAL_VERBS = _phrases(DENIAL_VERBS)  # the denials the chart contests (L373)
+_DOCUMENTED = _phrases(DOCUMENTED_CUES)  # the chart's own record of an allergy (L373)
+_DELABEL = _phrases(DELABEL_CUES)  # the allergy came off the chart (L373)
+
+
+def _starts_any(tokens: Sequence[str], k: int, table: Collection[_Phrase]) -> bool:
+    """Whether one of table's phrases starts at tokens[k]."""
+    return any(tuple(tokens[k : k + len(phrase)]) == phrase for phrase in table)
+
+
+def _contested(scoped: _Scoped, m: int) -> bool:
+    """The chart contests mention m's denial (L373): a DENIAL_VERBS entry made the denial, and
+    a DOCUMENTED_CUES entry later in its sentence names no allergen of its own before the next
+    comma, with no negation between it and the mention or the comma before it, and no
+    DELABEL_CUES entry in the sentence."""
+    tokens, start = scoped.tokens, scoped.starts[m]
+
+    def negated(k: int) -> bool:  # "not listed in chart" records no allergy
+        since = max([start + 1] + [j + 1 for j in range(start, k) if tokens[j] == ","])
+        return any(_starts_any(tokens, j, _NEG_PRE) for j in range(since, k))
+
+    denier = scoped.deniers.get(m)
+    if denier is None or not _starts_any(tokens, denier, _DENIAL_VERBS):
+        return False
+    begin = _clause_start(tokens, start)
+    end = next(
+        (k for k in range(start, len(tokens)) if (tokens[k],) in _CLAUSE_STARTS), len(tokens)
+    )
+    cue = next(
+        (k for k in range(start, end) if _starts_any(tokens, k, _DOCUMENTED) and not negated(k)),
+        None,
+    )
+    if cue is None or any(_starts_any(tokens, k, _DELABEL) for k in range(begin, end)):
+        return False
+    stop = next((k for k in range(cue, end) if tokens[k] == ","), end)
+    return not any(cue < other < stop for other in scoped.starts)
+
+
 def extract_allergies(text: str) -> set[str]:
     """Allergens, normalized: brand->generic, aliases resolved ("PCN" -> "penicillin") (L30).
 
     A key is a generic drug ("amoxicillin"), a class ("penicillin", "sulfa", "nsaid"),
     "nkda", or "nka" (D10). A mention is an allergen where allergy context governs it
-    (L128), unless a negation denies it (L290); "nkda" and "nka" are allergy statements
-    wherever they aren't negated (L129).
+    (L128), unless a negation denies it (L290) and the chart doesn't contest the denial
+    (L373); "nkda" and "nka" are allergy statements wherever they aren't negated (L129).
     """
+    scoped = _scope_at(text, _NAMES, _DRUG_PRE, _DRUG_POST)
     return {
         name
-        for name, label in _drug_mentions(text)
-        if label == "allergy" or (name in NO_ALLERGY_STATEMENTS and label != "negated")
+        for m, (name, label) in enumerate(scoped.mentions)
+        if label == "allergy"
+        or (name in NO_ALLERGY_STATEMENTS and label != "negated")
+        or (label == "denied" and _contested(scoped, m))
     }
 
 

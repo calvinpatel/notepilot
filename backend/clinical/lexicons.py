@@ -191,6 +191,55 @@ DENIED_ALLERGY_CUES: set[str] = {
     "denies allergies to",
 }
 
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+DENIAL_VERBS: set[str] = {
+    # "Patient denies PCN allergy but chart lists it": the patient's word, which the chart's
+    # documentation can contest (L373).
+    "denies",
+    # As "denies", after the allergy ("PCN allergy denied, but listed in chart").
+    "denied",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+DOCUMENTED_CUES: set[str] = {
+    # "Patient denies PCN allergy but chart lists it": the chart records the allergy the
+    # patient denies, and the documented allergy stands until it is delabeled (L373).
+    "chart lists",
+    # As "chart lists" ("but listed in chart").
+    "listed",
+    # As "chart lists" ("though documented in the chart").
+    "documented",
+    # As "chart lists" ("but on file").
+    "on file",
+    # As "chart lists" ("but allergic per chart").
+    "per chart",
+    # As "chart lists" ("but in chart").
+    "in chart",
+    # As "chart lists" ("but charted").
+    "charted",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-10-31.
+DELABEL_CUES: set[str] = {
+    # "PCN allergy delabeled": the allergy came off the chart, so the chart contests no denial
+    # (L373).
+    "delabeled",
+    # As "delabeled", spelled the British way.
+    "delabelled",
+    # "Allergy removed from chart", as "delabeled".
+    "removed",
+    # "Listed in error", as "delabeled".
+    "in error",
+    # "Has since tolerated amoxicillin": the allergy is disproved, as "delabeled".
+    "tolerated",
+    # As "tolerated" ("documented to tolerate cephalosporins").
+    "tolerate",
+    # As "tolerated" ("tolerates amoxicillin").
+    "tolerates",
+    # "Negative challenge", as "tolerated".
+    "negative challenge",
+}
+
 # Clinical sign-off: Calvin Patel, 2026-10-08.
 FINDING_NEG_POST: set[str] = {
     # ROS template order ("Chest pain: denied").
