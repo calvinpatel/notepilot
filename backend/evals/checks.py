@@ -11,6 +11,7 @@ A reference label's text is read by its kind's extractor and states one reading 
 compares a label with texts, and adds says whether a text adds one.
 """
 
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from decimal import Decimal
 from typing import NoReturn, get_args
@@ -36,10 +37,12 @@ from backend.clinical.extract import (
     new_prescriptions,
 )
 from backend.clinical.lexicons import (
+    ASSESSMENT_HEADERS,
     CROSS_REACTIVITY,
     DEFAULT_ROUTE,
     DOSE_MASS_UG,
     DRUG_CLASS,
+    NO_ASSESSMENT,
     R1_GROUP,
     SITE_WORDS,
 )
@@ -663,6 +666,72 @@ def check_quote_informativeness(
                 )
             )
     return findings
+
+
+# L378: a list marker before a body's first word, a sentence's end a header may follow, and a
+# line that opens a header, as the extractor reads one: up to three words and a colon (L128)
+_LIST_MARKER = re.compile(r"(?:[-*]|#?\d+[.)]?)\s+")
+_SENTENCE_END = re.compile(r"\.\s+")
+_HEADER_LINE = re.compile(r"\s*[\w/&-]+(?:[ \t]+[\w/&-]+){0,2}\s*:")
+
+
+def _assessment_header(raw_text: str) -> str | None:
+    """The first ASSESSMENT_HEADERS header the raw text charts over an assessment, as charted
+    (L378): one that starts a line or follows a period and ends in a colon, whose body, the
+    line's rest, else the next line unless that line opens a header, has a first word past
+    any list marker that is no NO_ASSESSMENT entry. None where no header does. At most one
+    header matches at a place, so the set's order can't matter: no entry holds a colon or ends
+    in a space, so where one entry's colon test passes, a longer entry's words can't."""
+    lines = raw_text.splitlines()
+    for n, line in enumerate(lines):
+        for start in (0, *(m.end() for m in _SENTENCE_END.finditer(line))):
+            rest = line[start:].lstrip()
+            folded = rest.casefold()
+            header = next(
+                (
+                    h
+                    for h in ASSESSMENT_HEADERS
+                    if folded.startswith(h) and folded[len(h) :].lstrip().startswith(":")
+                ),
+                None,
+            )
+            if header is None:
+                continue
+            body = rest[len(header) :].lstrip()[1:].strip()
+            if not body and n + 1 < len(lines) and not _HEADER_LINE.match(lines[n + 1]):
+                body = lines[n + 1].strip()
+            if (marker := _LIST_MARKER.match(body)) is not None:
+                body = body[marker.end() :]
+            first = body.casefold()
+            if body and not any(
+                first.startswith(word) and not first[len(word) : len(word) + 1].isalnum()
+                for word in NO_ASSESSMENT
+            ):
+                return rest[: len(header)]
+    return None
+
+
+@register_check(name="assessment_preserved", severity=Severity.WARNING)
+def check_assessment_preserved(
+    note: SOAPNote, raw_text: str, case: EvalCase | None = None, *, config: ChecksConfig
+) -> list[Finding]:
+    """One note-level finding when no claim is in A and the raw text charts an assessment
+    under an ASSESSMENT_HEADERS header (§8.4, L378). It names the header as charted and no
+    claim, so it goes to the banner (§9.7). A spoken assessment, or one under a header the
+    table lacks, drops with no finding, and a pasted radiology impression on a note with no
+    A claim draws one (§8.8).
+    """
+    if any(claim.section == "A" for claim in note.claims):
+        return []
+    header = _assessment_header(raw_text)
+    if header is None:
+        return []
+    return [
+        Finding(
+            detail=f'no A claim; the source charts an assessment under "{header}"',
+            claim_ids=(),
+        )
+    ]
 
 
 @register_check(name="empty_note_on_clinical_input", severity=Severity.WARNING)

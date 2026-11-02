@@ -1179,3 +1179,43 @@ CORRECTION_CUES: set[str] = {
 # "Left knee pain" meets "left knee" at "knee" (L285). must_preserve reads a label at the
 # widest width that gives it one side at one site, and the note at that width (L368).
 SITE_WORDS: tuple[int, ...] = (2, 1)
+
+# Clinical sign-off: Calvin Patel, 2026-11-02.
+ASSESSMENT_HEADERS: set[str] = {
+    # The assessment's own header, as a note charts it (L378).
+    "assessment",
+    # Assessment and plan charted under one header.
+    "assessment and plan",
+    # As "assessment and plan", with a slash.
+    "assessment/plan",
+    # As "assessment and plan", abbreviated as charted.
+    "a/p",
+    # As "a/p", with an ampersand.
+    "a&p",
+    # The clinician's impression, charted where an assessment would be.
+    "impression",
+    # As "impression", with the plan under one header.
+    "impression and plan",
+    # A diagnosis line, abbreviated as charted ("Dx: UTI").
+    "dx",
+    # As "dx", spelled out.
+    "diagnosis",
+}
+
+# Clinical sign-off: Calvin Patel, 2026-11-02.
+NO_ASSESSMENT: set[str] = {
+    # "Assessment: deferred": the header is there, and no assessment under it (L378).
+    "deferred",
+    # As "deferred".
+    "none",
+    # "Assessment: see HPI": a pointer, not an assessment.
+    "see",
+    # As "deferred", abbreviated.
+    "n/a",
+    # "Assessment: pending labs", as "deferred".
+    "pending",
+    # "Assessment: as above", as "see".
+    "as above",
+    # As "deferred", abbreviated.
+    "tbd",
+}

@@ -19,6 +19,7 @@ from backend.evals.checks import (
     adds,
     check_allergy_contraindication,
     check_allergy_preserved,
+    check_assessment_preserved,
     check_diagnosis_in_quote,
     check_dose_consistency,
     check_drug_in_quote,
@@ -1782,6 +1783,84 @@ def test_quote_informativeness_reads_its_minimum_from_the_config() -> None:
 
 
 # --- empty_note_on_clinical_input (§8.4, §10; L55, L164, L165) ----------------------------
+
+
+def test_assessment_preserved_is_a_reference_free_warning() -> None:
+    check = REGISTRY["assessment_preserved"]
+    assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (
+        Severity.WARNING,
+        False,
+        False,
+        "model",
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "header"),
+    [
+        # L378: a header at a line's start or after a period, with a body that states one
+        ("Assessment: community-acquired pneumonia", "Assessment"),
+        ("Assessment and Plan:\n1. CHF exacerbation", "Assessment and Plan"),
+        ("Assessment/Plan: HTN, uncontrolled", "Assessment/Plan"),
+        ("A/P: CHF exacerbation, diurese", "A/P"),
+        ("A&P: CHF exacerbation", "A&P"),
+        ("Impression: pneumonia", "Impression"),
+        ("Impression and plan: CAP, start azithromycin", "Impression and plan"),
+        ("Dx: UTI", "Dx"),
+        ("Diagnosis: UTI", "Diagnosis"),
+        ("BP 120/80. Assessment: HTN.", "Assessment"),
+        ("Assessment:\n- HTN, controlled", "Assessment"),
+        ("  assessment : stable angina", "assessment"),
+        ("Assessment: seemingly viral URI", "Assessment"),
+        # §8.8's cost (L378): a pasted radiology impression reads as a stated assessment
+        ("Impression: no acute process", "Impression"),
+    ],
+)
+def test_assessment_preserved_fires_on_a_stated_assessment_no_claim_carries(
+    raw: str, header: str
+) -> None:
+    note, raw = _note(("Start lisinopril 10 mg daily", None), raw=raw)
+    findings = check_assessment_preserved(note, raw, config=CHECKS_CONFIG)
+    assert [(f.detail, f.claim_ids, f.severity) for f in findings] == [
+        (f'no A claim; the source charts an assessment under "{header}"', (), None)
+    ]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # L378: a body stating none, a header with no body, and no header at all
+        "Assessment: deferred",
+        "Assessment: see HPI",
+        "Assessment: none",
+        "Assessment: N/A",
+        "Assessment: pending labs",
+        "Assessment: as above",
+        "Assessment: TBD",
+        "Assessment:\nPlan: start lisinopril",
+        "Assessment:",
+        "Assessment:\n1. Deferred to cardiology",
+        "The assessment: stable",
+        "Reassessment: stable",
+        "Assessment of the knee: stable",
+        "Patient assessed, pneumonia likely",
+    ],
+)
+def test_assessment_preserved_passes_a_source_stating_no_assessment(raw: str) -> None:
+    note, raw = _note(("Start lisinopril 10 mg daily", None), raw=raw)
+    assert check_assessment_preserved(note, raw, config=CHECKS_CONFIG) == []
+
+
+def test_assessment_preserved_passes_a_note_with_an_a_claim() -> None:
+    raw = "Assessment: community-acquired pneumonia"
+    claim = ClinicalClaim(
+        id=0,
+        text="Community-acquired pneumonia",
+        section="A",
+        source_quote=raw,
+        source_span=(0, len(raw)),
+    )
+    assert check_assessment_preserved(SOAPNote(claims=(claim,)), raw, config=CHECKS_CONFIG) == []
 
 
 def test_empty_note_on_clinical_input_is_a_reference_free_warning() -> None:

@@ -34,3 +34,9 @@ def test_a_changed_table_changes_the_digest(name: str, monkeypatch: pytest.Monke
     monkeypatch.setattr(lexicons, name, changed)
     after = lexicon_digest()
     assert {n for n in before if before[n] != after[n]} == {name}
+
+
+def test_no_assessment_header_holds_a_colon_or_ends_in_a_space() -> None:
+    # L378: so at most one header matches at a place, whatever order the set iterates in
+    headers = lexicons.ASSESSMENT_HEADERS
+    assert [header for header in headers if ":" in header or header != header.strip()] == []
