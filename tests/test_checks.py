@@ -1096,6 +1096,31 @@ def test_dose_consistency_reads_a_dose_in_its_drug_s_reach(
     assert [f.detail for f in check_dose_consistency(note, raw, config=CHECKS_CONFIG)] == fired
 
 
+@pytest.mark.parametrize(
+    ("text", "span", "fired"),
+    [
+        # L377: "nightly" is qhs, so "daily" written for it draws the WARNING
+        (
+            "Atorvastatin 40 mg daily",
+            "Lipitor 40 mg nightly",
+            ["atorvastatin: 40 mg daily in the claim, 40 mg qhs in its source span"],
+        ),
+        ("Atorvastatin 40 mg qhs", "Lipitor 40 mg nightly", []),
+        # and a unit the claim supplies for atorvastatin's number is a dose its span never gives
+        (
+            "Atorvastatin 40 mg nightly",
+            "atorvastatin 40 nightly",
+            ["atorvastatin: 40 mg qhs in the claim, no dose in its source span"],
+        ),
+    ],
+)
+def test_dose_consistency_reads_atorvastatin_and_nightly(
+    text: str, span: str, fired: list[str]
+) -> None:
+    note, raw = _note((text, span))
+    assert [f.detail for f in check_dose_consistency(note, raw, config=CHECKS_CONFIG)] == fired
+
+
 def test_dose_consistency_is_a_reference_free_warning() -> None:
     check = REGISTRY["dose_consistency"]
     assert (check.severity, check.requires_reference, check.needs_judge, check.origin) == (

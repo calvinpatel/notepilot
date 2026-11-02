@@ -1,0 +1,12 @@
+id: detect_nightly_as_daily
+species: detection
+raw_text: |
+  Hyperlipidemia, LDL 162 on the last panel.
+  Lipitor 40 mg nightly.
+trap: "a claim moves a statin charted at bedtime to daily, an interval its span never gives (§8.4, L377)"
+draft:
+  claims:
+    - text: "Atorvastatin 40 mg daily"
+      section: P
+      source_quote: "Lipitor 40 mg nightly"
+expected_flags: [dose_consistency]

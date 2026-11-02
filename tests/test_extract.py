@@ -1146,6 +1146,20 @@ def test_a_dose_belongs_to_the_listed_drug_whose_reach_it_is_in(
     assert extract_doses(text) == doses
 
 
+@pytest.mark.parametrize(
+    ("text", "doses"),
+    [
+        # L377: atorvastatin and its brand, and "nightly" as qhs
+        ("Atorvastatin 40 mg nightly", {"atorvastatin": {Dose(40.0, "mg", "qhs", False)}}),
+        ("Lipitor 40 mg nightly", {"atorvastatin": {Dose(40.0, "mg", "qhs", False)}}),
+        ("Metformin 500 mg nightly", {"metformin": {Dose(500.0, "mg", "qhs", False)}}),
+    ],
+)
+def test_atorvastatin_and_nightly_read_as_charted(text: str, doses: dict[str, set[Dose]]) -> None:
+    assert extract_doses(text) == doses
+    assert extract_drugs(text) == set(doses)
+
+
 _ROUTE_FORMS = [  # L371: each DOSE_ROUTES form and the route it reads as
     ("po", "oral"),
     ("by mouth", "oral"),

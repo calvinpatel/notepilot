@@ -4,7 +4,7 @@ Imports nothing (invariant 13). Each definition here is headed by a clinical sig
 and each entry carries its rationale on the line above it (L120).
 """
 
-# Clinical sign-off: Calvin Patel, 2026-10-09.
+# Clinical sign-off: Calvin Patel, 2026-11-02.
 GENERIC_DRUGS: set[str] = {
     # An analgesic charted by brand ("Tylenol") as often as by name.
     "acetaminophen",
@@ -17,6 +17,9 @@ GENERIC_DRUGS: set[str] = {
     "ampicillin",
     # D13's example: an anticoagulant whose continue/discontinue swap is the dangerous one.
     "apixaban",
+    # A statin charted at bedtime ("Lipitor 40 mg nightly"), which detect_nightly_as_daily
+    # names (L171, L377).
+    "atorvastatin",
     # §8.4's Tier 3 example: the drug a fabricated amoxicillin is read against.
     "azithromycin",
     # A cephalosporin: D9's cross-reactivity cases read it against a penicillin allergy.
@@ -29,7 +32,7 @@ GENERIC_DRUGS: set[str] = {
     "metformin",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-08.
+# Clinical sign-off: Calvin Patel, 2026-11-02.
 BRAND_TO_GENERIC: dict[str, str] = {
     # Acetaminophen's brand.
     "tylenol": "acetaminophen",
@@ -49,6 +52,8 @@ BRAND_TO_GENERIC: dict[str, str] = {
     "amoxicillin/clavulanate": "amoxicillin-clavulanate",
     # Apixaban's brand, common in medication lists.
     "eliquis": "apixaban",
+    # Atorvastatin's brand, as common in medication lists as the name (L377).
+    "lipitor": "atorvastatin",
     # Azithromycin's brand.
     "zithromax": "azithromycin",
     # Azithromycin's five-day dose pack, charted as the drug ("start Z-Pak").
@@ -648,9 +653,9 @@ HEAD_CONFIRMING: set[str] = {
     "confirms",
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-09.
-# A drug's class, for D9's ladder; a class name is its own class. Acetaminophen, apixaban, and
-# metformin have no entry: no class allergy covers them.
+# Clinical sign-off: Calvin Patel, 2026-11-02.
+# A drug's class, for D9's ladder; a class name is its own class. Acetaminophen, apixaban,
+# atorvastatin, and metformin have no entry: no class allergy covers them.
 DRUG_CLASS: dict[str, str] = {
     # An aminopenicillin: a penicillin allergy covers it.
     "amoxicillin": "penicillin",
@@ -736,7 +741,7 @@ DOSE_MASS_UG: dict[str, int] = {
     "μg": 1,
 }
 
-# Clinical sign-off: Calvin Patel, 2026-10-20.
+# Clinical sign-off: Calvin Patel, 2026-11-02.
 DOSE_FREQUENCIES: dict[str, str] = {
     # Once a day.
     "daily": "daily",
@@ -774,6 +779,8 @@ DOSE_FREQUENCIES: dict[str, str] = {
     "qhs": "qhs",
     # Spelled out.
     "at bedtime": "qhs",
+    # A time to take the dose, not any time of night: as "at bedtime" (L377).
+    "nightly": "qhs",
     # Every 4 hours: an interval, kept apart from "qid", which follows waking hours.
     "q4h": "q4h",
     # Spelled out.
