@@ -35,7 +35,7 @@ export function NoteView({ claims, placement, active, pinned, onHover, onFocus, 
           <section key={section} aria-labelledby={`${prefix}-${section}`}>
             <h2 id={`${prefix}-${section}`}>{heading}</h2>
             {inSection.length === 0 ? (
-              <p className="none">{section === "A" ? "No assessment documented" : "none stated"}</p>
+              <p className="none">{section === "A" ? "No assessment in this summary" : "none stated"}</p>
             ) : (
               <ul className="claims">
                 {inSection.map((claim) => (

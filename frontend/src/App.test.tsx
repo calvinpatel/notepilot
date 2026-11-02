@@ -77,7 +77,7 @@ test("the review shows the draft label, the verdict, the sections, and the recei
     expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
   }
   expect(screen.getAllByText("none stated")).toHaveLength(2);
-  expect(screen.getByText("No assessment documented")).toBeTruthy();
+  expect(screen.getByText("No assessment in this summary")).toBeTruthy(); // L379
   const receipt = screen.getByText(/^claude-test · prompt 306bbaa5126a/);
   expect(receipt.textContent).toContain("1899 in / 797 out · note 6f1c2a9e-");
   expect(receipt.closest("a")).toBeNull(); // L58: the id names nothing to fetch
