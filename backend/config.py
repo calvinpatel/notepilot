@@ -8,8 +8,7 @@ bounds, each a validation error: the derived output ceiling, the input bounds, r
 .jsonl name (L232), a judge timeout below summarize's (L314), with persist_enabled a
 database_url on the asyncpg driver (L341), a rate_limit that parses and admits a request,
 and, with a daily budget, no judge (L332), one validation attempt, and room for one request
-(L348). Nor may the environment hold a RATELIMIT_ variable, where slowapi reads settings of
-its own (L349), and forwarded_allow_ips must list addresses or networks, never * (L352).
+(L348), and forwarded_allow_ips must list addresses or networks, never * (L352).
 cors_origins must list origins shaped scheme://host[:port], in lower case, never *
 (L359). A boot error names its rule, never the input, which holds the key and the database
 password (L341).
@@ -44,12 +43,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 RESERVATION_MEASURED_AT: Final = ("claude-haiku-5-5", "306bbaa5126a")  # model, PROMPT_VERSION
 RESERVATION_PROMPT_TOKENS: Final = 1_689
 RESERVATION_TOKENS_PER_INPUT_CHAR: Final = 4.1
-
-# slowapi's Limiter reads settings of its own from RATELIMIT_ variables in the process
-# environment, and some outrank the arguments it is built with: RATELIMIT_ENABLED=false turns
-# off a limiter built with enabled=True (L349). rate_limit is the limit's one knob, so boot
-# refuses them.
-_SLOWAPI_ENV_PREFIX: Final = "RATELIMIT_"
 
 
 def _dotenv_path(env: Mapping[str, str]) -> Path | None:
@@ -146,7 +139,7 @@ class Settings(BaseSettings):
     persist_enabled: bool = False
     database_url: SecretStr | None = None
 
-    # The wallet (§9.8): a per-IP rate limit, a slowapi limit string such as "5/minute", and
+    # The wallet (§9.8): a per-IP rate limit, a limits rate string such as "5/minute", and
     # a daily token budget the route reserves against before any call (L56). Unset, a local
     # run has neither; the deploy sets both (L348).
     rate_limit: str | None = None
@@ -197,7 +190,7 @@ class Settings(BaseSettings):
     @field_validator("rate_limit")
     @classmethod
     def _rate_limit_admits_requests(cls, value: str | None) -> str | None:
-        """rate_limit parses as slowapi's limits read it, and every limit admits a request."""
+        """rate_limit parses as admit's limits read it, and every limit admits a request."""
         if value is None:
             return value
         try:
@@ -394,23 +387,6 @@ class Settings(BaseSettings):
                 {"value": value},
             )
         return value
-
-    @model_validator(mode="after")
-    def _no_slowapi_environment(self) -> Self:
-        """No RATELIMIT_ variable in the environment, where slowapi would read it (L349).
-
-        The error names the variables, never their values.
-        """
-        names = sorted(name for name in os.environ if name.startswith(_SLOWAPI_ENV_PREFIX))
-        if names:
-            raise PydanticCustomError(
-                "slowapi_environment",
-                "{names} set in the environment: slowapi reads RATELIMIT_ variables, and some "
-                "outrank how it is configured; unset them, and set the limit with rate_limit "
-                "(§9.8, L349)",
-                {"names": ", ".join(names)},
-            )
-        return self
 
 
 settings = Settings.model_validate({})

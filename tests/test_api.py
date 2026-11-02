@@ -50,6 +50,7 @@ from anthropic import (
     RateLimitError,
 )
 from anthropic.types import Message
+from fastapi import Request
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import pool
@@ -64,6 +65,7 @@ from backend.api import (
     RequestIdMiddleware,
     SummarizeResponse,
     _budget,
+    _client,
     app,
     get_budget,
     limiter,
@@ -158,13 +160,13 @@ def install_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[Installer]:
     app.dependency_overrides[get_sessions] = lambda: None
     app.dependency_overrides[get_budget] = lambda: None
     _set_rate_limit(monkeypatch, None)
-    limiter.reset()
+    limiter.storage.reset()
     try:
         yield install
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(prior)
-        limiter.reset()
+        limiter.storage.reset()
 
 
 @pytest.fixture
@@ -515,7 +517,7 @@ class _UtcClock:
 
 
 class _EpochClock:
-    """A settable time.time: slowapi's window and the 429's Retry-After both read it."""
+    """A settable time.time: the limit's window and the 429's Retry-After both read it."""
 
     def __init__(self, now: float) -> None:
         self.now = now
@@ -588,7 +590,7 @@ def test_rate_limited_has_the_one_shape_and_is_logged_by_code(
 def test_rate_limited_retry_after_counts_down_to_the_windows_reset(
     client: TestClient, install_fake: Installer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # time.time frozen: slowapi's window opens at the first request and resets 60 s later.
+    # time.time frozen: the limit's window opens at the first request and resets 60 s later.
     clock = _EpochClock(1_800_000_000.0)
     monkeypatch.setattr(time, "time", clock)
     _set_rate_limit(monkeypatch, "1/minute")
@@ -611,14 +613,30 @@ def test_the_rate_limit_is_per_client(
     assert _summarize(second).status_code == 200  # a bucket of its own
 
 
-def test_no_rate_limit_unless_one_is_set(
-    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
-) -> None:
-    # The fixture leaves the limit unset: slowapi is never asked, so it logs nothing either.
-    caplog.set_level(logging.DEBUG)
+def test_no_rate_limit_unless_one_is_set(client: TestClient, install_fake: Installer) -> None:
+    # The fixture leaves the limit unset: admit counts nothing.
     install_fake([tool_use_message(VALID_INPUT) for _ in range(3)])
     assert [_summarize(client).status_code for _ in range(3)] == [200, 200, 200]
-    assert [r.getMessage() for r in caplog.records if r.name == "slowapi"] == []
+
+
+def test_every_limit_in_the_string_counts_and_the_one_hit_sets_retry_after(
+    client: TestClient, install_fake: Installer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # L381: "5/minute;1/hour" admits one request an hour, and the hour's window is the wait
+    monkeypatch.setattr(time, "time", _EpochClock(1_800_000_000.0))
+    _set_rate_limit(monkeypatch, "5/minute;1/hour")
+    install_fake([tool_use_message(VALID_INPUT), tool_use_message(VALID_INPUT)])
+    assert _summarize(client).status_code == 200
+    second = _summarize(client)
+    assert (second.status_code, second.headers["Retry-After"]) == (429, "3600")
+
+
+def test_a_request_with_no_client_address_shares_one_key() -> None:
+    # L381: the limit's key is the client's address, and a request with none shares one
+    assert _client(Request({"type": "http", "client": None, "headers": []})) == "127.0.0.1"
+    assert (
+        _client(Request({"type": "http", "client": ("10.0.0.7", 5), "headers": []})) == "10.0.0.7"
+    )
 
 
 def test_the_budget_admits_what_it_can_reserve_and_no_more(

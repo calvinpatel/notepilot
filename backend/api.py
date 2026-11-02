@@ -18,9 +18,9 @@ max_length (§9.1).
 
 Admission comes before any call (§9.8, L350). admit, a dependency of the route, takes the
 validated request, so a paste that fails validation never reaches it. It checks the client's
-rate limit through slowapi first, so a request over its limit reserves nothing; then it
-reserves the day's worst case against the daily budget, and returns the request it admitted.
-Each defense is off while its setting is unset. RateLimitExceeded becomes 429 rate_limited, with
+rate limit first, a limits fixed window, so a request over its limit reserves nothing; then
+it reserves the day's worst case against the daily budget, and returns the request it admitted.
+Each defense is off while its setting is unset. RateLimitedError becomes 429 rate_limited, with
 Retry-After the seconds until the client's window resets; BudgetExhaustedError becomes 503
 budget_exhausted, with Retry-After the seconds until the next UTC midnight. Each logs one
 admission_refused line with the code, the request id, and the Retry-After.
@@ -105,10 +105,10 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from limits import parse_many
+from limits.storage import MemoryStorage
+from limits.strategies import FixedWindowRateLimiter
 from pydantic import BaseModel, Field, field_validator
-from slowapi import Limiter
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -319,20 +319,35 @@ class SummarizeResponse(BaseModel):
 
 # --- admission: the rate limit, then the reservation (§9.8, L350) -----------------------
 
-# §9.8's per-IP rate limit, in this process's memory, keyed by the client's address
-# (slowapi's get_remote_address). Boot refuses the environment slowapi would read (L349).
-limiter = Limiter(key_func=get_remote_address)
+# §9.8's per-IP rate limit: a fixed window in this process's memory (L381)
+limiter = FixedWindowRateLimiter(MemoryStorage())
+# The key a request with no client address shares, as slowapi's get_remote_address gave it
+_NO_CLIENT: Final = "127.0.0.1"
 
 
-def _rate_limit() -> str:
-    """The limit string, read per request; admit checks the limit only when one is set."""
-    return settings.rate_limit or ""
+class RateLimitedError(Exception):
+    """THIS client is over its limit (§9.8): 429 rate_limited, with Retry-After the seconds
+    until the window of the limit it hit resets."""
+
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(retry_after)
+        self.retry_after = retry_after
 
 
-@limiter.limit(_rate_limit)
-async def _count_against_rate_limit(request: Request) -> None:
-    """Empty: slowapi's decorator counts the request against the client's limit before this
-    runs, and raises RateLimitExceeded past it."""
+def _client(request: Request) -> str:
+    """The limit's key, the client's address (forwarded_allow_ips sets it behind the proxy,
+    L352); a request with none shares one key."""
+    return request.client.host if request.client is not None else _NO_CLIENT
+
+
+def _count_against_rate_limit(request: Request, rate_limit: str) -> None:
+    """Count the request against each limit in the string, for its client; past one, raise
+    RateLimitedError with the seconds until that limit's window resets, rounded up (L381)."""
+    key = _client(request)
+    for item in parse_many(rate_limit):
+        if not limiter.hit(item, key):
+            reset = limiter.get_window_stats(item, key).reset_time
+            raise RateLimitedError(math.ceil(reset - time.time()))
 
 
 class BudgetExhaustedError(Exception):
@@ -407,7 +422,7 @@ async def admit(
     in.
     """
     if settings.rate_limit is not None:
-        await _count_against_rate_limit(request)
+        _count_against_rate_limit(request, settings.rate_limit)
     if budget is not None:
         await budget.reserve(settings.max_request_tokens)
     return req
@@ -511,20 +526,16 @@ async def handle_request_validation_error(
     return _error_response(422, code, rid)
 
 
-@app.exception_handler(RateLimitExceeded)
-async def handle_rate_limit_exceeded(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+@app.exception_handler(RateLimitedError)
+async def handle_rate_limited(request: Request, exc: RateLimitedError) -> JSONResponse:
     """429 rate_limited (§9.4, §9.8): THIS client is over its limit, and it reserved nothing.
 
-    Retry-After is the seconds until the client's window resets, read from slowapi's window
-    for the limit it hit, request.state.view_rate_limit, as slowapi's own handler reads it.
-    Never reads exc.detail or the body (invariant 19). Registered on slowapi's class, which
-    subclasses Starlette's HTTPException: without it, that handler would answer http_error.
+    Retry-After is the seconds admit counted until the window of the limit it hit resets.
+    Never reads the body (invariant 19).
     """
     rid: str = request.state.request_id
     code: ErrorCode = "rate_limited"
-    item, key = request.state.view_rate_limit
-    reset = limiter.limiter.get_window_stats(item, *key).reset_time
-    retry_after = math.ceil(reset - time.time())
+    retry_after = exc.retry_after
     logger.warning("admission_refused code=%s request_id=%s retry_after=%d", code, rid, retry_after)
     return _error_response(429, code, rid, {"Retry-After": str(retry_after)})
 
