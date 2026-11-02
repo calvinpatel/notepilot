@@ -115,6 +115,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.config import settings
 from backend.db import get_sessions, persist
+from backend.evals.checks import clause_spans
 from backend.evals.judge import Judge
 from backend.evals.runner import run_checks
 from backend.grounding import ground
@@ -303,12 +304,17 @@ class SummarizeRequest(BaseModel):
 
 
 class SummarizeResponse(BaseModel):
-    """The wire shape, exactly {note_id, note, report, metadata} (L76, L166): an edge type."""
+    """The wire shape, an edge type (L76, L166, L380).
+
+    Exactly {note_id, note, report, metadata, clause_spans}: clause_spans holds each grounded
+    claim's clause, keyed by its id, for the UI's tint.
+    """
 
     note_id: UUID
     note: SOAPNote
     report: EvalReport
     metadata: RunMetadata
+    clause_spans: dict[int, tuple[int, int]]
 
 
 # --- admission: the rate limit, then the reservation (§9.8, L350) -----------------------
@@ -480,7 +486,13 @@ async def summarize_endpoint(
     background_tasks.add_task(
         persist, sessions, note_id, req.raw_text, note, report, result.metadata
     )
-    return SummarizeResponse(note_id=note_id, note=note, report=report, metadata=result.metadata)
+    return SummarizeResponse(
+        note_id=note_id,
+        note=note,
+        report=report,
+        metadata=result.metadata,
+        clause_spans=clause_spans(note, req.raw_text),  # L380
+    )
 
 
 @app.exception_handler(RequestValidationError)

@@ -34,6 +34,7 @@ from backend.evals.checks import (
     check_quote_informativeness,
     check_route_consistency,
     check_text_entailment_judge,
+    clause_spans,
     clause_text,
     contraindication,
     drug_mentions,
@@ -117,6 +118,18 @@ def test_span_text_is_the_claims_slice_of_the_raw_text() -> None:
 def test_span_text_is_none_for_a_claim_that_grounds_nowhere() -> None:
     note, raw = _note(("Start amoxicillin", None))
     assert span_text(note.claims[0], raw) is None
+
+
+def test_clause_spans_keys_each_grounded_claim_s_clause_by_its_id() -> None:
+    # L380: the clause the claim-local checks read, which the UI tints; a claim that grounds
+    # nowhere has none
+    raw = "Denies chest pain, fever. Has a cough."
+    note, raw = _note(("Fever", "fever"), ("Cough", None), ("A cough", "a cough"), raw=raw)
+    spans = clause_spans(note, raw)
+    assert spans == {0: (0, 24), 2: (25, 37)}
+    assert [raw[slice(*spans[i])] for i in (0, 2)] == [
+        clause_text(note.claims[i], raw) for i in (0, 2)
+    ]
 
 
 def test_clause_text_widens_the_span_to_its_clause() -> None:

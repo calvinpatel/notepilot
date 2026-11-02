@@ -47,6 +47,7 @@ export function report(fields: Partial<Report> & Pick<Report, "results">): Repor
 export function summarizeBody(fields: Partial<Body> & Pick<Body, "note" | "report">): Body {
   return {
     note_id: "6f1c2a9e-0000-4000-8000-000000000001",
+    clause_spans: {},
     metadata: {
       model: "claude-test",
       prompt_version: "306bbaa5126a",

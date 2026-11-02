@@ -74,6 +74,16 @@ def clause_text(claim: ClinicalClaim, raw_text: str) -> str | None:
     return raw_text[slice(*clause_bounds(raw_text, *claim.source_span))]
 
 
+def clause_spans(note: SOAPNote, raw_text: str) -> dict[int, tuple[int, int]]:
+    """Each grounded claim's clause_bounds in raw_text, keyed by its id: the clause the
+    consistency family reads, which the UI tints around the span (L380)."""
+    return {
+        claim.id: clause_bounds(raw_text, *claim.source_span)
+        for claim in note.claims
+        if claim.source_span is not None
+    }
+
+
 def drug_mentions(note: SOAPNote) -> list[tuple[str, tuple[int, ...]]]:
     """Each active drug a claim names, with that claim's id: claims in order, drugs by name (§7).
 

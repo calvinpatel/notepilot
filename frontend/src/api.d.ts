@@ -192,7 +192,10 @@ export interface components {
         };
         /**
          * SummarizeResponse
-         * @description The wire shape, exactly {note_id, note, report, metadata} (L76, L166): an edge type.
+         * @description The wire shape, an edge type (L76, L166, L380).
+         *
+         *     Exactly {note_id, note, report, metadata, clause_spans}: clause_spans holds each grounded
+         *     claim's clause, keyed by its id, for the UI's tint.
          */
         SummarizeResponse: {
             /**
@@ -203,6 +206,13 @@ export interface components {
             note: components["schemas"]["SOAPNote"];
             report: components["schemas"]["EvalReport"];
             metadata: components["schemas"]["RunMetadata"];
+            /** Clause Spans */
+            clause_spans: {
+                [key: string]: [
+                    number,
+                    number
+                ];
+            };
         };
         /** TokenUsage */
         TokenUsage: {

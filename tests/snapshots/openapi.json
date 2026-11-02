@@ -467,6 +467,23 @@
           },
           "metadata": {
             "$ref": "#/components/schemas/RunMetadata"
+          },
+          "clause_spans": {
+            "additionalProperties": {
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "object",
+            "title": "Clause Spans"
           }
         },
         "type": "object",
@@ -474,10 +491,11 @@
           "note_id",
           "note",
           "report",
-          "metadata"
+          "metadata",
+          "clause_spans"
         ],
         "title": "SummarizeResponse",
-        "description": "The wire shape, exactly {note_id, note, report, metadata} (L76, L166): an edge type."
+        "description": "The wire shape, an edge type (L76, L166, L380).\n\nExactly {note_id, note, report, metadata, clause_spans}: clause_spans holds each grounded\nclaim's clause, keyed by its id, for the UI's tint."
       },
       "TokenUsage": {
         "properties": {

@@ -202,7 +202,9 @@ def test_happy_path_returns_note_report_and_metadata(
     response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"note_id", "note", "report", "metadata"}  # L166: the 2a edge shape
+    # L166's edge shape, and L380's clause_spans: the grounded claim's clause, keyed by its id
+    assert set(body) == {"note_id", "note", "report", "metadata", "clause_spans"}
+    assert body["clause_spans"] == {"0": [0, len(GROUNDED_PASTE)]}
     assert UUID(body["note_id"]).version == 4
     (claim,) = body["note"]["claims"]
     fields = ("id", "text", "section", "source_quote", "source_span", "flags")
