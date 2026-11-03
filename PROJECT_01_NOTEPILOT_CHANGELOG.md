@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,40 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.11.8 — the corpus workflow (patch)
+
+Theme: phase 3's manual-dispatch corpus workflow (§14, L213), whose shape the spec left
+unstated: §11 states it, §13 lists it, and §10's "CI needs no secret" names the workflow it
+is true of. No invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L393 §10, §11, §13 — the corpus workflow.** Fill: L213 put the workflow in phase 3's
+  checklist and left its shape unstated. `.github/workflows/corpus.yml` runs
+  `python -m backend.corpus` on `workflow_dispatch` alone, from `main`, a dry run unless
+  `spend` is checked, with `--judge` under `judge`, both off by default, as the command's
+  flags are (L210): a dispatch spends only when asked, and an unchecked one proves the
+  workflow for free. The key is a repository secret, read in the step that runs the command
+  and no other. An unset secret reaches it as an empty string, which `Settings` refuses at
+  boot (L77; measured on a fresh clone: exit 1, `too_short`), so the free dry run proves the
+  key's wiring. The record goes to the runner's temporary directory, outside the checkout,
+  so the tracked record takes no dispatched run and the committed records stay local runs
+  (D5); a spend uploads it as the artifact `corpus-run`, with a 90-day retention. The
+  install skips the dev group, and so does the run: measured with uv 0.13.4, a bare `uv run`
+  after `uv sync --no-dev` installed the twelve packages the dev group adds, mypy among
+  them. The workflow doesn't set `ANTHROPIC_LOG`, though the key isn't what `debug` exposes:
+  measured against a local stub with the locked SDK, it logged a request's message content
+  and not the key, which GitHub masks in a run's log, `SecretStr` in a repr, and `Settings`
+  in a validation error (L341). The job holds the key, so each action is pinned to the
+  commit of a release at least two weeks old: `actions/checkout` v7.0.1, the release
+  `ci.yml`'s floating `v7` resolved to on Nov 2, `astral-sh/setup-uv` v10.2.0, the version
+  `ci.yml` pins, and `actions/upload-artifact` v7.0.2. setup-uv keeps its cache in the
+  runner's temporary directory (read from its source at that tag), so neither the cache nor
+  the record touches the tree `git_dirty` reads. A concurrency group queues a second
+  dispatch, and the job's 60-minute limit sits far above the committed runs, 84 to 115 s of
+  summarize each at concurrency 1, since a cancelled run loses its record. A free test reads
+  both files (§11), and actionlint 1.7.12 finds nothing in `corpus.yml`; the key's wiring,
+  the runner's `git_dirty`, the refusal, and the artifact are measured only by a dispatch.
 
 ## v1.11.7 — v1.11's runs (patch)
 

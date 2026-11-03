@@ -141,6 +141,18 @@ uv run ruff check .         # lint
 
 The database tests need a Postgres 16 they may empty: set `TEST_DATABASE_URL`, for example to `postgresql+asyncpg://localhost/notepilot_test`. Without it, they skip.
 
+## Running the corpus
+
+The scorecard's runs come from `python -m backend.corpus`, which runs each model case three times against the real model and scores every reply. Without `--spend` it is a dry run: it prints the planned calls and the lineage the record would carry, and spends nothing. `--spend` makes the calls, about two cents each at list price, and appends the run's record to `backend/evals/runs/corpus_runs.jsonl`; `--judge` adds the semantic judge's calls, one per claim.
+
+```bash
+uv run python -m backend.corpus                  # a dry run: nothing spent
+uv run python -m backend.corpus --spend          # 72 real API calls; appends the record
+uv run python -m backend.corpus --spend --judge  # and a judge call per claim
+```
+
+The same command runs in GitHub Actions on demand: the `corpus` workflow runs only when dispatched from main (Actions, then corpus, then Run workflow), a dry run unless `spend` is checked, and uploads a spend's record as the artifact `corpus-run`, kept up to 90 days. It reads the API key from the repository secret `ANTHROPIC_API_KEY`, which `ci.yml` never reads; give it a key of its own, not the deploy's, so either can be revoked alone. The records the scorecard reports are local runs, committed with their change; a dispatched run's record stays an artifact.
+
 ## Deploying it
 
 The demo runs on Cloud Run in `us-west1` as a private preview: the service answers only accounts that hold its invoker role, on one instance, with the judge and persistence off. The spec's §9.8 states why each setting is what it is. The steps assume the [gcloud CLI](https://cloud.google.com/sdk/docs/install), signed in, and a project with billing set as its default (`gcloud config set project PROJECT_ID`); replace `PROJECT_ID` below with yours.

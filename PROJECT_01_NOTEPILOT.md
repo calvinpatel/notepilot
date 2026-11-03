@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.7** (patch — v1.11's runs, November 2026).
-Supersedes v1.11.6.
+**Spec version: v1.11.8** (patch — the corpus workflow, November 2026).
+Supersedes v1.11.7.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3772,8 +3772,9 @@ banner, the highlight, every state above, `note_id`, and the per-code error copy
   `CorpusRunRecord`'s `repeats` and `concurrency` declare the two counts' bounds again, and
   a test pins those equal too (L233). A negative `max_validation_retries` would make §5.4's
   loop run zero times and report a model failure the model never had the chance to cause.
-  `tests/conftest.py` sets a dummy `ANTHROPIC_API_KEY` before anything imports `backend`; CI
-  needs no secret, because no test reaches the network. *Test:* a missing key, a negative
+  `tests/conftest.py` sets a dummy `ANTHROPIC_API_KEY` before anything imports `backend`;
+  the push workflow, `ci.yml`, needs no secret, because no test reaches the network: the key
+  is the corpus workflow's alone (§11, L393). *Test:* a missing key, a negative
   retry count, `min_input_chars >= max_input_chars`, a `runs_path` that isn't a `.jsonl`
   file, a `judge_timeout_s` not below `llm_timeout_s`, `judge_enabled` with a
   `daily_token_budget`, and `persist_enabled` without a `database_url` or with one off the
@@ -3825,6 +3826,20 @@ needs Docker, so the gates a session runs locally are the free tiers' (CLAUDE.md
 phase 3 the `frontend` job is one of them (L360): `npm ci` from the lock →
 `frontend/src/api.d.ts` written again from the OpenAPI snapshot, failing on any difference
 or a missing file → `tsc` → `vitest` in jsdom → `vite build`.
+
+**The corpus workflow (L393):** `.github/workflows/corpus.yml` runs the model corpus on
+`workflow_dispatch` alone, from `main`: its first step fails any other ref. It runs
+`python -m backend.corpus` (§8.7), a dry run unless its `spend` input is checked, with
+`--judge` under `judge`; both default off, as the command's flags do (L210). It installs
+without the dev group and reads the API key, a repository secret, in the one step that runs
+the command; `ci.yml` reads no secret (§10). That step's `RUNS_PATH` names a file in the
+runner's temporary directory, outside the checkout, so the tracked record takes no
+dispatched run: the committed records are local runs (D5). A spend's record is uploaded as
+the artifact `corpus-run`, with a 90-day retention. A second dispatch waits for the first:
+two runs on one key contend for its rate limit (L202). The job's 60-minute limit sits far
+above a run's minutes, as a cancelled run loses its record, which is written last. The job
+holds the key, so each action is pinned to a commit. No test runs a workflow; a free test
+reads both files (below).
 
 **Free-tier tests the spec demands** (each guards a specific bug or claim):
 
@@ -3909,6 +3924,11 @@ or a missing file → `tsc` → `vitest` in jsdom → `vite build`.
   calls and lineage, and the spend scores with the module's judge factory, whose judge sits
   on the one client, and prints the judge's usage (L321). The `__main__` line stays
   untested: run as a process, the command reads the real tree's git once model cases exist.
+- **The workflows (L393)** — read as files, since only GitHub runs them: `ci.yml` names no
+  secret; `corpus.yml` runs on `workflow_dispatch` alone, its first step refuses a ref other
+  than `main`, `spend` and `judge` default off, the key is read once, by the step that runs
+  the corpus, that step's `RUNS_PATH` is in the runner's temporary directory and is the path
+  the upload takes, and each action is pinned to a commit.
 - **The committed records replay (L294)** — every line of `runs/corpus_runs.jsonl`, grounded
   and checked from its drafts in `ci` mode (§8.7): a record whose `checks_version` is
   today's replays to its recorded verdicts and fired checks, and every record replays to a
@@ -3967,9 +3987,11 @@ notepilot/
 ├── .dockerignore           ← an allowlist: backend/ and the three files uv sync reads ·
 │                              the frontend's build inputs (L364)
 ├── .github/
-│   └── workflows/ci.yml    ← ruff check + format, mypy, pytest on push, FROM PHASE 1 (L96)
-│                              (model corpus: manual, $) · the image job: build, boot, and
-│                              check the deploy's image (phase 3, L353)
+│   ├── workflows/ci.yml    ← ruff check + format, mypy, pytest on push, FROM PHASE 1 (L96)
+│   │                          (model corpus: manual, $) · the image job: build, boot, and
+│   │                          check the deploy's image (phase 3, L353)
+│   └── workflows/corpus.yml ← the model corpus on dispatch, from main (phase 3, L393): a
+│                              dry run unless spend · uploads the record · reads the key
 ├── backend/
 │   ├── schemas.py          ← DOMAIN. the spine. imports nothing; imported by everything.
 │   ├── tracebacks.py       ← DOMAIN. imports nothing. L69's frames as file:line:function (L112)
