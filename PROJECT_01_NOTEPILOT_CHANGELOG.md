@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393; v1.11.9 at L394), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,35 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.11.9 — the corpus workflow's first dispatches (patch)
+
+Theme: what L393 left to a dispatch, measured by the workflow's first three runs on Nov 3.
+No invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L394 §11 — the corpus workflow's first dispatches.** Fill: L393 left the key's wiring,
+  the runner's `git_dirty`, the refusal, and the artifact to a dispatch. On Nov 3, at
+  `e1a6e7d`, `corpus.yml` ran three times. A dry run from `main` (run 41710374453) passed in
+  14 s: `Settings` booted on the secret (L77), the command printed `git_dirty=False` and its
+  record path, `/home/runner/work/_temp/corpus_run.jsonl`, and the upload was skipped. From
+  a throwaway branch (run 41710734222), the first step failed, printing the branch's ref,
+  and every step after it was skipped, checkout included. A spend, judge off (run
+  41711271312), passed in 1 min 55 s, 1 min 34 s of it the command, and uploaded
+  `corpus-run`: 4,689 bytes, whose SHA-256 matches the digest the upload logged, holding one
+  file of one line, a `CorpusRunRecord` with no key-shaped string. The artifact expires
+  2027-02-01T20:17:57Z, two minutes short of 90 days after its upload, so the repository's
+  cap is not below the 90 days asked. The record's lineage is the eighth committed record's
+  (L392): `prompt_version` 306bbaa5126a, `checks_version` 22d36dc43732, `corpus_version`
+  040ccf7c0d67, k=3 at concurrency 1, judge off, and its input tokens are the same, 123,603
+  (output 15,606, against 15,715). It passed 72 of 72 with no flaky case, and 42 of its 72
+  drafts are byte-identical to the eighth's. One repeat's fired checks moved:
+  `quote_informativeness`, a WARNING, fired on `fidelity_no_htn_urgency`'s repeat 2 as on
+  its repeats 0 and 1, where the eighth record fired it on those two alone. That repeat's
+  draft differs, and the record's drafts replay under today's checks as they ran (L294), so
+  the move is the model's, not the checks'. Not exercised: the concurrency group's queue and
+  the 60-minute limit. The record stays an artifact (D5), outside the committed record, the
+  scorecard, and the replay test.
 
 ## v1.11.8 — the corpus workflow (patch)
 

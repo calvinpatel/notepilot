@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.8** (patch — the corpus workflow, November 2026).
-Supersedes v1.11.7.
+**Spec version: v1.11.9** (patch — the corpus workflow's first dispatches, November 2026).
+Supersedes v1.11.8.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3839,7 +3839,7 @@ the artifact `corpus-run`, with a 90-day retention. A second dispatch waits for 
 two runs on one key contend for its rate limit (L202). The job's 60-minute limit sits far
 above a run's minutes, as a cancelled run loses its record, which is written last. The job
 holds the key, so each action is pinned to a commit. No test runs a workflow; a free test
-reads both files (below).
+reads both files (below), and the first dispatches measured what no test can (L394).
 
 **Free-tier tests the spec demands** (each guards a specific bug or claim):
 
