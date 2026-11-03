@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.6** (patch — what contests a denial, October 2026).
-Supersedes v1.11.5.
+**Spec version: v1.11.7** (patch — v1.11's runs, November 2026).
+Supersedes v1.11.6.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -899,6 +899,8 @@ pass again (L309): this run's drafts replay unmoved under v1.8's checks, and v1.
 v1.9's. Live on 2c's code, with the judge off and on, all 72 pass again (L325), and both
 runs' drafts replay unmoved under v1.9's checks. Live on v1.10's code, with the judge off,
 all 72 pass again (L340): its drafts replay unmoved under 2c's checks, 2c's under v1.10's.
+Live on v1.11's code, with the judge off, all 72 pass again (L392): its drafts replay
+unmoved under v1.10's checks, and v1.10's under v1.11's.
 
 **The encounter is the whole user message (L329).** The paste reaches the model as the user
 message, undelimited, so a line in it that addresses the model reads like an instruction.
@@ -4104,8 +4106,9 @@ renders; a finding it shows is recorded, not fixed. 2b's close runs none (L250):
 shape is unchanged since v1.4's smoke run, and the baseline's 72 calls ran on it. 2c's close
 runs one with the judge on (L324): the judge's call is a new request shape. Between closes,
 a revision that moves `PROMPT_VERSION` runs one too, recorded in its patch: v1.7's (L259),
-and v1.10's with the judge off (L339). No automated test, by design: the annotated tag is
-the record, audited alongside the lines above.
+and v1.10's with the judge off (L339); v1.11 moved neither it nor the pinned model, and
+ran none (L391). No automated test, by design: the annotated tag is the record, audited
+alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 

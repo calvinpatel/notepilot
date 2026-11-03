@@ -16,6 +16,40 @@ anything else. Every change gets the next `L#`.
 
 ---
 
+## v1.11.7 — v1.11's runs (patch)
+
+Theme: v1.11's live measurement, recorded as v1.10.2 recorded v1.10's (L339, L340): no smoke
+run, since v1.11 moves neither the request shape nor the pinned model, then the re-baseline
+on `5e31da1`, v1.11's code complete, with the judge off, as the deploy runs it (L332). No
+invariant moves; CLAUDE.md is unchanged.
+
+**INFO**
+- **L391 §14 — no smoke run for v1.11.** Fill: §14 runs one at a change of request shape or
+  of the pinned model (L81, L185), and v1.11 changes neither. `PROMPT_VERSION`, which hashes
+  everything the model is conditioned on (§5.4), is 306bbaa5126a, as at v1.10's smoke run on
+  `2dde6d7` (L339); `settings.model` is `claude-haiku-5-5`; `orchestrator.py` is unchanged.
+  L283 read the same from four unchanged files, and three of them moved since `2dde6d7`,
+  none in what the call sends (measured): `uv.lock` gained persistence's packages and
+  `limits`' and moved no version, the SDK's included, and `config.py` and `pyproject.toml`
+  gained settings and dependencies the call never reads. Every setting `2dde6d7` had holds
+  its value, and the nine added since are persistence's, the wallet's, the deploy's, and the
+  frontend's (`persist_enabled`, `database_url`, `rate_limit`, `daily_token_budget`, `host`,
+  `port`, `forwarded_allow_ips`, `cors_origins`, `frontend_dist`), none read by the call.
+- **L392 §5.3 — v1.11's re-baseline: all 72 repeats pass.** Measured: one run on `5e31da1`,
+  `git_dirty` false, `prompt_version` 306bbaa5126a, `checks_version` 22d36dc43732,
+  `corpus_version` 040ccf7c0d67, the judge off, 72 repeats, each in one validation attempt.
+  Detection recall 1.0, control specificity 1.0, model fidelity 1.0, `fidelity_caught` None,
+  pass rate 1.0, no flaky case; 123,603 input tokens, as v1.10's run (L340), and 15,715
+  output, 87 more; 297 claims to its 295. Every row names its fired checks' claims (L335).
+  The verdicts hold both ways: this run's drafts replay unmoved under v1.10's checks, their
+  fired checks too, and every committed record's under v1.11's, since no v1.11 commit moved
+  the replay snapshot. Against v1.10's run one repeat's fired checks moved, the model's
+  doing: `fidelity_no_htn_urgency` fired the WARNING `quote_informativeness` on repeats 0
+  and 1, and on 0 and 2 in v1.10's, passing each time. No model case charts a shape v1.11's
+  extraction changes read; their tests and the injected corpus, 24 cases to 29, measure
+  them. The record lands with the README (D5), and the replay test binds to it from there
+  (L294, L357).
+
 ## v1.11.6 — what contests a denial (patch)
 
 Theme: v1.11's commit 10 (#13 entry 34, L373), two fills landing with its code: §8.8 states
