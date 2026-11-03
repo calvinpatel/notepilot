@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.11** (patch — the public deploy's shape, November 2026).
-Supersedes v1.11.10.
+**Spec version: v1.11.12** (patch — the deploy's budget, priced, November 2026).
+Supersedes v1.11.11.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3597,11 +3597,15 @@ channels and shipped a contract that could only express the first).
   `/openapi.json` there too, and a call through them meets the same admission as the page's.
   The key reaches it from Secret Manager, through a runtime identity that can read only that
   secret; one instance serves it (`min = max = 1`), so the process's rate limit and daily
-  budget are the service's. Its request timeout is 600 s, 2.2 times a request's worst case
-  under a budget (270 s, L333, L348). It deploys from a fresh clone of a pushed commit,
-  never from a working tree, whose `.env` holds the key. The README's "Deploying it" section
-  holds the steps, the checklist, the switch back to private, and the probes that measure
-  the proxy's address, the rate limit's key, the budget, and the public path.
+  budget are the service's. Its budget, 5,000,000 tokens, holds 68 requests a UTC day, each
+  charged its reservation (72,939 tokens at the defaults), and at Haiku 5.5's list price in
+  November 2026, at most $0.50 per million tokens for a prompt of up to 100,000 tokens, it
+  bounds a day's spend at $2.50, three times that if a timed-out attempt bills (L399). Its
+  request timeout is 600 s, 2.2 times a request's worst case under a budget (270 s, L333,
+  L348). It deploys from a fresh clone of a pushed commit, never from a working tree, whose
+  `.env` holds the key. The README's "Deploying it" section holds the steps, the checklist,
+  the switch back to private, and the probes that measure the proxy's address, the rate
+  limit's key, the budget, and the public path.
 - **Security headers (L398).** No response sets a `Content-Security-Policy`,
   `X-Frame-Options`, `X-Content-Type-Options`, or `Referrer-Policy`. The page holds no auth,
   no cookie, and no stored note, and it renders the model's text through React alone, never
