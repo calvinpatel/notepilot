@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.9** (patch — the corpus workflow's first dispatches, November 2026).
-Supersedes v1.11.8.
+**Spec version: v1.11.10** (patch — two costs, stated before the public deploy, November
+2026). Supersedes v1.11.9.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -2947,6 +2947,14 @@ know, stated plainly (v1.3):
   the cost stays, and "Denies fever and chills, nausea present" reads the nausea absent
   (prototyped). Closing the window at a comma would unread "no fever, chills, or sweats",
   which is everyday charting.
+- **A hard-wrapped paste** (L143, L147, L193, L395). A line break is a terminator and opens
+  a clause, so a paste wrapped mid-sentence ends a cue's window at the break: "Denies fever,
+  chills, or" wrapped before "nausea" reads the nausea present, so a faithful "Denies
+  nausea" fires `negation_consistency` and "Nausea" passes, and "Hold metformin and" wrapped
+  before "lisinopril" reads the lisinopril active, so a faithful "Lisinopril held" fires
+  `med_status_consistency` and "Continue lisinopril" passes (measured). The corpus keeps its
+  cases unwrapped (L143), but a live paste arrives as its source wrapped it, and the deploy
+  runs the judge off (§9.8); the deferred-amendments issue holds it for v1.12 (entry 57).
 - **A repeat in a certainty window** (L265, L292). A diagnosis named again in a certainty or
   differential window keeps the window's reading unless a confirming cue governs it, so "r/o
   PE, hx of PE" reads rule-out alone and "Likely PNA, PNA treated" probable alone, and a
@@ -3028,7 +3036,12 @@ know, stated plainly (v1.3):
   daily", reads lisinopril 5 mg daily beside 10 mg daily (prototyped). A maximum after a
   comma ends the reach as an unlisted drug does, so "Tylenol max 3 g daily" citing "Tylenol
   650 mg q6h prn pain, max 3000 mg daily" draws a WARNING (prototyped, L387); the
-  deferred-amendments issue holds it for v1.12 (entry 59).
+  deferred-amendments issue holds it for v1.12 (entry 59). Where an unlisted drug ends the
+  reach, it ends it for later doses alone, not for the pending dose's interval or prn:
+  "Lisinopril 10 mg, amlodipine daily" reads lisinopril 10 mg daily, and "Lisinopril 10 mg,
+  amlodipine prn" reads it as needed, so a faithful "Lisinopril 10 mg twice daily" draws a
+  WARNING and "Lisinopril 10 mg daily" passes (measured, L396); the deferred-amendments
+  issue holds it for v1.12 (entry 60).
 - **A route** (L293, L331, L371). `route_consistency` reads the listed drugs' routes alone
   (Vocabulary, above). A supplied oral route raises no finding, since a reader assumes oral:
   "Tylenol 1 g PO TID as needed" citing "Tylenol 1 g tid prn" passes, as a dropped "PO" does

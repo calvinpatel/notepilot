@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393; v1.11.9 at L394), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393; v1.11.9 at L394; v1.11.10 at L395), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,33 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.11.10 — two costs, stated before the public deploy (patch)
+
+Theme: two of #14's entries, 57 and 60, went to v1.12 with no §8.8 line and no test, though
+a build finding gets both and #13's schedule said §8.8 stated each. The public deploy puts
+live pastes in front of both with the judge off, so §8.8 states them first (DP11, ruled Nov
+3). No invariant moves; CLAUDE.md is unchanged.
+
+**CRITICAL**
+- **L395 §8.8 — a hard-wrapped paste, stated.** Fill (#14 entry 57, filed from v1.11's build
+  on Oct 30): a line break is a terminator (L147) and opens a clause (L193), so a paste
+  wrapped mid-sentence ends a cue's window at the break. Measured at `42a7702`: "Denies
+  fever, chills, or" wrapped before "nausea" reads the nausea present, so a faithful "Denies
+  nausea" fires `negation_consistency` and "Nausea" passes; "Hold metformin and" wrapped
+  before "lisinopril" reads the lisinopril active, so a faithful "Lisinopril held" fires
+  `med_status_consistency` and "Continue lisinopril" passes. Text copied from a PDF, an
+  email, or a fixed-width export arrives wrapped, and the corpus keeps its cases unwrapped
+  (L143), so no corpus run measures it. Tests pin both readings and both checks.
+
+**WARNING**
+- **L396 §8.8 — an unlisted drug's interval and prn, stated.** Fill (#14 entry 60, from
+  v1.11's review on Oct 31): L376 ends a drug's reach for later doses, not the pending
+  dose's for its interval or prn, which reaches the next dose, drug, or terminator (L133).
+  Measured at `42a7702`: "Lisinopril 10 mg, amlodipine daily" reads lisinopril 10 mg daily,
+  and "Lisinopril 10 mg, amlodipine prn" reads it as needed, so a faithful "Lisinopril 10 mg
+  twice daily" draws a `dose_consistency` WARNING and "Lisinopril 10 mg daily" passes. Tests
+  pin both readings and both verdicts.
 
 ## v1.11.9 — the corpus workflow's first dispatches (patch)
 

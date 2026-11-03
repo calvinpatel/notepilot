@@ -531,6 +531,16 @@ def test_med_status_consistency_fires_on_a_status_its_span_contradicts(
     assert [f.detail for f in findings] == [detail]
 
 
+def test_med_status_consistency_reads_a_hard_wrapped_hold_to_its_line_break() -> None:
+    # §8.8's cost (L395): the faithful claim fires, and the one that drops the hold passes
+    span = "Hold metformin and\nlisinopril"
+    note, raw = _note(("Lisinopril held", span), ("Continue lisinopril", span), raw=span)
+    findings = check_med_status_consistency(note, raw, config=CHECKS_CONFIG)
+    assert [(f.detail, f.claim_ids) for f in findings] == [
+        ("lisinopril: stopped in the claim, active in its source span", (0,))
+    ]
+
+
 def test_med_status_consistency_passes_a_status_both_sides_assert() -> None:
     note, raw = _note(("Hold metformin", "metformin held"))
     assert check_med_status_consistency(note, raw, config=CHECKS_CONFIG) == []
@@ -743,6 +753,16 @@ def test_negation_consistency_fires_on_an_absence_word_written_as_present() -> N
     note, raw = _note(("Febrile", "Temp 37.0, afebrile"))
     assert [f.detail for f in check_negation_consistency(note, raw, config=CHECKS_CONFIG)] == [
         "fever: present in the claim, absent in its source span"
+    ]
+
+
+def test_negation_consistency_reads_a_hard_wrapped_denial_to_its_line_break() -> None:
+    # §8.8's cost (L395): the faithful claim fires, and the one that drops the denial passes
+    span = "Denies fever, chills, or\nnausea"
+    note, raw = _note(("Denies nausea", span), ("Nausea", span), raw=span)
+    findings = check_negation_consistency(note, raw, config=CHECKS_CONFIG)
+    assert [(f.detail, f.claim_ids) for f in findings] == [
+        ("nausea: absent in the claim, present in its source span", (0,))
     ]
 
 
@@ -1101,6 +1121,13 @@ def test_route_consistency_compares_routes_for_drugs_both_name(
             "Tylenol 650 mg q6h prn pain, max 3000 mg daily",
             ["acetaminophen: 3 g daily in the claim, 650 mg q6h prn in its source span"],
         ),
+        # §8.8's cost (L396): the unlisted drug's interval is charted on the listed drug's dose
+        (
+            "Lisinopril 10 mg twice daily",
+            "Lisinopril 10 mg, amlodipine daily",
+            ["lisinopril: 10 mg bid in the claim, 10 mg daily in its source span"],
+        ),
+        ("Lisinopril 10 mg daily", "Lisinopril 10 mg, amlodipine daily", []),
     ],
 )
 def test_dose_consistency_reads_a_dose_in_its_drug_s_reach(

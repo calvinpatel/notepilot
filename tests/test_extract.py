@@ -349,6 +349,18 @@ def test_text_naming_no_finding_extracts_nothing(text: str) -> None:
     assert extract_findings(text) == {}
 
 
+def test_a_hard_wrapped_list_leaves_the_finding_after_its_line_break_present() -> None:
+    # §8.8's cost (L395): a line break is a terminator (L147) wherever a paste wraps
+    text = "Denies fever, chills, or\nnausea"
+    assert extract_findings(text) == {"fever": {False}, "chills": {False}, "nausea": {True}}
+
+
+def test_a_hard_wrapped_list_leaves_the_drug_after_its_line_break_active() -> None:
+    # §8.8's cost (L395): the stop's window ends at the line break too
+    text = "Hold metformin and\nlisinopril"
+    assert extract_med_status(text) == {"metformin": {"stopped"}, "lisinopril": {"active"}}
+
+
 @pytest.mark.parametrize("line_break", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
 def test_a_line_break_of_each_kind_reads_as_one(line_break: str) -> None:
     text = f"denies fever{line_break}chills"
@@ -1138,6 +1150,9 @@ def test_every_route_word_keeps_a_prn_in_reach(route: str) -> None:
             "Tylenol 650 mg q6h prn pain, max 3000 mg daily",
             {"acetaminophen": {Dose(650.0, "mg", "q6h", True)}},
         ),
+        # §8.8's cost (L396): an unlisted drug's interval or prn reaches the dose before it
+        ("Lisinopril 10 mg, amlodipine daily", {"lisinopril": {Dose(10.0, "mg", "daily", False)}}),
+        ("Lisinopril 10 mg, amlodipine prn", {"lisinopril": {Dose(10.0, "mg", None, True)}}),
     ],
 )
 def test_a_dose_belongs_to_the_listed_drug_whose_reach_it_is_in(
