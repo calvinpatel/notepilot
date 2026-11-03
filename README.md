@@ -179,37 +179,48 @@ Then `gcloud iam service-accounts list` shows `notepilot-run`. Without it, the d
 ### Deploy
 
 ```bash
-cd /tmp/notepilot-deploy && gcloud run deploy notepilot --source . --region us-west1 --no-allow-unauthenticated --service-account notepilot-run@PROJECT_ID.iam.gserviceaccount.com --min-instances 1 --max-instances 1 --timeout 600 --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest --set-env-vars RATE_LIMIT=3/minute,DAILY_TOKEN_BUDGET=1000000,MAX_VALIDATION_RETRIES=0,FORWARDED_ALLOW_IPS=169.254.0.0/16
+cd /tmp/notepilot-deploy && gcloud run deploy notepilot --source . --region us-west1 --allow-unauthenticated --service-account notepilot-run@PROJECT_ID.iam.gserviceaccount.com --min-instances 1 --max-instances 1 --timeout 600 --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest --set-env-vars RATE_LIMIT=3/minute,DAILY_TOKEN_BUDGET=1000000,MAX_VALIDATION_RETRIES=0,FORWARDED_ALLOW_IPS=169.254.0.0/16
 ```
 
-One instance keeps one rate-limit counter and one daily budget, which live in the process. The 600 s timeout is 2.2 times a request's worst case under a budget, 270 s. Boot refuses a budget with validation retries, so `MAX_VALIDATION_RETRIES=0` rides with it. `FORWARDED_ALLOW_IPS` trusts the block Cloud Run's front end connects from, `169.254.0.0/16`, where P1 measured it: link-local addresses aren't routable, so no client can arrive from one. The command repeats the `cd`, so it can't run anywhere but the clone: from another directory, `--source .` would upload that directory.
+One instance keeps one rate-limit counter and one daily budget, which live in the process. The 600 s timeout is 2.2 times a request's worst case under a budget, 270 s. Boot refuses a budget with validation retries, so `MAX_VALIDATION_RETRIES=0` rides with it. `FORWARDED_ALLOW_IPS` trusts the block Cloud Run's front end connects from, `169.254.0.0/16`, where P1 measured it: link-local addresses aren't routable, so no client can arrive from one. The command repeats the `cd`, so it can't run anywhere but the clone: from another directory, `--source .` would upload that directory. `--allow-unauthenticated` grants `allUsers` the invoker role, so anyone can open the page: the budget's 1,000,000 tokens hold 13 summaries a UTC day, since each request charges its reservation (72,939 tokens at the defaults), and the rate limit holds one address to three a minute.
 
-To open the page, `gcloud run services proxy notepilot --region us-west1` serves the service at http://localhost:8080 with your identity. To call it from a shell:
+The page is at the service's URL, which the first line below prints. To call it from a shell:
 
 ```bash
-URL=$(gcloud run services describe notepilot --region us-west1 --format 'value(status.url)')
-TOKEN=$(gcloud auth print-identity-token)
-curl -sS -H "Authorization: Bearer $TOKEN" "$URL/health"
+URL=$(gcloud run services describe notepilot --region us-west1 --format 'value(status.url)') && echo "$URL"
+curl -sS "$URL/health"
 ```
+
+### Taking it private
+
+The first command takes the page off the internet, and the second puts it back:
+
+```bash
+gcloud run services remove-iam-policy-binding notepilot --region us-west1 --member=allUsers --role=roles/run.invoker
+gcloud run services add-iam-policy-binding notepilot --region us-west1 --member=allUsers --role=roles/run.invoker
+```
+
+Private, the service answers only accounts that hold its invoker role: `gcloud run services proxy notepilot --region us-west1` serves it at http://localhost:8080 with your identity.
 
 ### Probes
 
-After a deploy that changes the image or the proxy's trust, run P2 first, at the deploy's budget, then P1, P3, and P4 against a revision whose budget covers exactly two requests: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=145878`, twice what one request reserves at the defaults (72,939). Each update starts a revision with fresh counters, so P2's summarize spends none of the two. The probes send synthetic text only, and at most three of their requests reach the model.
+After a deploy that changes the image or the proxy's trust, run P2 first, at the deploy's budget, then P1, P3, and P4 against a revision whose budget covers exactly two requests, and P5 last: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=145878`, twice what one request reserves at the defaults (72,939). Each update starts a revision with fresh counters, so P2's summarize spends none of the two. The probes send synthetic text only, and at most three of their requests reach the model.
 
 ```bash
 LOGS='resource.type="cloud_run_revision" AND resource.labels.service_name="notepilot"'
 ACCESS='textPayload:"GET /health"'
 POSTS='textPayload:"POST /summarize"'
 paste_of() { python3 -c 'import json, sys; print(json.dumps({"raw_text": ("Synthetic visit, zebrafinch: mild headache for two days, no fever. " * 200)[: int(sys.argv[1])]}))' "$1"; }
-summarize() { curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@" --data @- "$URL/summarize"; echo; }
+summarize() { curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' "$@" --data @- "$URL/summarize"; echo; }
 headers_of() { curl -s -o /dev/null -D - "$1" | grep -iE '^(HTTP|content-type|cache-control)'; }
 ```
 
-- **P2, the review page and `/health`.** Through the proxy, the review page loads under the PHI banner; a synthetic note comes back as claims under the four sections with the verdict line; hovering a claim marks its quote in the source pane, and a click pins it. `headers_of http://localhost:8080/` shows `text/html` with `no-cache`, and `headers_of "http://localhost:8080$(curl -s http://localhost:8080/ | grep -o '/assets/[A-Za-z0-9._-]*\.js' | head -n 1)"` shows the page's script as `text/javascript` with `public, max-age=31536000, immutable`; both use GET, since the app answers HEAD with 405. The `curl` above prints `{"status":"ok"}`.
+- **P2, the review page and `/health`.** At the service's URL, in a private browser window, the review page loads under the PHI banner; a synthetic note comes back as claims under the four sections with the verdict line; hovering a claim marks its quote in the source pane, and a click pins it. `headers_of "$URL/"` shows `text/html` with `no-cache`, and `headers_of "$URL$(curl -s "$URL/" | grep -o '/assets/[A-Za-z0-9._-]*\.js' | head -n 1)"` shows the page's script as `text/javascript` with `public, max-age=31536000, immutable`; both use GET, since the app answers HEAD with 405. The `curl` above prints `{"status":"ok"}`.
 - **P1, the proxy's address.** On a revision with the default trust (`gcloud run services update notepilot --region us-west1 --remove-env-vars FORWARDED_ALLOW_IPS`), `curl` `/health` once; then `gcloud logging read "$LOGS AND $ACCESS" --limit 3 --format 'value(textPayload)'` shows uvicorn's access line for it, and the address it starts with is the proxy's. It must lie in `169.254.0.0/16`. Restore the trust before P3, never with `*`: `gcloud run services update notepilot --region us-west1 --update-env-vars FORWARDED_ALLOW_IPS=169.254.0.0/16`.
 - **P3, a full paste.** `paste_of 12500 | summarize` prints `200`. `gcloud logging read "$LOGS AND textPayload:request_completed" --limit 3 --format 'value(textPayload)'` shows one `request_completed` line for it, and `gcloud logging read "$LOGS" --freshness 1h --format 'value(textPayload)' | grep -c zebrafinch` prints `0`: no paste text in the logs.
 - **P4, the budget.** `paste_of 40 | summarize` prints `200`, the budget's second request; the next, `paste_of 40 | summarize -D -`, prints `503` with a `Retry-After` header.
 - **P1, the key.** `for i in 1 2 3 4 5 6 7; do paste_of 40 | summarize -H "X-Forwarded-For: 203.0.113.$i"; done` prints at least one `429`: seven requests within a minute overrun the limit of three, whatever window they straddle, and when P3 and P4 have already used the minute's three, all seven do. Their access lines, `gcloud logging read "$LOGS AND $POSTS" --limit 12 --format 'value(textPayload)'`, show your own public address, never a `203.0.113.x`; a forged address there means the trust is too wide, and a Google address means it is too narrow. The address may be your IPv6 one: an echo service that answers over IPv4 shows a different address for the same machine.
+- **P5, the public path and the switch.** `curl -sS -o /dev/null -w '%{http_code}' "$URL/health"; echo` prints `200` with no token, and `gcloud run services get-iam-policy notepilot --region us-west1` lists `allUsers` under `roles/run.invoker`. After the first command under "Taking it private", the same `curl` prints `403` once the change applies; after the second, `200` again. Note how long each took.
 
 Then restore the budget: `gcloud run services update notepilot --region us-west1 --update-env-vars DAILY_TOKEN_BUDGET=1000000`.
 

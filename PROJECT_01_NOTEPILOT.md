@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.10** (patch — two costs, stated before the public deploy, November
-2026). Supersedes v1.11.9.
+**Spec version: v1.11.11** (patch — the public deploy's shape, November 2026).
+Supersedes v1.11.10.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3588,14 +3588,25 @@ channels and shipped a contract that could only express the first).
   arrive from a link-local address. The proxy's timeout must exceed a max-size request's
   duration (§5.2, L185, L333), or `max_input_chars` drops: past it, the proxy cuts the
   request, and the page gets the proxy's error body, not §9.4's.
-- **The deploy (L354).** The private preview runs on Cloud Run in `us-west1`. Callers need
-  the service's invoker role; the key reaches it from Secret Manager, through a runtime
-  identity that can read only that secret; one instance serves it (`min = max = 1`), so
-  the process's rate limit and daily budget are the service's. Its request timeout is
-  600 s, 2.2 times a request's worst case under a budget (270 s, L333, L348). It deploys
-  from a fresh clone of a pushed commit, never from a working tree, whose `.env` holds the
-  key. The README's "Deploying it" section holds the steps, the checklist, and the probes
-  that measure the proxy's address, the rate limit's key, and the budget.
+- **The deploy (L354, L397).** The public deploy runs on Cloud Run in `us-west1`, and anyone
+  can call it: the deploy grants `allUsers` the service's invoker role, and removing that
+  binding takes it back to a private preview, whose callers need the role. It serves the
+  platform's own URL: behind a second proxy, a CDN's, uvicorn's walk from the right (L352)
+  would stop at the CDN's address, and every client routed through one of its edges would
+  share that edge's rate-limit key (reasoned, not measured). FastAPI serves `/docs` and
+  `/openapi.json` there too, and a call through them meets the same admission as the page's.
+  The key reaches it from Secret Manager, through a runtime identity that can read only that
+  secret; one instance serves it (`min = max = 1`), so the process's rate limit and daily
+  budget are the service's. Its request timeout is 600 s, 2.2 times a request's worst case
+  under a budget (270 s, L333, L348). It deploys from a fresh clone of a pushed commit,
+  never from a working tree, whose `.env` holds the key. The README's "Deploying it" section
+  holds the steps, the checklist, the switch back to private, and the probes that measure
+  the proxy's address, the rate limit's key, the budget, and the public path.
+- **Security headers (L398).** No response sets a `Content-Security-Policy`,
+  `X-Frame-Options`, `X-Content-Type-Options`, or `Referrer-Policy`. The page holds no auth,
+  no cookie, and no stored note, and it renders the model's text through React alone, never
+  as HTML, so a page that frames it could at most spend the capped daily budget. The
+  deferred-amendments issue holds them for v1.12 (entry 62).
 - **The paste box is a PHI intake (v1.2).** The repo has zero real PHI. The *deployed
   demo* has a text box, and someone will paste a real note into it. Two consequences:
   (1) the UI carries a visible "synthetic / de-identified text only — this is a demo,
