@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.13** (patch — the public deploy, measured, November 2026).
-Supersedes v1.11.12.
+**Spec version: v1.11.14** (patch — Haiku's cost per note, November 2026). Supersedes
+v1.11.13.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -698,7 +698,7 @@ resp = await client.messages.create(
   `extra_body` — L82's test, inverted.
 - **forced `tool_choice`** means the model must populate the structure; it can't wander
   into prose. The pinned model accepts it (L180); Sonnet 5.5, Opus 5.5, and Fable 5.1
-  return 400 for it (found in phase 1's step 3a), which is why §5.5's comparison arm waits.
+  return 400 for it (found in phase 1's step 3a), so §5.5 runs no comparison arm (L401).
 - **Parallel tool use is off (L75).** §5.4's API contract: every `tool_use` block in an
   assistant turn must be answered by a `tool_result` for the same id in the next user
   message — and §5.4's loop answers only the first block. Forcing the tool does not cap the
@@ -1104,10 +1104,10 @@ SDK's — §5.2, a different loop.)
   tier; run the corpus; if a smaller model holds the four metrics (§4.2), you've *earned*
   the right to use it and can prove it. With `usage` summed across validation attempts
   (L13) and the judge's usage kept separately (L7), the claim is *"Haiku holds the safety
-  metrics at a measured fraction of Sonnet's cost per note — including the retries it
-  needed."* The Sonnet arm is decided at phase 3's README step, where the cost line is owed
-  (§14, L337); the deferred-amendments issue holds it (entry 48). Sonnet 5.5 rejects the
-  forced call the pinned model accepts (L180), so no one call shape spans the two.
+  metrics at a measured cost per note — including the retries it needed."* No Sonnet arm
+  runs (L401): Sonnet 5.5 rejects the forced call the pinned model accepts (L180), so no one
+  call shape spans the two, and an arm would need its own call shape, `PROMPT_VERSION`, and
+  paid corpus run. The README's cost line states Haiku's measured cost per note (§14).
 - **`settings.model` is a pinned model id, never an alias (v1.3.2, L84).** An alias can
   resolve to different weights next month with no diff in the repo — every
   `CorpusRunRecord.model` would say the same thing while meaning different things. v1.3.1
