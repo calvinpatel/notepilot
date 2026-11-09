@@ -1,7 +1,8 @@
 # The deploy's image (§9.8, L353, L364): python -m backend.serve over the locked runtime
-# dependencies, with the frontend's bundle. CI's image job builds it, boots it, and checks it
-# (§11). Each image is pinned by the digest its tag resolved to in CI's first build, the tag
-# kept as a label.
+# dependencies, with the frontend's bundle. CI's image job builds it, boots it, and checks
+# it (§11). The Node and uv images are pinned by the digest each tag resolved to in CI's
+# first build, the Python image by the index digest docker-library's repo-info listed for
+# its tag on Nov 9, 2026, each tag kept as a label.
 
 # The frontend's bundle, built from its lock (§9.10). Only dist/ leaves this stage, so the
 # runtime image holds no Node and no node_modules.
@@ -13,15 +14,15 @@ COPY frontend/index.html frontend/tsconfig.json frontend/vite.config.ts ./
 COPY frontend/src/ src/
 RUN npm run build
 
-FROM python:3.14.8-slim@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a
+FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
 # uv from its own image; the base image's Python, never a download.
 COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /bin/uv
 ENV UV_PYTHON_DOWNLOADS=never
 
-# The image's repo root and its working directory, as in a checkout: config.py reads .env
-# from the repo root and slowapi from the working directory (L349), and .dockerignore keeps
-# .env out of the build context.
+# The image's repo root and its working directory, as in a checkout: python -m backend.serve
+# finds backend/ from the working directory, config.py reads .env from the repo root, and
+# .dockerignore keeps .env out of the build context.
 WORKDIR /app
 
 # Three layers: the locked dependencies, backend/, and the bundle where
