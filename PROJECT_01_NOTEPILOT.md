@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.12** (patch — the deploy's budget, priced, November 2026).
-Supersedes v1.11.11.
+**Spec version: v1.11.13** (patch — the public deploy, measured, November 2026).
+Supersedes v1.11.12.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -3605,7 +3605,9 @@ channels and shipped a contract that could only express the first).
   L348). It deploys from a fresh clone of a pushed commit, never from a working tree, whose
   `.env` holds the key. The README's "Deploying it" section holds the steps, the checklist,
   the switch back to private, and the probes that measure the proxy's address, the rate
-  limit's key, the budget, and the public path.
+  limit's key, the budget, and the public path. When measured, the switch back to private
+  took 68 s to turn the page's answers to 403, and restoring the binding brought 200 back at
+  once (L400).
 - **Security headers (L398).** No response sets a `Content-Security-Policy`,
   `X-Frame-Options`, `X-Content-Type-Options`, or `Referrer-Policy`. The page holds no auth,
   no cookie, and no stored note, and it renders the model's text through React alone, never
@@ -4063,7 +4065,7 @@ notepilot/
 │                              test_injected_cases, test_corpus_coverage
 ├── .env.example            ← committed; real .env gitignored
 └── README.md               ← product layer + four-metric scorecard (n, k) + cost line + CI badge
-                               + deploy steps, checklist, probes, results (L354, L355)
+                               + deploy steps, checklist, probes, results (L354, L355, L400)
 ```
 
 **The three documents live at the root, together (v1.3.2, L93).** CLAUDE.md names the other

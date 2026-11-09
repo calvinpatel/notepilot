@@ -92,7 +92,7 @@ Verdicts were stable in all eight runs: no case changed verdict across its three
 |---|---|---|
 | 1 | MVP spine: paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display | done (`v0.1-spine`) |
 | 2 | Grounding ladder, safety checks, synthetic trap corpus, run lineage, semantic judge | done (`v0.2a-safety`, `v0.2b-corpus`, `v0.2c-judge`) |
-| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | in progress (private preview deployed, review UI live) |
+| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | in progress (public deploy and review UI live) |
 | 4 | RAG cross-check against drug-interaction and guideline references | planned |
 
 Out of scope for v1: EHR integration, real patient data, multi-user auth. NotePilot is a portfolio project and is not a medical device.
@@ -155,7 +155,7 @@ The same command runs in GitHub Actions on demand: the `corpus` workflow runs on
 
 ## Deploying it
 
-The demo runs on Cloud Run in `us-west1` as a private preview: the service answers only accounts that hold its invoker role, on one instance, with the judge and persistence off. The spec's §9.8 states why each setting is what it is. The steps assume the [gcloud CLI](https://cloud.google.com/sdk/docs/install), signed in, and a project with billing set as its default (`gcloud config set project PROJECT_ID`); replace `PROJECT_ID` below with yours.
+The demo runs on Cloud Run in `us-west1`, public at [notepilot-kuptj5n2ra-uw.a.run.app](https://notepilot-kuptj5n2ra-uw.a.run.app): anyone can open it, on one instance, with the judge and persistence off. The spec's §9.8 states why each setting is what it is. The steps assume the [gcloud CLI](https://cloud.google.com/sdk/docs/install), signed in, and a project with billing set as its default (`gcloud config set project PROJECT_ID`); replace `PROJECT_ID` below with yours.
 
 Once per project: the APIs, the key in Secret Manager (typed at a silent prompt, so it lands in no file and no shell history), and a runtime identity that can read that one secret and nothing else.
 
@@ -171,7 +171,7 @@ Then `gcloud iam service-accounts list` shows `notepilot-run`. Without it, the d
 ### Before every deploy
 
 - [ ] The commit is pushed, and CI is green on it, the `image` job included.
-- [ ] The `Dockerfile`'s base is the newest CPython patch released at least two weeks before today; a newer one moves in a commit of its own, pinned by digest.
+- [ ] The `Dockerfile`'s base is the newest CPython patch released at least two weeks before today; a newer one moves in a commit of its own, pinned by the index digest [docker-library's repo-info](https://github.com/docker-library/repo-info/tree/master/repos/python/remote) lists for its tag.
 - [ ] The deploy runs from a fresh clone, never the working tree, whose `.env` holds the real key: `rm -rf /tmp/notepilot-deploy && git clone --depth 1 https://github.com/calvinpatel/notepilot /tmp/notepilot-deploy && cd /tmp/notepilot-deploy`. There, `gcloud meta list-files-for-upload` lists the repo's files and no `.env`; any other file in the list, your home folder's among them, means the shell is not in the clone.
 - [ ] `ANTHROPIC_LOG` is never set, on the service or in the shell: with `debug`, the SDK logs each request's options, the pasted note among them (§9.8).
 - [ ] After the deploy, `gcloud run services describe notepilot --region us-west1` shows the settings below and no `ANTHROPIC_LOG`, `JUDGE_ENABLED`, `PERSIST_ENABLED`, or `CORS_ORIGINS`: the page shares the API's origin, and a listed origin's pages could call the API from their visitors' browsers (§9.8).
@@ -193,7 +193,7 @@ curl -sS "$URL/health"
 
 ### Taking it private
 
-The first command takes the page off the internet, and the second puts it back:
+The first command takes the page off the internet, about a minute after it returns (68 s when measured), and the second puts it back at once:
 
 ```bash
 gcloud run services remove-iam-policy-binding notepilot --region us-west1 --member=allUsers --role=roles/run.invoker
@@ -245,6 +245,17 @@ The review UI's deploy, on Oct 29, 2026, across revisions `notepilot-00005` to `
 | P3 | A 12,500-character paste answered `200`, with one `request_completed` line (6,708 input and 96 output tokens); the paste's marker word appeared in the logs 0 times. |
 | P4 | The budget's second request answered `200`; the third, `503` with `Retry-After: 76473`, the seconds left until UTC midnight. |
 | P1, the key | Seven requests with forged `X-Forwarded-For` values answered one `503`, the spent budget, and six `429`, every access line showing the client's own IPv6 address. |
+
+The public deploy, on Nov 9, 2026, from `c4874e0`, across revisions `notepilot-00010` to `notepilot-00014`:
+
+| Probe | Result |
+|---|---|
+| P2 | `/health` answered `{"status":"ok"}`. In a private browser window at the public URL, the review page loaded under the PHI banner, and a synthetic note came back as 10 claims, each quoting the paste, with all 14 checks passed. Its receipt named the prompt (`306bbaa5126a`), the checks (`22d36dc43732`), and the tokens (1,816 input and 486 output) that its `request_completed` line logged. Hovering a claim marked its quote, `three days of productive cough and fever`, and tinted the rest of its clause; a click pinned it, and the mark stayed through a scroll. `/` answered `text/html` with `no-cache`; its script, `text/javascript` with `public, max-age=31536000, immutable`. |
+| P1, the address | The access line began with `169.254.169.126`, inside the trusted block. |
+| P3 | A 12,500-character paste answered `200`, with one `request_completed` line (6,708 input and 96 output tokens); the paste's marker word appeared in the logs 0 times. |
+| P4 | The budget's second request answered `200`; the third, `503` with `Retry-After: 7578`, the seconds left until UTC midnight. |
+| P1, the key | Seven requests with forged `X-Forwarded-For` values answered one `503`, the spent budget, and six `429`, every access line showing the client's own IPv6 address. |
+| P5 | With no token, `/health` answered `200`, and the IAM policy listed `allUsers` under `roles/run.invoker`. After the first command under "Taking it private", it answered `403` 68 s after the command returned, and so did the service's other URL, the one `gcloud run deploy` prints; after the second, both answered `200` at once. |
 
 ## Author
 
