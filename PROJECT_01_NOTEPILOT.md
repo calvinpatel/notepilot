@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Status: **design locked.** Build state: §14's phase tags and CLAUDE.md's "Current phase"
 line (L101).
-**Spec version: v1.12** (minor — the public edit and #14's triage, November 2026).
-Supersedes v1.11.15.
+**Spec version: v1.12.1** (patch — the security headers, built, November 2026).
+Supersedes v1.12.
 
 **Where history lives.** This document states what the system *is*. How it got here —
 each version's deltas, the `L#` ledger, and the `D#` decision records with their
@@ -3481,10 +3481,11 @@ channels and shipped a contract that could only express the first).
   plain text: 200 `OK` for a listed origin, 400 `Disallowed CORS origin` otherwise. That
   body is the one exception to §9.4's one shape: the browser reads it and no script does,
   and it is a fixed string, protocol rather than content (L98's reasoning). *Test:* unset,
-  the middleware stack is the request-id and catch-all middleware alone, and a preflight is
-  a 405 in the one shape; set, in a fresh interpreter, CORS is outermost, a listed origin's
-  preflight is allowed and another's refused, a 422 carries the listed origin and exposes
-  `Retry-After`, and the catch-all's 500 carries the origin too.
+  the middleware stack is the security-headers, request-id, and catch-all middleware,
+  outermost first, and a preflight is a 405 in the one shape; set, in a fresh interpreter,
+  CORS is outermost, a listed origin's preflight is allowed, without the security headers,
+  and another's refused, a 422 carries the listed origin and exposes `Retry-After`, and the
+  catch-all's 500 carries the origin and the security headers (L408).
 - **Logging / observability (v1.1; PHI-scoped v1.3).** stdlib `logging` configured once in
   `api.py` — plain text with timestamp, level, and logger name; fields rendered in the
   message as `key=value` (L79): per-request id, model, latency, token counts, error *codes*. v1.3 (L53) makes one
@@ -3589,7 +3590,12 @@ channels and shipped a contract that could only express the first).
   middleware, so it wraps the catch-all and the catch-all's 500 carries them; CORS stays
   outermost (L359), and its preflight answer, in the dev loop alone, is the one response
   without them. FastAPI serves no `/docs` or `/redoc`: both pages load a CDN's unpinned
-  scripts, which the policy refuses.
+  scripts, which the policy refuses. `/docs/oauth2-redirect`, served only beside `/docs`,
+  goes with it. The middleware appends the four to each response's start and no route sets
+  one, so each appears once (L408). *Test:* the page, its script and stylesheet in the media
+  types `nosniff` holds them to, a missing asset, `/health`, `/openapi.json`, the
+  framework's 404 and 405, a 422, a summarized note, the catch-all's 500, and the three docs
+  paths, each a 404, carry each header once.
 - **The paste box is a PHI intake (v1.2).** The repo has zero real PHI. The *deployed
   demo* has a text box, and someone will paste a real note into it. Two consequences:
   (1) the UI carries a visible "synthetic / de-identified text only — this is a demo,

@@ -1,6 +1,7 @@
 """Pins the /summarize HTTP boundary: its input, its judge, its error bodies, how
-/openapi.json documents them, and its log lines (spec §9.1, §9.4, §9.6, §9.8; L14, L53, L54,
-L69, L70, L71, L73, L76, L79, L80, L87, L98, L99, L166, L318, L347, L350, L351, L358).
+/openapi.json documents them, its log lines, and the security headers on every response
+(spec §9.1, §9.4, §9.6, §9.8; L14, L53, L54, L69, L70, L71, L73, L76, L79, L80, L87, L98,
+L99, L166, L318, L347, L350, L351, L358, L407).
 
 Every request goes through the default TestClient (raise_server_exceptions=True). The
 catch-all turns any Exception raised inside the app into a 500, so a 500 alone proves
@@ -32,6 +33,7 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Final, NamedTuple
 from uuid import UUID
 
@@ -63,6 +65,7 @@ from backend.api import (
     CatchAllMiddleware,
     DailyTokenBudget,
     RequestIdMiddleware,
+    SecurityHeadersMiddleware,
     SummarizeResponse,
     _budget,
     _client,
@@ -876,11 +879,12 @@ def test_request_ids_differ_per_request(client: TestClient) -> None:
 
 
 def test_user_middleware_order() -> None:
-    # Outermost first. The order is invisible through any body: both middlewares share
+    # Outermost first. The inner two's order is invisible through any body: both share
     # scope["state"], so a catch-all registered OUTSIDE the request-id middleware still finds
-    # the id by the time an exception reaches it. Only the stack itself can pin it.
+    # the id by the time an exception reaches it. Only the stack itself can pin it. The
+    # headers middleware's place shows in the catch-all's 500 too (L407).
     classes: list[object] = [m.cls for m in app.user_middleware]
-    assert classes == [RequestIdMiddleware, CatchAllMiddleware]
+    assert classes == [SecurityHeadersMiddleware, RequestIdMiddleware, CatchAllMiddleware]
 
 
 # --- CORS (§9.8; L359) -------------------------------------------------------------------
@@ -933,6 +937,7 @@ _CORS_SCRIPT: Final = "\n".join(
         "        listed.status_code,",
         "        listed.headers.get('access-control-allow-origin'),",
         "        listed.headers.get('access-control-allow-methods'),",
+        "        listed.headers.get('content-security-policy'),",
         "    ],",
         "    'other': [",
         "        other.status_code,",
@@ -949,6 +954,7 @@ _CORS_SCRIPT: Final = "\n".join(
         "        crashed.status_code,",
         "        crashed.json()['error'],",
         "        crashed.headers.get('access-control-allow-origin'),",
+        "        crashed.headers.get('content-security-policy'),",
         "    ],",
         "}))",
     ]
@@ -957,18 +963,29 @@ _CORS_SCRIPT: Final = "\n".join(
 
 def test_cors_origins_registers_cors_outermost(monkeypatch: pytest.MonkeyPatch) -> None:
     # L359: outermost, so the catch-all's 500 carries the listed origin too; a browser lets
-    # the page read no cross-origin body without it. The preflight is Starlette's plain text.
+    # the page read no cross-origin body without it. The preflight is Starlette's plain text,
+    # answered outside the headers middleware, so it alone goes without them (L407).
     monkeypatch.setenv("CORS_ORIGINS", _DEV_ORIGIN)
     for name in ("RATE_LIMIT", "DAILY_TOKEN_BUDGET", "JUDGE_ENABLED", "PERSIST_ENABLED"):
         monkeypatch.delenv(name, raising=False)  # admission and the judge stay out of it
     completed = run_fresh(_CORS_SCRIPT)
     assert completed.returncode == 0, completed.stderr
     seen = json.loads(completed.stdout.splitlines()[-1])
-    assert seen["middleware"] == ["CORSMiddleware", "RequestIdMiddleware", "CatchAllMiddleware"]
-    assert seen["listed"] == [200, _DEV_ORIGIN, "POST"]
+    assert seen["middleware"] == [
+        "CORSMiddleware",
+        "SecurityHeadersMiddleware",
+        "RequestIdMiddleware",
+        "CatchAllMiddleware",
+    ]
+    assert seen["listed"] == [200, _DEV_ORIGIN, "POST", None]
     assert seen["other"] == [400, "Disallowed CORS origin", None]
     assert seen["invalid"] == [422, "input_invalid", _DEV_ORIGIN, "Retry-After"]
-    assert seen["crashed"] == [500, "internal_error", _DEV_ORIGIN]
+    assert seen["crashed"] == [
+        500,
+        "internal_error",
+        _DEV_ORIGIN,
+        _SECURITY_HEADERS["content-security-policy"],
+    ]
 
 
 # --- 500 internal_error: the catch-all (§9.4, §9.8; L53, L69, L73, L79) ----------------
@@ -1103,6 +1120,108 @@ async def test_catch_all_passes_non_http_scopes_through() -> None:
     sent, escaped = await _drive(CatchAllMiddleware(raises), {"type": "lifespan"})
     assert escaped is exc  # untouched: the object itself, not handled, not wrapped
     assert sent == []
+
+
+# --- the security headers (§9.8; L407) --------------------------------------------------
+
+# By value, not read from api.py, so a change to the policy is a reviewed diff here too.
+_SECURITY_HEADERS: Final = {
+    "content-security-policy": (
+        "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ),
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+}
+_SCRIPT_ASSET: Final = "index-0a1b2c3d.js"
+_STYLE_ASSET: Final = "index-0a1b2c3d.css"
+
+
+class _Probe(NamedTuple):
+    """A request the headers test sends, the status it must answer, and, for an asset, the
+    media type nosniff makes the browser hold it to."""
+
+    method: str
+    path: str
+    status: int
+    body: dict[str, object] | None = None
+    media: str | None = None
+
+
+# Twelve answers the app gives without the model: the page and its assets, a missing asset,
+# health, the API's schema, the framework's 404 and 405, a 422, and the docs pages, which
+# are off (L407).
+_PROBES: Final[dict[str, _Probe]] = {
+    "page": _Probe("GET", "/", 200, media="text/html"),
+    "script": _Probe("GET", f"/assets/{_SCRIPT_ASSET}", 200, media="text/javascript"),
+    "stylesheet": _Probe("GET", f"/assets/{_STYLE_ASSET}", 200, media="text/css"),
+    "missing-asset": _Probe("GET", "/assets/missing.js", 404),
+    "health": _Probe("GET", "/health", 200),
+    "openapi": _Probe("GET", "/openapi.json", 200),
+    "unknown-path": _Probe("GET", "/no-such-path", 404),
+    "wrong-method": _Probe("GET", "/summarize", 405),
+    "invalid-paste": _Probe("POST", "/summarize", 422, body={"raw_text": "hi"}),
+    "docs": _Probe("GET", "/docs", 404),
+    "redoc": _Probe("GET", "/redoc", 404),
+    "docs-oauth2-redirect": _Probe("GET", "/docs/oauth2-redirect", 404),
+}
+
+
+@pytest.fixture
+def built_page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A small build, so the page and its assets answer (L364), with the rate limit kept off."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>NotePilot</title>", encoding="utf-8")
+    (dist / "assets" / _SCRIPT_ASSET).write_text("console.log(1);", encoding="utf-8")
+    (dist / "assets" / _STYLE_ASSET).write_text("body { margin: 0; }", encoding="utf-8")
+    update = {"frontend_dist": dist, "rate_limit": None}
+    monkeypatch.setattr("backend.api.settings", settings.model_copy(update=update))
+    return dist
+
+
+def _assert_security_headers(response: httpx2.Response) -> None:
+    """Each of §9.8's four headers, exactly once, with its value (L407)."""
+    for name, value in _SECURITY_HEADERS.items():
+        assert response.headers.get_list(name) == [value], name
+
+
+@pytest.mark.parametrize("probe", _PROBES.values(), ids=_PROBES.keys())
+def test_every_response_carries_the_security_headers(
+    client: TestClient, built_page: Path, probe: _Probe
+) -> None:
+    response = client.request(probe.method, probe.path, json=probe.body)
+    assert response.status_code == probe.status  # the docs pages are off; /openapi.json stays
+    if probe.media is not None:
+        assert response.headers["content-type"].split(";")[0] == probe.media
+    _assert_security_headers(response)
+
+
+def test_a_summarized_note_carries_the_security_headers(
+    client: TestClient, install_fake: Installer
+) -> None:
+    install_fake([_decoy()])
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
+    assert response.status_code == 200
+    _assert_security_headers(response)
+
+
+def test_the_catch_alls_500_carries_the_security_headers(
+    client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
+) -> None:
+    # L407: the headers middleware wraps the catch-all, so its 500 carries them too
+    caplog.set_level(logging.DEBUG)
+    install_fake([_chained_unexpected()])
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
+    assert response.status_code == _INTERNAL_ERROR.status
+    ours = [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "backend.api" and "code=internal_error" in r.getMessage()
+    ]
+    assert len(ours) == 1
+    assert _UNHANDLED_RE.fullmatch(ours[0])  # the catch-all's own line, naming _Unexpected
+    _assert_security_headers(response)
 
 
 # --- framework errors in the one shape (§9.4; L73, L79, L80, L98) -----------------------

@@ -102,7 +102,6 @@ The checks are deterministic and tested, and they are narrow. The spec states ev
 - **Past or current.** No check reads whether a diagnosis is history or current: "Myocardial infarction" citing "Hx of MI 2018" fires nothing.
 - **The judge is off in the demo.** The semantic judge runs in judged corpus runs and locally; the public page runs the deterministic checks alone.
 - **Small n.** The scorecard's 24 cases × 3 runs catch a regression on these cases, and its note says why they don't estimate accuracy.
-- **No security headers.** No response sets a Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, or Referrer-Policy. The page holds no login, cookie, or stored note, so a page that frames it could at most spend the capped daily budget.
 - **One process, one count.** The rate limit and the daily budget live in the one instance's memory, so a restart or a new revision starts both from zero: the $2.50 bound holds for each process's day, not for a calendar day that holds a deploy.
 
 ## Roadmap
@@ -131,7 +130,7 @@ cp .env.example .env        # then add your ANTHROPIC_API_KEY
 uv run uvicorn backend.api:app --reload
 ```
 
-Open http://127.0.0.1:8000/ for the review page and http://127.0.0.1:8000/docs for the API. The server serves the page from `frontend/dist`, the build; without one, `/` answers 404 and the API still works. Every summarize, here and in the loop below, is a real, paid API call.
+Open http://127.0.0.1:8000/ for the review page; http://127.0.0.1:8000/openapi.json serves the API's schema. The server serves the page from `frontend/dist`, the build; without one, `/` answers 404 and the API still works. Every summarize, here and in the loop below, is a real, paid API call.
 
 To work on the page with hot reload, run the API with the dev server's origin allowed, and Vite against it in a second terminal, then open http://localhost:5173:
 

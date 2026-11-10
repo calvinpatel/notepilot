@@ -73,6 +73,15 @@ answers a preflight itself, in plain text, the one body outside §9.4's shape. U
 registered: the deploy's page shares the API's origin, and an OPTIONS request keeps §9.4's
 405 body.
 
+Every response carries four security headers (§9.8, L407): a Content-Security-Policy of
+default-src 'self' with base-uri, form-action, and frame-ancestors each 'none',
+X-Frame-Options DENY, X-Content-Type-Options nosniff, and Referrer-Policy no-referrer.
+SecurityHeadersMiddleware, a pure ASGI middleware outside RequestIdMiddleware, adds each once
+to every response it wraps, the catch-all's 500 included; a CORS preflight, which
+CORSMiddleware answers outside it, is the one response without them. The app serves no /docs
+or /redoc: FastAPI's pages for them load a CDN's scripts, which the policy refuses.
+/openapi.json stays.
+
 request_id is minted per request by RequestIdMiddleware (L73), a pure ASGI middleware, on
 request.state. The root logger is configured once here (§9.8): plain text with timestamp,
 level, and logger name; fields render in the message as key=value pairs via %-style args,
@@ -238,14 +247,57 @@ class CatchAllMiddleware:
             await _error_response(500, code, rid)(scope, receive, send)
 
 
+# §9.8's security headers (L407), lower case as ASGI carries them
+_SECURITY_HEADERS: Final = (
+    (
+        b"content-security-policy",
+        b"default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    ),
+    (b"x-frame-options", b"DENY"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+)
+
+
+class SecurityHeadersMiddleware:
+    """Adds §9.8's four security headers to every response it wraps, each once (L407).
+
+    Pure ASGI, as the other two are: it adds the headers to each http.response.start on its
+    way out and touches nothing else. No route sets any of the four, so it appends them.
+    Registered after RequestIdMiddleware, it wraps the catch-all, whose 500 carries them
+    (test_user_middleware_order). A scope that starts no HTTP response passes through as it
+    came.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        async def with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                message = {**message, "headers": [*message.get("headers", ()), *_SECURITY_HEADERS]}
+            await send(message)
+
+        await self.app(scope, receive, with_headers)
+
+
 # The catch-all can answer any route (L69), so each documents a 500 (L358).
 _ANY_ROUTE_ERRORS: Final[Mapping[int, tuple[ErrorCode, ...]]] = {500: ("internal_error",)}
 
-app = FastAPI(title="NotePilot", responses=_documented(_ANY_ROUTE_ERRORS))
+# L407: FastAPI's /docs and /redoc pages load a CDN's scripts, which the security headers'
+# policy refuses, so neither is served; /openapi.json stays.
+app = FastAPI(
+    title="NotePilot",
+    responses=_documented(_ANY_ROUTE_ERRORS),
+    docs_url=None,
+    redoc_url=None,
+)
 # add_middleware inserts at index 0, so the last call is outermost: RequestIdMiddleware wraps
-# CatchAllMiddleware, which reads the id it minted.
+# CatchAllMiddleware, which reads the id it minted, and SecurityHeadersMiddleware wraps both,
+# so the catch-all's 500 carries its headers (L407).
 app.add_middleware(CatchAllMiddleware)
 app.add_middleware(RequestIdMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 # L359: last, so outermost; its headers reach every response, the catch-all's 500 included.
 if settings.cors_origins is not None:
     app.add_middleware(
@@ -321,7 +373,7 @@ class SummarizeResponse(BaseModel):
 
 # §9.8's per-IP rate limit: a fixed window in this process's memory (L381)
 limiter = FixedWindowRateLimiter(MemoryStorage())
-# The key a request with no client address shares, as slowapi's get_remote_address gave it
+# The key a request with no client address shares, the one the rate limit used before L381
 _NO_CLIENT: Final = "127.0.0.1"
 
 
