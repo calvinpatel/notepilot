@@ -382,6 +382,32 @@ async def test_a_summarized_note_is_in_its_row_after_the_response(
     assert (row.input_tokens, row.output_tokens) == (123, 456)
 
 
+@pytest.mark.anyio
+async def test_a_judged_note_is_in_its_row_with_the_judges_cost(
+    client: TestClient, install_fake: Installer, db_sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    # §17's integration test: a fake client, a fake judge, and a test database. The row keeps
+    # the judge's usage beside summarize's (L7), and its report names the judge (L336).
+    judge = FakeJudge(
+        usage=TokenUsage(input_tokens=7, output_tokens=3), script=entail_all_but("fact-1")
+    )
+    app.dependency_overrides[get_judge] = lambda: judge
+    app.dependency_overrides[get_sessions] = lambda: db_sessions
+    install_fake([tool_use_message(VALID_INPUT, input_tokens=123, output_tokens=456)])
+    response = client.post("/summarize", json={"raw_text": GROUNDED_PASTE})
+    assert response.status_code == 200
+    body = response.json()
+    async with db_sessions() as session:
+        row = await session.get(NoteRecord, UUID(body["note_id"]))
+    assert row is not None
+    assert row.report == body["report"]
+    assert row.report["judge_version"] == judge.version
+    (judged,) = [r for r in row.report["results"] if r["check"] == "text_entailment_judge"]
+    assert (judged["passed"], judged["claim_ids"]) == (False, [0])
+    assert (row.input_tokens, row.output_tokens) == (123, 456)
+    assert (row.judge_input_tokens, row.judge_output_tokens) == (7, 3)
+
+
 def test_a_failed_write_still_answers_200_and_logs_no_paste(
     client: TestClient, install_fake: Installer, caplog: pytest.LogCaptureFixture
 ) -> None:
