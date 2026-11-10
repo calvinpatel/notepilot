@@ -8,7 +8,7 @@
 
 NotePilot takes free-text from a patient encounter (a transcript, a clinician's dictation, a scribe's notes) and produces a structured SOAP note. Every claim in the note is grounded back to the source text, and a deterministic safety layer checks the output for the classes of error that matter clinically — a dropped allergy, a contraindicated prescription, a wrong side, a severity that got downgraded in summarization.
 
-> **Status:** Phase 1 — MVP spine — is done, tagged `v0.1-spine`: the pipeline runs end-to-end. Phase 2a — the safety layer, proven for free — is done, tagged `v0.2a-safety`: grounding and the deterministic checks run on every note. Phase 2b — the regression thesis goes live — is done, tagged `v0.2b-corpus`: 24 model cases run against the real model, with the baseline [scorecard](#safety-scorecard) below. Phase 2c — the semantic backstop — is done, tagged `v0.2c-judge`: a second model call checks each claim against its source, at WARNING and off by default, with its first live measurement in the scorecard. Phase 3 — full-stack real — is done, tagged `v0.3-shipped`: the review UI is live at the link above, public on a capped daily budget, with Postgres persistence built and tested but off in the deploy, CI checking every push, and the corpus run on demand through GitHub Actions. See [Roadmap](#roadmap).
+> **Status:** Phase 1 — MVP spine — is done, tagged `v0.1-spine`: the pipeline runs end-to-end. Phase 2a — the safety layer, proven for free — is done, tagged `v0.2a-safety`: grounding and the deterministic checks run on every note. Phase 2b — the regression thesis goes live — is done, tagged `v0.2b-corpus`: 24 model cases run against the real model, with the baseline [scorecard](#safety-scorecard) below. Phase 2c — the semantic backstop — is done, tagged `v0.2c-judge`: a second model call checks each claim against its source, at WARNING and off by default, with its first live measurement in the scorecard. Phase 3 — full-stack real — is done, tagged `v0.3-shipped`: the review UI is live at the link above, public on a capped daily budget, with Postgres persistence built and tested but off in the deploy, CI checking every push, and the corpus run on demand through GitHub Actions. NotePilot stops there: phase 4 is parked. See [Roadmap](#roadmap).
 
 ---
 
@@ -111,7 +111,7 @@ The checks are deterministic and tested, and they are narrow. The spec states ev
 | 1 | MVP spine: paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display | done (`v0.1-spine`) |
 | 2 | Grounding ladder, safety checks, synthetic trap corpus, run lineage, semantic judge | done (`v0.2a-safety`, `v0.2b-corpus`, `v0.2c-judge`) |
 | 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | done (`v0.3-shipped`) |
-| 4 | RAG cross-check against drug-interaction and guideline references | planned |
+| 4 | RAG cross-check against drug-interaction and guideline references | parked |
 
 Out of scope for v1: EHR integration, real patient data, multi-user auth. NotePilot is a portfolio project and is not a medical device.
 
@@ -276,6 +276,15 @@ The public deploy, on Nov 9, 2026, from `c4874e0`, across revisions `notepilot-0
 | P4 | The budget's second request answered `200`; the third, `503` with `Retry-After: 7578`, the seconds left until UTC midnight. |
 | P1, the key | Seven requests with forged `X-Forwarded-For` values answered one `503`, the spent budget, and six `429`, every access line showing the client's own IPv6 address. |
 | P5 | With no token, `/health` answered `200`, and the IAM policy listed `allUsers` under `roles/run.invoker`. After the first command under "Taking it private", it answered `403` 68 s after the command returned, and so did the service's other URL, the one `gcloud run deploy` prints; after the second, both answered `200` at once. |
+
+The headers' redeploy, on Nov 10, 2026, from `b6e46e9`, as revision `notepilot-00015-csm`. It changed only the header middleware and the docs routes, so P1, P3's full paste, P4, and P5's switch were not run again:
+
+| Probe | Result |
+|---|---|
+| Headers | `/`, the page's script, `/health`, `/docs` (404), and a two-character paste (422) each carried `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy` once, with the spec's values; the page kept `text/html` and `no-cache`, its script `text/javascript` and `immutable`. |
+| P2 | In Chrome, the review page loaded under the PHI banner, and a synthetic note came back as 3 claims; 14 checks ran, and the allergy check flagged CRITICAL on the allergy and amoxicillin claims. Its receipt named prompt `306bbaa5126a`, checks `22d36dc43732`, and 1,728 input and 177 output tokens. After a reload, the console held no error and DevTools reported no issues. |
+| P3, the logs | The paste's marker word appeared in the logs 0 times. |
+| P5, the policy | The IAM policy listed `allUsers` under `roles/run.invoker`. |
 
 ## Author
 

@@ -105,8 +105,9 @@ staging area for decisions.
 
 Build order is spec §14, phase by phase, strictly sequential.
 
-**Current phase: 4 — RAG deepening.** *(Update this line as phases
-complete.)*
+**Current phase: none — the build stops at phase 3 (`v0.3-shipped`).** Phase 4 is parked; if
+it is ever built, it opens with its design revision (§14, L406). *(Update this line as
+phases complete.)*
 
 - **Closing a phase** follows §14's preamble; each tag is named in its phase's heading.
 - If a request belongs to a later phase or the §15 backlog, say so and point there instead

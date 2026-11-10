@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393; v1.11.9 at L394; v1.11.10 at L395; v1.11.11 at L397; v1.11.12 at L399; v1.11.13 at L400; v1.11.14 at L401; v1.11.15 at L402; v1.12 at L403; v1.12.1 at L408), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393; v1.11.9 at L394; v1.11.10 at L395; v1.11.11 at L397; v1.11.12 at L399; v1.11.13 at L400; v1.11.14 at L401; v1.11.15 at L402; v1.12 at L403; v1.12.1 at L408; v1.12.2 at L409), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,35 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.12.2 — the redeploy, measured (patch)
+
+Theme: the redeploy that puts entry 62's headers on the live page (L408), measured, and the
+end of the build at phase 3. No invariant moves. CLAUDE.md's phase line changes, and the
+README records the redeploy.
+
+**INFO**
+- **L409 §9.8 — the redeploy, measured.** Fill: L408 left the live headers to the patch
+  after the redeploy. Measured on Nov 10 in `us-west1`: `b6e46e9` deployed from a fresh
+  clone as revision `notepilot-00015-csm`, image
+  `sha256:510e620d4c93ab720a8062295fd34b3b7c354580b97f83bd09b87f4097dfc1de`, with the
+  settings the README lists and none it forbids. At the URL `status.url` gives, `curl` saw
+  the four headers once each, with §9.8's values, on the page (200, `text/html`,
+  `no-cache`), its script (200, `text/javascript`, `immutable`), `/health` (200), `/docs`
+  (404), and a two-character paste (422). In Chrome, the page loaded under the PHI banner,
+  and a synthetic note came back as 3 claims; 14 checks ran, and `allergy_contraindication`
+  flagged CRITICAL on the allergy and amoxicillin claims. Its receipt named prompt
+  `306bbaa5126a` and checks `22d36dc43732`, both what `b6e46e9` computes, and 1,728 input
+  and 177 output tokens. On the first load, DevTools counted one console error, not read
+  before the page was reloaded; after the reload, the console held none and DevTools
+  reported no issues, and a violation by the page's own script or stylesheet would recur on
+  every load (reasoned). The paste's marker word appeared in the logs 0 times, and
+  `allUsers` still held the invoker role. P1, P3's full paste, P4, and P5's switch were not
+  run again: the image changed only the header middleware and the docs routes, which read no
+  proxy address, rate-limit key, budget, log line, or IAM binding (reasoned), and L400
+  measured each on Nov 9. With this record the build stops at phase 3: CLAUDE.md's phase
+  line says so, and phase 4 stays as §14 states it, opening with its own design revision if
+  it is built (L406).
 
 ## v1.12.1 — the security headers, built (patch)
 

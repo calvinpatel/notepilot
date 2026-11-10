@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Status: **design locked.** Build state: §14's phase tags and CLAUDE.md's "Current phase"
 line (L101).
-**Spec version: v1.12.1** (patch — the security headers, built, November 2026).
-Supersedes v1.12.
+**Spec version: v1.12.2** (patch — the redeploy, measured, November 2026).
+Supersedes v1.12.1.
 
 **Where history lives.** This document states what the system *is*. How it got here —
 each version's deltas, the `L#` ledger, and the `D#` decision records with their
@@ -3595,7 +3595,9 @@ channels and shipped a contract that could only express the first).
   one, so each appears once (L408). *Test:* the page, its script and stylesheet in the media
   types `nosniff` holds them to, a missing asset, `/health`, `/openapi.json`, the
   framework's 404 and 405, a 422, a summarized note, the catch-all's 500, and the three docs
-  paths, each a 404, carry each header once.
+  paths, each a 404, carry each header once. On the live revision, `curl` saw the four on
+  the page, its script, `/health`, a 404, and a 422, and the page summarized a note in
+  Chrome (L409).
 - **The paste box is a PHI intake (v1.2).** The repo has zero real PHI. The *deployed
   demo* has a text box, and someone will paste a real note into it. Two consequences:
   (1) the UI carries a visible "synthetic / de-identified text only — this is a demo,
