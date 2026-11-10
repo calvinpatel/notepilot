@@ -3,8 +3,8 @@
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
 Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
 CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.14** (patch — Haiku's cost per note, November 2026). Supersedes
-v1.11.13.
+**Spec version: v1.11.15** (patch — the phase 3 close, November 2026). Supersedes
+v1.11.14.
 
 > This document is the canonical build spec. It is the thing I build *against* and
 > the thing a reviewer could read to understand the entire system end to end.
@@ -4158,9 +4158,11 @@ renders; a finding it shows is recorded, not fixed. 2b's close runs none (L250):
 shape is unchanged since v1.4's smoke run, and the baseline's 72 calls ran on it. 2c's close
 runs one with the judge on (L324): the judge's call is a new request shape. Between closes,
 a revision that moves `PROMPT_VERSION` runs one too, recorded in its patch: v1.7's (L259),
-and v1.10's with the judge off (L339); v1.11 moved neither it nor the pinned model, and
-ran none (L391). No automated test, by design: the annotated tag is the record, audited
-alongside the lines above.
+and v1.10's with the judge off (L339); v1.11 moved neither it nor the pinned model, and ran
+none (L391). 3's close runs none (L402): neither the request shape nor the pinned model has
+moved since v1.10's run, and the public deploy's probes, rerun on the public path, are its
+live check (L397, L400). No automated test, by design: the annotated tag is the record,
+audited alongside the lines above.
 
 ### Phase 2a — the safety layer, proven for free · `v0.2a-safety`
 
@@ -4332,9 +4334,11 @@ The whole project. Per-phase exit criteria live in §14.
       integration tests and a locally run instance**; the deployed demo runs with
       `persist_enabled=false` (v1.3, L64: v1.2 required "persisted" and "persistence off" of
       the same deploy)
-- [ ] `schemas.py` is the only thing the domain layers import from each other;
-      `clinical/extract.py` imports only `lexicons.py`, which imports nothing; vendor
-      formats appear only in EDGE modules, and the domain reads no settings (L188)
+- [ ] Domain modules import only `schemas.py` and one another, never a vendor or an EDGE
+      module, and read no settings (invariant 1, L188, L402): `grounding.py` imports no
+      domain module but `schemas.py`, `evals/` reads `clinical/`, the shared extraction
+      module (§7), and `clinical/extract.py` imports only `lexicons.py`, which imports
+      nothing; vendor formats appear only in EDGE modules
 - [ ] Grounding is pure + unit-tested: ladder + offset mapping (property-based, non-ASCII) +
       punctuation folding + numeric guard + normalized, word-snapped Tier 3 + flag cases
 - [ ] `ClinicalClaim` and `SOAPNote` are frozen with tuple collections (D6 enforced)

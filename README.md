@@ -8,7 +8,7 @@
 
 NotePilot takes free-text from a patient encounter (a transcript, a clinician's dictation, a scribe's notes) and produces a structured SOAP note. Every claim in the note is grounded back to the source text, and a deterministic safety layer checks the output for the classes of error that matter clinically — a dropped allergy, a contraindicated prescription, a wrong side, a severity that got downgraded in summarization.
 
-> **Status:** Phase 1 — MVP spine — is done, tagged `v0.1-spine`: the pipeline runs end-to-end. Phase 2a — the safety layer, proven for free — is done, tagged `v0.2a-safety`: grounding and the deterministic checks run on every note. Phase 2b — the regression thesis goes live — is done, tagged `v0.2b-corpus`: 24 model cases run against the real model, with the baseline [scorecard](#safety-scorecard) below. Phase 2c — the semantic backstop — is done, tagged `v0.2c-judge`: a second model call checks each claim against its source, at WARNING and off by default, with its first live measurement in the scorecard. Phase 3 — full-stack real — is in progress: the review UI is live at the link above, public on a capped daily budget, with Postgres persistence built and tested but off in the deploy, CI checking every push, and the corpus run on demand through GitHub Actions; its tag, `v0.3-shipped`, waits on the phase's exit audit. See [Roadmap](#roadmap).
+> **Status:** Phase 1 — MVP spine — is done, tagged `v0.1-spine`: the pipeline runs end-to-end. Phase 2a — the safety layer, proven for free — is done, tagged `v0.2a-safety`: grounding and the deterministic checks run on every note. Phase 2b — the regression thesis goes live — is done, tagged `v0.2b-corpus`: 24 model cases run against the real model, with the baseline [scorecard](#safety-scorecard) below. Phase 2c — the semantic backstop — is done, tagged `v0.2c-judge`: a second model call checks each claim against its source, at WARNING and off by default, with its first live measurement in the scorecard. Phase 3 — full-stack real — is done, tagged `v0.3-shipped`: the review UI is live at the link above, public on a capped daily budget, with Postgres persistence built and tested but off in the deploy, CI checking every push, and the corpus run on demand through GitHub Actions. See [Roadmap](#roadmap).
 
 ---
 
@@ -94,14 +94,14 @@ Verdicts were stable in all eight runs: no case changed verdict across its three
 
 ## What it can't see
 
-The checks are deterministic and tested, and they are narrow. The spec states every known gap with how it was measured, the checks' in its [honest mirror (§8.8)](PROJECT_01_NOTEPILOT.md#88-honest-mirror-state-this-dont-hide-it) and the deploy's in [§9.8](PROJECT_01_NOTEPILOT.md#98-edge-cases--production-realities-flag-dont-all-build). These are the ones to know before trusting a live note:
+The checks are deterministic and tested, and they are narrow. The spec states every known gap with how it was measured, the checks' gaps in its [honest mirror (§8.8)](PROJECT_01_NOTEPILOT.md#88-honest-mirror-state-this-dont-hide-it) and the deploy's in [§9.8](PROJECT_01_NOTEPILOT.md#98-edge-cases--production-realities-flag-dont-all-build). These are the ones to know before trusting a live note:
 
 - **Real clinical language.** The corpus is synthetic by design, so how often the hand-written vocabulary misses a real clinician's phrasing is unmeasured. A drug the vocabulary doesn't list is invisible to every drug check, and an allergen that isn't a drug, such as latex or a food, is never read.
 - **A hard-wrapped paste.** A line break ends a clause, so a paste wrapped mid-sentence cuts a negation or a hold off at the break: with "Denies fever, chills, or" wrapped before "nausea", a faithful "Denies nausea" fires a check and "Nausea" passes. The corpus keeps its cases unwrapped; a live paste arrives as its source wrapped it.
 - **An unlisted drug's interval.** In "Lisinopril 10 mg, amlodipine daily", the vocabulary doesn't list amlodipine, so the dose check reads "daily" as lisinopril's interval and judges a claim's lisinopril interval against it.
 - **Past or current.** No check reads whether a diagnosis is history or current: "Myocardial infarction" citing "Hx of MI 2018" fires nothing.
 - **The judge is off in the demo.** The semantic judge runs in judged corpus runs and locally; the public page runs the deterministic checks alone.
-- **Small n.** 24 cases × 3 runs is a regression tripwire, not an accuracy estimate.
+- **Small n.** The scorecard's 24 cases × 3 runs catch a regression on these cases, and its note says why they don't estimate accuracy.
 - **No security headers.** No response sets a Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, or Referrer-Policy. The page holds no login, cookie, or stored note, so a page that frames it could at most spend the capped daily budget.
 - **One process, one count.** The rate limit and the daily budget live in the one instance's memory, so a restart or a new revision starts both from zero: the $2.50 bound holds for each process's day, not for a calendar day that holds a deploy.
 
@@ -111,7 +111,7 @@ The checks are deterministic and tested, and they are narrow. The spec states ev
 |---|---|---|
 | 1 | MVP spine: paste → FastAPI → LLM tool call → `SOAPNoteDraft` → display | done (`v0.1-spine`) |
 | 2 | Grounding ladder, safety checks, synthetic trap corpus, run lineage, semantic judge | done (`v0.2a-safety`, `v0.2b-corpus`, `v0.2c-judge`) |
-| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | in progress (public deploy and review UI live) |
+| 3 | Postgres persistence, React review UI (inline highlights + safety banner), CI + live deploy | done (`v0.3-shipped`) |
 | 4 | RAG cross-check against drug-interaction and guideline references | planned |
 
 Out of scope for v1: EHR integration, real patient data, multi-user auth. NotePilot is a portfolio project and is not a medical device.

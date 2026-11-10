@@ -104,7 +104,7 @@ staging area for decisions.
 
 Build order is spec §14, phase by phase, strictly sequential.
 
-**Current phase: 3 — full-stack real.** *(Update this line as phases
+**Current phase: 4 — RAG deepening.** *(Update this line as phases
 complete.)*
 
 - **Closing a phase** follows §14's preamble; each tag is named in its phase's heading.
@@ -160,8 +160,8 @@ tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests u
   `schemas.py`; the three sanctioned exceptions are in spec §13. Flag anything else.
 - Secrets: `.env` (gitignored), `.env.example` (committed). API key never in code —
   clinical-adjacent repo, zero tolerance.
-- Synthetic data only in `evals/cases/`. **Zero real PHI, ever, anywhere in the repo** —
-  including in examples, tests, commit messages, and comments.
+- Synthetic data only in `backend/evals/cases/`. **Zero real PHI, ever, anywhere in the
+  repo** — including in examples, tests, commit messages, and comments.
 - Coverage is a flashlight, not a trophy.
 - Corpus cases follow §8.5: clean controls beside the traps, one planted danger per trap
   (D16).
