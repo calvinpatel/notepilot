@@ -1,7 +1,7 @@
 # CLAUDE.md — NotePilot
 
-Clinical-encounter → grounded, safety-checked SOAP summarizer. Flagship portfolio
-project. FastAPI + Postgres + React; Anthropic API via tool use.
+Clinical-encounter → grounded, safety-checked SOAP summarizer.
+FastAPI + Postgres + React; Anthropic API via tool use.
 
 ## Source of truth
 
@@ -92,15 +92,16 @@ staging area for decisions.
   resolution first. Then edit the spec **in place**, in the section the decision belongs
   to; bump the header version; add a changelog entry under the next `L#`, with severity.
   It lands in the same commit as the code that depends on it.
-- **Minor (v1.x)** — anything that changes a statement nothing else in the spec
-  contradicts. That is an amendment: flag it and log it on the GitHub issue "spec:
-  deferred amendments." Never implement it ahead of the revision.
+- **Minor (v1.x)** — anything that changes a statement nothing else in the spec contradicts.
+  v1.12 was the last for v1 unless phase 4 is built (the spec's Versioning paragraph, L406),
+  so no amendments issue is open: flag such a change to Cal, and never implement it. A patch
+  may state a new finding's cost in §8.8 and its fix in §15.
 - New spec text cites ledger ids (`L82`), not version numbers; the changelog maps ids to
   versions.
 - When a proposed commit touches the spec, the changelog, or this file, say that the
   design room's copies in project knowledge need re-uploading.
 
-## Build sequence gate (the Volkswagen safeguard)
+## Build sequence gate
 
 Build order is spec §14, phase by phase, strictly sequential.
 
@@ -108,9 +109,8 @@ Build order is spec §14, phase by phase, strictly sequential.
 complete.)*
 
 - **Closing a phase** follows §14's preamble; each tag is named in its phase's heading.
-- If a request belongs to a later phase or the §15 backlog, say so and point there
-  instead of building it. Deliberate non-features are part of the portfolio story;
-  building them early destroys that story.
+- If a request belongs to a later phase or the §15 backlog, say so and point there instead
+  of building it: §15 names what v1 leaves out, by choice or by measurement.
 
 ## Commands
 
@@ -155,7 +155,7 @@ tool-use block); judge tests use a fake `Judge` (canned verdicts); route tests u
 
 ## Conventions
 
-- Conventional commits, atomic. History is part of the portfolio. One tag per phase.
+- Conventional commits, atomic, since the history is read. One tag per phase.
 - Pydantic models: draft/enriched family per spec §4. New pipeline data shapes go in
   `schemas.py`; the three sanctioned exceptions are in spec §13. Flag anything else.
 - Secrets: `.env` (gitignored), `.env.example` (committed). API key never in code —

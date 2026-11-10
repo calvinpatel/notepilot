@@ -4,7 +4,7 @@ The history of `PROJECT_01_NOTEPILOT.md`: what changed in each version, and why.
 states what the system *is*; this file records how it got there. Newest first.
 
 **Reading the ids.** `L#` is the delta ledger: one id per change, numbered continuously
-across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393; v1.11.9 at L394; v1.11.10 at L395; v1.11.11 at L397; v1.11.12 at L399; v1.11.13 at L400; v1.11.14 at L401; v1.11.15 at L402), so
+across versions (v1.3's walkthrough opened it at L1; v1.3.1 continues at L68; v1.3.2 at L82; v1.3.3 at L94; v1.3.4 at L97; v1.3.5 at L98; v1.3.6 at L99; v1.3.7 at L100; v1.3.8 at L101; v1.3.9 at L102; v1.3.10 at L103; v1.3.11 at L104; v1.3.12 at L105; v1.3.13 at L106; v1.3.14 at L107; v1.3.15 at L111; v1.3.16 at L112; v1.3.17 at L113; v1.3.18 at L116; v1.3.19 at L118; v1.3.20 at L120; v1.3.21 at L122; v1.3.22 at L124; v1.3.23 at L128; v1.3.24 at L131; v1.3.25 at L134; v1.3.26 at L136; v1.3.27 at L139; v1.3.28 at L140; v1.3.29 at L141; v1.3.30 at L143; v1.3.31 at L144; v1.3.32 at L148; v1.3.33 at L151; v1.3.34 at L156; v1.3.35 at L157; v1.3.36 at L164; v1.3.37 at L166; v1.3.38 at L167; v1.3.39 at L172; v1.3.40 at L176; v1.3.41 at L179; v1.4 at L180; v1.4.1 at L197; v1.4.2 at L200; v1.5 at L201; v1.6 at L214; v1.6.1 at L221; v1.6.2 at L222; v1.6.3 at L223; v1.6.4 at L224; v1.6.5 at L228; v1.6.6 at L232; v1.6.7 at L234; v1.6.8 at L235; v1.6.9 at L240; v1.6.10 at L244; v1.6.11 at L250; v1.7 at L252; v1.7.1 at L259; v1.8 at L261; v1.8.1 at L271; v1.8.2 at L275; v1.8.3 at L277; v1.8.4 at L278; v1.8.5 at L280; v1.8.6 at L281; v1.8.7 at L283; v1.9 at L285; v1.9.1 at L297; v1.9.2 at L298; v1.9.3 at L300; v1.9.4 at L301; v1.9.5 at L304; v1.9.6 at L307; v1.9.7 at L308; v1.9.8 at L310; v1.9.9 at L312; v1.9.10 at L317; v1.9.11 at L318; v1.9.12 at L321; v1.9.13 at L324; v1.9.14 at L328; v1.10 at L329; v1.10.1 at L338; v1.10.2 at L339; v1.10.3 at L341; v1.10.4 at L342; v1.10.5 at L346; v1.10.6 at L347; v1.10.7 at L348; v1.10.8 at L349; v1.10.9 at L350; v1.10.10 at L351; v1.10.11 at L352; v1.10.12 at L353; v1.10.13 at L354; v1.10.14 at L355; v1.10.15 at L356; v1.10.16 at L357; v1.10.17 at L358; v1.10.18 at L359; v1.10.19 at L360; v1.10.20 at L361; v1.10.21 at L362; v1.10.22 at L363; v1.10.23 at L364; v1.11 at L365; v1.11.1 at L382; v1.11.2 at L383; v1.11.3 at L384; v1.11.4 at L385; v1.11.5 at L387; v1.11.6 at L389; v1.11.7 at L391; v1.11.8 at L393; v1.11.9 at L394; v1.11.10 at L395; v1.11.11 at L397; v1.11.12 at L399; v1.11.13 at L400; v1.11.14 at L401; v1.11.15 at L402; v1.12 at L403), so
 an id never needs its version to be unambiguous. `D#` is a decision record, vetoable like every D.
 Where a decision also has a DECISION block in the spec, the block is the current statement
 and the entry here is its origin. Severity uses the project's own triage enum. v1.1 and v1.2
@@ -15,6 +15,80 @@ conflict between two spec statements, citing both and naming which wins. Minor (
 anything else. Every change gets the next `L#`.
 
 ---
+
+## v1.12 — the public edit and #14's triage (minor)
+
+Theme: the last minor revision for v1, cut after `v0.3-shipped` and before any phase-4 step,
+as #14's schedule ruled. The spec is public, so v1.12 edits it for a reader of the system
+(L403) and resolves the one conflict the edit found (L404). It also empties #14: every open
+entry but 62 moves to §15 or closes (L405), the spec states how it changes from here (L406),
+and entry 62's security headers are decided (L407), their code in the next commit. No
+invariant is added, removed, renumbered, or retitled, and no section is renumbered.
+CLAUDE.md changes in five places: four with the framing the spec drops, and the Minor bullet
+of "Changing the spec" (L406).
+
+**WARNING**
+- **L407 §9.8 — security headers on every response.** Amendment (#14 entry 62, option (a),
+  ruled Nov 9; its sheet probed at `a9b8e8e`). L398 stated their absence and left the choice
+  to v1.12. Every response sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, and a `Content-Security-Policy` of `default-src 'self'`
+  with `base-uri`, `form-action`, and `frame-ancestors` each `'none'`; FastAPI's `/docs` and
+  `/redoc` go off, and `/openapi.json` stays. Measured in the design room, in headless
+  Chromium 153 on the page built at `a9b8e8e`: under the policy, a summarized note with a
+  CRITICAL finding and its highlight, four error bodies (422, 429, 503, 500), and a dropped
+  connection each rendered with no violation and no page error, while a control policy of
+  `default-src 'none'` logged 2 violations and rendered nothing. Another origin's frame was
+  refused under each header set tried and loaded with none. `/docs` and `/redoc` each logged
+  4 violations under the policy, for CDN scripts and styles, a favicon, and inline code, and
+  both load unpinned majors (`swagger-ui-dist@5`, `redoc@2`). A prototype middleware
+  registered after the request-id middleware set all four headers on all 14 responses tried
+  with CORS unset, the catch-all's 500 among them, and none on CORS's preflight answer with
+  CORS set, which only the dev loop does; it failed the two tests that pin the middleware
+  stack and passed the rest. The code lands in its own commit, and the live page sends the
+  headers only after a redeploy, which a patch records.
+
+**INFO**
+- **L403 the header, §0 to §17 — the spec, edited for its reader.** Amendment (#14 entry 63,
+  its sheet and its addendum, ruled Nov 9). The spec is public, and parts of it were written
+  for its author rather than for a reader of the system: personal notes, career and
+  interview framing, a learning map, decorative text and emoji, and informal jargon. None of
+  it stated what the system is. 38 passages, in the header and 25 sections, are cut or
+  restated plainly, and 18 headings lose their decorative parts; every section number stays.
+  §2 now makes the product's case and keeps the scorecard sentence, which §14 and §17 cite,
+  in a neutral voice. §6.6, cited nowhere and §6's last subsection, is cut, so nothing
+  renumbers. §16 becomes a glossary of the terms the spec and the code share, and it keeps
+  L63's rule that "Phase" means only a build phase. No L# or D# citation is dropped and no
+  normative sentence changes, and quoted clinical text keeps its first person. The README's
+  links to §8.8, §9.8, and §15 follow their new anchors, computed with github-slugger 2.0.0,
+  which reproduces all 57 anchors of the rendered page at `a9b8e8e`. Earlier versions keep
+  the old text, in git and in the tags; the edit changes the current files.
+- **L404 §9.5, §9.9 — no judge column.** Conflict: §9.9 said phase 3's milestone holds
+  `NoteRecord.judge_version` (L57), and §9.5 says the judge's version gets no column, since
+  nothing queries by it (L344); phase 3 closed without one. §9.5 wins, and §9.9's sentence
+  is cut. §9.9 keeps what a response names (L334, L336).
+- **L405 §5.2, §8.8, §15 — #14's open entries, triaged.** Amendment (entry 63's sheet, S8,
+  and its addendum, A3 to A5, ruled Nov 9). v1.12 is the last minor revision for v1 (L406),
+  so no later one can adopt them. Entries 39 and 51 to 61 are gaps §8.8 states with how each
+  was measured; they move to §15's new list of deferred fixes, and each §8.8 line now points
+  there. Entries 2, 15, and 47 move with their triggers. Across the eight committed records
+  (through `5e31da1`), none of 576 repeats retried a validation and all 2,357 claims ground
+  at Tier 1 or 2 (measured at `a9b8e8e`), so neither 2's trigger nor 15's has fired. Entry
+  15 changes what a check reads, so §8.8 states it too: its example still grounds
+  PARAPHRASED at 93.0 on a span that ends in the next sentence (measured at `a9b8e8e`).
+  Entry 12 closes, since §14's phase 4 already opens with its design revision (L194). §15 is
+  retitled "v2 backlog" and holds two lists, the deliberate non-features and the deferred
+  fixes; the README's link and sentence follow.
+- **L406 Versioning — the last minor revision for v1.** Decision (the addendum's A1 and A2,
+  ruled Nov 9). v1.12 is the last minor revision for v1 unless phase 4 is built. If it is,
+  it opens with the minor revision §14 requires (L194), revisions resume until its close,
+  and the rule holds again from then: phases 2 and 3 took eight minor revisions (v1.4 to
+  v1.11), so a design revision alone would leave phase 4 no way to take a decision its
+  design missed. Until then, a patch may also state a new finding's cost in §8.8 and its fix
+  in §15, or a trigger §15 names that has fired: a §15 line is neither a fill nor a
+  conflict, so without this a finding could reach §8.8 but not §15. A finding that makes the
+  public demo unsafe takes the deploy private (§9.8, L397) instead of reopening the spec.
+  #14 closes with v1.12, and no successor opens. CLAUDE.md's Minor bullet says the same. The
+  rule is never called a freeze, since the spec's "frozen" means D6's immutable models.
 
 ## v1.11.15 — the phase 3 close (patch)
 

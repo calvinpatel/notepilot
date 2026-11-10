@@ -1,17 +1,10 @@
 # PROJECT 01 — NotePilot
 
 **A clinical-encounter → grounded, safety-checked SOAP summarizer.**
-Flagship portfolio project. Status: **design locked.** Build state: §14's phase tags and
-CLAUDE.md's "Current phase" line (L101).
-**Spec version: v1.11.15** (patch — the phase 3 close, November 2026). Supersedes
-v1.11.14.
-
-> This document is the canonical build spec. It is the thing I build *against* and
-> the thing a reviewer could read to understand the entire system end to end.
-> Every field traces back to an origin; every check declares what it trusts; every
-> layer's async and schema story agrees with its neighbors'.
->
-> *However long — I arrive. However broken — I forge. So I return, and begin.* 🧱
+Status: **design locked.** Build state: §14's phase tags and CLAUDE.md's "Current phase"
+line (L101).
+**Spec version: v1.12** (minor — the public edit and #14's triage, November 2026).
+Supersedes v1.11.15.
 
 **Where history lives.** This document states what the system *is*. How it got here —
 each version's deltas, the `L#` ledger, and the `D#` decision records with their
@@ -21,7 +14,12 @@ citation into that file.
 **Versioning.** A *patch* (v1.x.y, L195) may fill a detail this spec leaves unspecified, or
 resolve a conflict between two of its statements, citing both and naming which wins. A
 *minor* revision (v1.x) is anything else: a changed decision, a new section, a new phase's
-design. Every change lands with a changelog entry under the next `L#`.
+design. Every change lands with a changelog entry under the next `L#`. v1.12 is the last
+minor revision for v1 unless phase 4 is built (L406). Until then, a patch may also state a
+new finding's cost in §8.8 and its fix in §15, or a trigger §15 names that has fired; a
+finding that makes the public demo unsafe takes the deploy private (§9.8) instead of
+reopening the spec. If phase 4 is built, it opens with the minor revision §14 requires,
+minor revisions resume until its close, and this rule holds again from then.
 
 ---
 
@@ -47,8 +45,8 @@ knows nothing about Anthropic" was false as written for the orchestrator and the
 this is the true version.
 
 Read top to bottom: **principles → architecture → the data contract → each layer →
-cross-cutting concerns → tests → build order.** The data contract (§4) is the
-keystone; if you only internalize one section, internalize that one.
+cross-cutting concerns → tests → build order.** The data contract (§4) is the one to read
+most closely: every layer is built on it.
 
 ---
 
@@ -66,8 +64,7 @@ surface; edit and sign-off persistence are v2 — §9.10, §15.)
 
 It sits dead-center in the **ambient clinical documentation** category — one of the
 highest-velocity spaces in health AI. (v1.3, L2: v1.2's market figure was unsourced and is
-cut; any sizing number cites a primary source before it reaches the README.) The workflow
-is one only someone with clinical training frames correctly.
+cut; any sizing number cites a primary source before it reaches the README.)
 
 It is a **documentation** product, not decision support: the model is a scribe, not a
 consultant (D7, §5.3). It records what the clinician said; it never adds a judgment of
@@ -75,45 +72,38 @@ its own.
 
 ---
 
-## 2. Why this project exists (the hiring thesis)
+## 2. Why this project exists
 
-This single project is designed to prove **three things at once**, which is why it
-replaces what would otherwise be two separate portfolio pieces:
+A model that summarizes an encounter can drop an allergy, invent a medication, or state what
+the source never said, and its output varies from run to run. NotePilot answers with
+structure: every claim cites the source text it came from (§6), deterministic checks read
+the cited note for clinical errors (§7, §8), and each check is proven against injected traps
+on every commit. The model is then measured, not trusted.
 
-| It must prove… | …and it does so via |
-|---|---|
-| I can **engineer real systems** (bridges the no-CS-degree gap) | full-stack app, real DB, clean module boundaries, tests, a thin composition-root API |
-| I am **AI-engineer-coded** (the GenAI-SWE pattern) | structured LLM output, grounding, RAG cross-check, an eval harness, self-correction |
-| I have a **moat a generalist can't replicate** | clinical judgment rendered as executable safety logic |
-
-The moat is **not** the résumé line "ex-med-school." The moat is the eval layer (§8):
-a test suite only a clinician can author. The moat gets the interview; the plumbing
-(§9) gets me trusted.
-
-**The sentence this whole project earns me, said out loud in the room:**
+**The scorecard sentence,** which the README states with real numbers:
 
 > "Every safety check is proven against injected traps on every commit, for free. Then
 > N synthetic encounters, each run k times against the real model, measure what the model
 > actually does: it preserves safety-critical facts in F% of fidelity traps, the pipeline
 > surfaces C% of planted source dangers, clean notes stay clean S% of the time — and when
-> the model does drop something, the live safety layer catches it X% of the time. When I
-> change a prompt or drop to a cheaper model, I re-run it against the persisted run history
-> and watch whether any of those four numbers regressed."
+> the model does drop something, the live safety layer catches it X% of the time. A prompt
+> change or a cheaper model re-runs against the persisted run history, which shows whether
+> any of those four numbers regressed."
 
 (v1.3, L3: v1.2's sentence said "catches X% of CRITICAL safety violations," and no field
 computed it — `pass_rate` blended three species. The four numbers are `CorpusMetrics`,
 §4.2 / §8.7. X counts a live CRITICAL result alone, L206, L224, over the repeats where
 the model lost or added a labeled fact, L253.)
 
-That last clause — **evals as regression tests for a stochastic system, with lineage** —
-is the frontier of production AI engineering.
+That last clause — **evals as regression tests for a stochastic system, with lineage** — is
+what §4.2's run records and §8.7's runner exist to make true.
 
 ---
 
-## 3. North-star principles (the laws that recur in every layer)
+## 3. Principles
 
-These are not style preferences. Each one prevents a specific class of bug, and their
-*consistency across all five layers* is itself the senior signal a reviewer reads.
+These are not style preferences. Each one prevents a specific class of bug, and each holds
+across all five layers.
 
 1. **Judgment to the model, mechanics to code.** The LLM decides *what* to extract and
    *how* to bucket it. Deterministic code decides *where* it sits, *whether* it's valid,
@@ -131,10 +121,8 @@ These are not style preferences. Each one prevents a specific class of bug, and 
 4. **Failure-to-ground is a signal, not an error.** A fabricated claim is the thing this
    product exists to catch. Flag it and continue; don't raise. (Contrast: an invalid
    *schema* IS an error and DOES raise — knowing which is which is the whole skill.)
-5. **Scope discipline (watch the Volkswagen).** A V12 in a Volkswagen ships nothing.
-   Every "real-system" refinement that isn't load-bearing for the MVP goes in the v2
-   backlog (§15) — where it doubles as evidence I know the production-grade version and
-   *chose* scope deliberately.
+5. **Scope discipline.** Every "real-system" refinement that isn't load-bearing for the
+   MVP goes in the v2 backlog (§15): named there, and not built.
 6. **Eliminate cheaply before judging expensively (v1.3, L4).** Every decision runs its
    cheapest sufficient test first and escalates only what that test can't settle: exact
    match before fuzzy (§6.1), deterministic checks before the judge (§8.2), injected drafts
@@ -245,7 +233,7 @@ Claude Code's standing instruction where an invariant has one; the statement is 
 
 ---
 
-## 4. The data contract — the spine ⭐ KEYSTONE
+## 4. The data contract (the spine)
 
 A clinical claim is **not a sentence**. It is an object that carries its own provenance.
 The moment the summary is a block of text, citations die (nothing to point at), evals
@@ -364,8 +352,7 @@ instead of a discipline.
 
 **The honest one-spine claim:** *one schema family with a draft-to-enriched lifecycle —
 the draft is the model contract, the enriched is the source of truth for citations,
-persistence, and the API.* (Knowing an object's shape changes as it moves through a
-system is a more senior thing to say than "one model, six jobs.")
+persistence, and the API.*
 
 ### 4.2 The eval + run types
 
@@ -770,8 +757,8 @@ resp = await client.messages.create(
   `f2b2363`, summarize's longest wall time was 4.09 s, and no repeat retried a validation or
   errored. Deployed, the platform's proxy cuts the tail, so its timeout must exceed a
   max-size request's duration (L185, above) or `max_input_chars` drops (§9.8, §14). A
-  deadline around summarize alone is designed and waits on the deferred-amendments issue for
-  its trigger, the first live request past `llm_timeout_s` (entry 47).
+  deadline around summarize alone is designed and held for v2, with its trigger, the first
+  live request past `llm_timeout_s` (§15, #14 entry 47).
 - **"Built once" means once per process (L78).** `get_client` is the FastAPI dependency that
   supplies the client (§9.1). **It lives in `orchestrator.py`, beside the `LLMClient`
   Protocol it returns (v1.3.3, L95):** the module that owns the vendor's format is the one
@@ -794,9 +781,9 @@ resp = await client.messages.create(
   §9.4 would report as our 500. `anthropic_api_key` is a required `SecretStr` (§10), kept
   out of `repr` and logs.
 
-### 5.3 The system prompt — where the moat first appears in code
+### 5.3 The system prompt
 
-A generalist writes "summarize this into SOAP." The clinical version (v1.3, L191):
+A generic prompt says "summarize this into SOAP." The clinical version (v1.3, L191):
 
 ```
 You are a clinical documentation assistant. You are a scribe, not a consultant:
@@ -924,7 +911,7 @@ carries the rule, first under RULES.
 
 Tool use *steers* but does not *guarantee*. Validate at the boundary; on failure, hand the
 model its own error and let it fix itself (graceful degradation around a stochastic
-component — a pattern almost no pivoter portfolio shows).
+component).
 
 **The API contract this loop must honor (v1.1):** once an assistant turn contains a
 `tool_use` block, the next user message **must** answer it with a `tool_result` block
@@ -1070,7 +1057,7 @@ same API that produced it. What must never carry that text is a log line or an H
 handlers log `OrchestratorError` by `code` + request id without `exc_info`, and the `from`
 chain exists for tests and local debugging (§9.4, §9.8).
 
-The error-handling arc: EAFP at the boundary, an exception *hierarchy* that names the
+Error handling: EAFP at the boundary, an exception *hierarchy* that names the
 failure domain **and whose fault it is**, `raise … from` preserving the cause, and every
 failure carrying what it cost. The retry rule is one sentence: **retry only when the next
 request differs from the last one** (invariant 16). Truncation, a refusal, and a missing
@@ -1128,7 +1115,7 @@ SDK's — §5.2, a different loop.)
 claim has a source; grounding **proves it** — with **zero LLM calls**, pure deterministic
 string work. It constructs the enriched `ClinicalClaim` for each `ClaimDraft`.
 
-### 6.1 The matching ladder ⭐ (the layer's keystone)
+### 6.1 The matching ladder
 
 `raw_text.find(quote)` alone is **wrong**: models normalize compulsively (expand `pt`→
 `patient`, fix typos, swap curly→straight quotes, collapse spaces), so an honest paraphrase
@@ -1386,14 +1373,6 @@ model corpus can retune it.
 **Deliberate non-feature (v2):** locality-based duplicate resolution (pick the occurrence
 nearest where sibling claims matched). Real and satisfying; decorative before the pipeline
 runs end-to-end.
-
-### 6.6 Why this is secretly the interview flex
-
-Grounding has **no external dependencies** — most testable layer in the system. And it's
-genuinely **algorithmic** (substring search, normalization-with-index-mapping, fuzzy
-alignment, threshold tuning) — the algorithm-round content the hiring loop demands, sitting
-naturally inside the most AI-flavored project. A reviewer reads clean string-algorithm code
-*with tests* and concludes "can actually engineer," not just "can call an API."
 
 ---
 
@@ -1929,21 +1908,20 @@ entry's own. A test holds the form.
 
 **MVP scope:** a small hand-curated lexicon + the scope engine + a dose grammar over the
 lexicon's units and frequencies (L131) + findings and diagnosis lists covering exactly the
-traps in *my* corpus.
+traps in the corpus.
 **v2:** medspaCy / NegEx / RxNorm for robust, ontology-derived extraction.
 
 ---
 
-## 8. Layer 4 — Evals ⭐ THE MOAT
+## 8. Layer 4 — Evals
 
 **Job:** `await run_checks(note, raw_text, case=None, *, mode, config, judge=None)` →
 `EvalReport`.
 Take a finished, *grounded* note and answer one question — **is this clinically safe?**
-— as a verdict you can run. This is the layer a strong generalist cannot build, because
-they don't know what to check for. (Async because the judge is a network call — §8.2. The domain holds a
-`Judge` protocol, never an Anthropic client — v1.3, L17.)
+— as a verdict you can run. (Async because the judge is a network call — §8.2. The domain
+holds a `Judge` protocol, never an Anthropic client — v1.3, L17.)
 
-### 8.1 Two species of check (the keystone distinction)
+### 8.1 Two species of check
 
 - **Reference-free (intrinsic):** verifiable from `(note, raw_text)` alone — *"every
   medication in the summary appears in the source."* Can run **in production**, on real
@@ -1978,11 +1956,9 @@ lexicon-assisted  RxNorm / NegEx       robust to medical variation · still dete
 LLM-as-judge      a 2nd model call     handles semantics · stochastic, fallible
 ```
 
-**The senior move is not "use the most powerful tool everywhere."** Structural checks get
+**Each check gets the cheapest tool that can settle it.** Structural checks get
 deterministic code; semantic checks get the LLM judge — **and the judge's verdict is never
-the sole gate on a CRITICAL.** Being able to say *"here's where I used LLM-as-judge, and
-here's exactly why I didn't trust it for the critical path"* is more senior than the
-technique itself.
+the sole gate on a CRITICAL.**
 
 **The judge, scoped (v1.1 D2) and reframed (v1.3, DECISION D8, vetoable).** Exactly one
 judge check ships, in build phase 2c: `text_entailment_judge`. v1.2's judge asked whether
@@ -1994,8 +1970,7 @@ span?"** — asked of every grounded claim, in every section. That is the genera
 claim-local consistency family (§8.4): the deterministic checks answer it for the entities
 their lexicons know; the judge answers it for everything else — the degenerate quote (D15),
 the invented assessment (D7, D12), drift no lexicon names. WARNING tier, reference-free,
-never a CRITICAL gate (invariant 7). This is the concrete artifact behind the interview line
-above — the line needs a `git blame`-able referent.
+never a CRITICAL gate (invariant 7).
 
 **The judge is a network call, and the domain doesn't speak Anthropic (v1.2; v1.3, L17).**
 `run_checks` is async because one member awaits. v1.3 changes *what* it awaits: evals
@@ -2108,7 +2083,7 @@ every claim** — which, on the v1.1 flat spine, is literally just `note.claims`
 path and the easy path are now the same path. A misfiled drug is still a prescribed drug.
 Invariant 5 protects checks against *misfiling*; its sibling for *omission* is D17 (§8.4).
 
-### 8.4 The showpiece check (the moat, executing) + the roster
+### 8.4 The allergy contraindication check + the roster
 
 ```python
 @register_check(name="allergy_contraindication", severity=Severity.CRITICAL, origin="source")
@@ -2153,10 +2128,9 @@ function never spells its own name.
 Catching this requires *knowing amoxicillin is a penicillin* — and, after D9, knowing that
 cephalexin shares ampicillin's side chain while ceftriaxone shares nobody's, and that the
 ~10% cross-reactivity figure everyone memorized was an artifact of manufacturing-era
-contamination. That knowledge isn't on Stack Overflow. The fixtures that test it **are** my
-background, executing.
+contamination. The fixtures that test it encode that knowledge.
 
-**What v1.3 fixed in the showpiece.** Two holes, both CRITICAL:
+**What v1.3 fixed in the allergy check.** Two holes, both CRITICAL:
 
 ```
 L30  "allergic to amoxicillin" + amoxicillin prescribed
@@ -2358,7 +2332,7 @@ expected_flags: [drug_in_quote]
 
 Tier 1 grounds, `drug_in_quote` fires, every time. The injected case proves the check; the
 model cases measure the model. Design for evaluability (principle 3), applied to the eval
-harness itself — and most of the moat's *proof* moves from the paid tier to the free one.
+harness itself — and most of the checks' *proof* moves from the paid tier to the free one.
 
 **Corpus mechanics:**
 
@@ -2464,7 +2438,7 @@ harness itself — and most of the moat's *proof* moves from the paid tier to th
 (v1.2's `detect_vital_drift` expected no eval check — it tests grounding's numeric guard. It
 moved to `tests/test_grounding.py`, L66.)
 
-### 8.6 Severity = clinical triage (the moat hiding in one enum)
+### 8.6 Severity = clinical triage
 
 ```
 CRITICAL   dropped allergy · hallucinated med · contraindication (same drug, same class,
@@ -2620,7 +2594,7 @@ The v1.2 bug L43 closes, traced:
 ```
 v1.2: allergy_contraindication raises → EvalResult(passed=False, detail="check_error")
       fired = {… if not r.passed} ∋ "allergy_contraindication" → expected <= fired → PASS
-      The showpiece trap scored green BECAUSE its check was broken.
+      The allergy trap scored green BECAUSE its check was broken.
 v1.3: errored=True → excluded from fired, and errored ∩ expected ≠ ∅ → FAILED
 ```
 
@@ -2671,7 +2645,7 @@ flaky_cases          = the cases whose pass fraction over their applicable repea
                        L254)
 ```
 
-`fidelity_caught` is the number the interview sentence (§2) was reaching for: *when the model
+`fidelity_caught` is the number the scorecard sentence (§2) reaches for: *when the model
 got it wrong, would production have seen it?* Recall for the fabrication checks is not in
 this record at all — it is the injected tier, and it is 100% or CI is red. v1.7 (L253) reads
 *got it wrong* from the answer key: a fidelity repeat counts when a reference check fired at
@@ -2881,7 +2855,7 @@ Same code, two masters, three clocks (§11). The eval harness was never a testin
 afterthought — it is what makes the model-choice and prompt-change decisions
 evidence-based.
 
-### 8.8 Honest mirror (state this, don't hide it)
+### 8.8 Known limits
 
 Clinical-semantic evaluation is **genuinely unsolved at the frontier.** The judge has its own
 false-positive and false-negative rates; a truly rigorous version would *meta-evaluate the
@@ -2924,12 +2898,12 @@ know, stated plainly (v1.3):
   "Left knee swollen, hip tender, right also" reads right at "knee swollen" (prototyped,
   L383). A parenthesis is no link, and a side letter counts only before a word or a join
   another side follows, so "Knee pain (right)" and "(R) knee pain" read no side, and "Left
-  knee pain" citing either passes (prototyped, L382); the deferred-amendments issue holds it
-  for v1.12 (entry 56). A laterality label naming more than its site asks the note for all
-  of it: a "right knee pain" label isn't kept by "Right knee swelling and pain" (prototyped,
-  L368), which label review holds. A correction a sentence end separates from the side it
-  corrects can't be read claim-locally: "Right knee swelling" citing "Right knee swelling"
-  in "Right knee swelling. Sorry, I mean the left knee." passes (prototyped, L370).
+  knee pain" citing either passes (prototyped, L382); §15 holds its fix (#14 entry 56). A
+  laterality label naming more than its site asks the note for all of it: a "right knee
+  pain" label isn't kept by "Right knee swelling and pain" (prototyped, L368), which label
+  review holds. A correction a sentence end separates from the side it corrects can't be
+  read claim-locally: "Right knee swelling" citing "Right knee swelling" in "Right knee
+  swelling. Sorry, I mean the left knee." passes (prototyped, L370).
 - **A quote that borrows from its clause** (L261). The claim-local family reads a span in
   its clause, so a quote naming no drug passes `drug_in_quote` when its clause names one:
   "Resume metformin in 48 hours" citing "resume in 48 hours" in "Metformin held for CT with
@@ -2937,6 +2911,14 @@ know, stated plainly (v1.3):
   drug at the wrong status still fires, but the highlighted quote the clinician sees may not
   name the drug. The review UI tints the clause around the highlighted quote (§9.10, L380),
   so the clinician sees what the checks read, though the quote itself still names no drug.
+- **A fuzzy span past its sentence** (L35). A Tier 3 span can run past a period into the
+  next sentence: in "Seen in clinic today. Right knee pain after a fall down the stairs. No
+  swelling noted.", the quote "Left knee pain after a fall down the stairs" grounds
+  PARAPHRASED at 93.0 on the span "Right knee pain after a fall down the stairs. No"
+  (measured). The claim-local checks read the span, so a cue or a finding past the period
+  would read as the claim's. Here it changes nothing, and no committed record has a Tier 3
+  span: all 2,357 claims of the eight records ground at Tier 1 or 2 (measured, L405). §15
+  holds its fix (#14 entry 15).
 - **A window that crosses a comma** (L121, L261, L276, L291). A negation's or a start's
   window runs `NEGATION_WINDOW` words across a comma, as a stop's does once it governs a
   mention (L365), so "Not on metformin, lisinopril 10 mg daily" reads the lisinopril stopped
@@ -2954,7 +2936,7 @@ know, stated plainly (v1.3):
   before "lisinopril" reads the lisinopril active, so a faithful "Lisinopril held" fires
   `med_status_consistency` and "Continue lisinopril" passes (measured). The corpus keeps its
   cases unwrapped (L143), but a live paste arrives as its source wrapped it, and the deploy
-  runs the judge off (§9.8); the deferred-amendments issue holds it for v1.12 (entry 57).
+  runs the judge off (§9.8); §15 holds its fix (#14 entry 57).
 - **A repeat in a certainty window** (L265, L292). A diagnosis named again in a certainty or
   differential window keeps the window's reading unless a confirming cue governs it, so "r/o
   PE, hx of PE" reads rule-out alone and "Likely PNA, PNA treated" probable alone, and a
@@ -2966,8 +2948,8 @@ know, stated plainly (v1.3):
   since the pre-cue's window takes in the embolism and "rather than" is no comparative
   (measured). A certainty post-cue stays adjacent, so "PNA & PE less likely" reads the
   pneumonia definite (measured), and a certainty pre-cue replaces a negation's window, so
-  "Not likely PE" reads the embolism probable (measured). The deferred-amendments issue
-  holds both for v1.12 (entries 52 and 53).
+  "Not likely PE" reads the embolism probable (measured). §15 holds both fixes
+  (#14 entries 52 and 53).
 - **A restart's reach** (L262). A restart or resumption cue that governs no mention reaches
   the stopped drug before it in its clause, whatever its object: "Metformin held, resume PT"
   reads metformin stopped and active, so "Resume metformin" passes it (measured). A restart
@@ -2983,8 +2965,8 @@ know, stated plainly (v1.3):
   Past a comma no `LIST_INTRODUCERS` entry follows, a stop's list reads as charted:
   "Medications held, metformin and lisinopril" and "Hold, per cardiology, apixaban" read the
   drugs active (prototyped). An abbreviation's period ends its sentence, so "Stop all
-  nephrotoxins, e.g. ibuprofen" reads the ibuprofen active (measured); the
-  deferred-amendments issue holds it for v1.12 (entry 51).
+  nephrotoxins, e.g. ibuprofen" reads the ibuprofen active (measured); §15 holds
+  its fix (#14 entry 51).
 - **An indication's list** (L266, L280). After a drug and "for", a finding after a comma
   joins the indication, so "Ibuprofen for pain, fever since Monday" reads no fever
   (measured); with a period, the fever reads present. A list that opens on any other word
@@ -3014,34 +2996,31 @@ know, stated plainly (v1.3):
   (prototyped), where a documented allergy should be honored until it is delabeled. Only a
   denial verb's denial is contested: "No PCN allergy documented" and "No sulfa allergy on
   file" record none (prototyped). A chart that lists none still contests: "Denies PCN
-  allergy, chart lists none" reads the penicillin (prototyped, L389); the
-  deferred-amendments issue holds it for v1.12 (entry 61).
+  allergy, chart lists none" reads the penicillin (prototyped, L389); §15 holds
+  its fix (#14 entry 61).
 - **A diagnosis that names something else** (L135, L296, L372). A confirming word reads a
   named diagnosis as charted only directly after its head, so a faithful "Pulmonary
   embolism" citing "PE protocol CT positive." fires `diagnosis_in_quote` (prototyped). A
   head with a negative result excludes nothing: "PE workup negative." reads the embolism
   neither asserted nor excluded, so a faithful "No pulmonary embolism" citing it fires
-  (prototyped), as it did when the head read definite; the deferred-amendments issue holds
-  it for v1.12 (entry 55).
+  (prototyped), as it did when the head read definite; §15 holds its fix (#14 entry 55).
 - **A diagnosis's history** (L374). No check reads whether a diagnosis is past or current:
   "Myocardial infarction" citing "Hx of MI 2018" fires nothing (measured), and the judge
   passed it (L315). `DIAGNOSES` lists no MI, so a history cue would read it only once a case
   adds it. Read through the scope engine, a history window would keep a repeat, so "Hx of
   PE, now with recurrent PE" would read the recurrence as history, and a "PMH:" header sits
   outside its claim's clause (L193) (prototyped). "Family history of PE" reads the patient's
-  embolism definite (measured). The deferred-amendments issue holds both for v1.12 (entries
-  39 and 54).
+  embolism definite (measured). §15 holds both fixes (#14 entries 39 and 54).
 - **An unlisted drug's dose** (L133, L296, L376). An unlisted drug ends a listed one's reach
   only where it opens a list item, so a run-on list, "Lisinopril 10 mg daily amlodipine 5 mg
   daily", reads lisinopril 5 mg daily beside 10 mg daily (prototyped). A maximum after a
   comma ends the reach as an unlisted drug does, so "Tylenol max 3 g daily" citing "Tylenol
-  650 mg q6h prn pain, max 3000 mg daily" draws a WARNING (prototyped, L387); the
-  deferred-amendments issue holds it for v1.12 (entry 59). Where an unlisted drug ends the
-  reach, it ends it for later doses alone, not for the pending dose's interval or prn:
-  "Lisinopril 10 mg, amlodipine daily" reads lisinopril 10 mg daily, and "Lisinopril 10 mg,
-  amlodipine prn" reads it as needed, so a faithful "Lisinopril 10 mg twice daily" draws a
-  WARNING and "Lisinopril 10 mg daily" passes (measured, L396); the deferred-amendments
-  issue holds it for v1.12 (entry 60).
+  650 mg q6h prn pain, max 3000 mg daily" draws a WARNING (prototyped, L387); §15 holds its
+  fix (#14 entry 59). Where an unlisted drug ends the reach, it ends it for later doses
+  alone, not for the pending dose's interval or prn: "Lisinopril 10 mg, amlodipine daily"
+  reads lisinopril 10 mg daily, and "Lisinopril 10 mg, amlodipine prn" reads it as needed,
+  so a faithful "Lisinopril 10 mg twice daily" draws a WARNING and "Lisinopril 10 mg daily"
+  passes (measured, L396); §15 holds its fix (#14 entry 60).
 - **A route** (L293, L331, L371). `route_consistency` reads the listed drugs' routes alone
   (Vocabulary, above). A supplied oral route raises no finding, since a reader assumes oral:
   "Tylenol 1 g PO TID as needed" citing "Tylenol 1 g tid prn" passes, as a dropped "PO" does
@@ -3050,7 +3029,7 @@ know, stated plainly (v1.3):
   "Azithromycin 500 mg, IV, daily" passes (prototyped). A route form before another word
   still reads, so "Azithromycin 500 mg daily" citing "Azithromycin 500 mg daily IV fluids"
   draws a WARNING, and "Tylenol 650 mg q6h PR interval 160 ms" reads the acetaminophen
-  rectal (prototyped, L385); the deferred-amendments issue holds it for v1.12 (entry 58).
+  rectal (prototyped, L385); §15 holds its fix (#14 entry 58).
 - **Labels read through the extractors** (L220). The loader checks a label against the raw
   text through the same extractor the check uses (L219), so a label can't state what the
   extractor misreads, and a misread label loads: "apixaban continued, then held" reads
@@ -3089,7 +3068,7 @@ know, stated plainly (v1.3):
   claims, the invented assessment among them, 3 of 3. On 62 adversarial pairs, 173 of its
   186 verdicts agree with the labels. It passes a dropped "history of" ("Myocardial
   infarction" citing "Hx of MI 2018"), which no deterministic check reads in production mode
-  either (entry 39), and a unit supplied for a drug the lexicon didn't then name
+  either (§15, #14 entry 39), and a unit supplied for a drug the lexicon didn't then name
   ("Atorvastatin 40 mg nightly" citing "atorvastatin 40 nightly", which `dose_consistency`
   reads since L377), each 3 of 3. It rejects a dropped frequency ("Metoprolol increased to
   50 mg" citing "Increase metoprolol to 50 mg daily") and a side charted after its site
@@ -3115,18 +3094,12 @@ know, stated plainly (v1.3):
 - **Small n** (D11). 24+ model cases × k repeats is a regression tripwire, not an accuracy
   estimate — the README says so next to the number.
 
-Don't oversell the harness as bulletproof. The strength isn't claiming I solved clinical
-safety — it's understanding the problem deeply enough to know I *haven't*, and building
-honest guardrails anyway. That humility reads as more senior than any accuracy number.
-
 ---
 
 ## 9. Layer 5 — API + persistence
 
-Less *conceptual* weight than the layers above; its value is **craft and credibility.**
-This is where the project reads as "shipped software" vs "school assignment," and the
-difference is entirely the boring stuff done right. It's Phase 2 material (FastAPI, SQL)
-doing load-bearing work.
+Less *conceptual* weight than the layers above. Its work is a thin route, errors
+translated at the boundary, a persistence sink, and a deploy that states its limits.
 
 ### 9.1 The route is a composition root (no logic lives here)
 
@@ -3226,12 +3199,11 @@ note returned, the judged check errored, and the CRITICAL results unchanged.
 `await` the I/O-bound steps: the LLM call (seconds) and, when enabled, the judge's
 second call inside `run_checks`. Grounding and the deterministic checks are fast,
 CPU-bound, pure → they run inline *inside* those awaits; nothing about them is
-awaited individually. *"Why async here?"* → "two network calls per request, one of
-them optional, and I didn't want either serializing the event loop, while the
-deterministic layers stay inline." (v1.1 said "grounding and evals run inline";
-D2 made half of that false and v1.2 says the true version.)
+awaited individually. Two network calls per request, one of them optional, and neither may
+serialize the event loop; the deterministic layers stay inline. (v1.1 said "grounding and
+evals run inline"; D2 made half of that false and v1.2 says the true version.)
 
-### 9.3 Response contract = the spine's 4th job
+### 9.3 The response contract
 
 `SOAPNote` + `EvalReport` are Pydantic models already written in §4 → FastAPI serializes
 them, validates the outgoing shape, and generates live OpenAPI docs **for free.**
@@ -3262,7 +3234,7 @@ anthropic.APITimeoutError              → 504  upstream_timeout       v1.3 (L54
 anthropic.APIStatusError 429, 529      → 503  upstream_busy          overloaded = busy (L71, L99)
 anthropic.APIStatusError 408, 409      → 502  upstream_error         an intermediary's (L255)
 anthropic.APIStatusError 4xx (other)   → 500  internal_error         OUR request or config (L71)
-anthropic.APIStatusError (any other)   → 502  upstream_error         not my bug (L71, L99)
+anthropic.APIStatusError (any other)   → 502  upstream_error         not ours (L71, L99)
 anthropic.APIError (other)             → 502  upstream_error         incl. non-timeout connection failures
 unexpected Exception                   → 500  internal_error         logged by structure, never message (L69)
 ```
@@ -3314,7 +3286,7 @@ line above, and each names its test.
   `min_input_chars` whose content is shorter (L87), each containing a sentinel → 422 with
   the correct body; the sentinel is in neither the body nor the logs.
 - **Upstream failures are attributed by status (L71, L99).** A single `APIError` row
-  calling every upstream failure "not my bug" contradicted this section's own rule: a 401
+  blaming upstream for every failure contradicted this section's own rule: a 401
   from a bad key is our config, not upstream's bug. One `APIStatusError` handler branches
   on status — 4xx except 408, 409, and 429 → 500, logged with `upstream_status` (our schema,
   key, access, model id, or size); 408 and 409 → 502 at WARNING, an intermediary's after the
@@ -3379,7 +3351,7 @@ line above, and each names its test.
 
 A SOAP note is a **document-shaped aggregate** — read and written whole; you never query
 "every claim across all notes where section='A'." Normalizing into a claims table builds
-query power you have no query for (Volkswagen). So: relational envelope, JSONB payload.
+query power you have no query for. So: relational envelope, JSONB payload.
 
 ```python
 class NoteRecord(Base):                     # SQLAlchemy 2.0's typed form (L344): every
@@ -3405,9 +3377,9 @@ class NoteRecord(Base):                     # SQLAlchemy 2.0's typed form (L344)
 
 The pulled-out columns are exactly the ones you'd ever filter or trend on. `model_used` +
 `prompt_version` + `production_critical_passed` make the **regression thesis durable**:
-later you can query *"did my CRITICAL pass-rate drop when I switched from Opus to Haiku?"*
-— the evals-as-regression story becomes a tracked metric with history, not a one-shot
-script print.
+later you can query *"did the CRITICAL pass-rate drop when the model moved from Opus to
+Haiku?"* — the evals-as-regression story becomes a tracked metric with history, not a
+one-shot script print.
 
 **The report names what decided it (L334, L336).** `report` holds the whole `EvalReport`,
 which carries the verdict knobs it was checked under (`checks_config`) and the version of
@@ -3415,7 +3387,7 @@ the judge that judged it (`judge_version`, None without one), so a persisted ver
 with no column for either. `checks_version` keeps its column (L57); the judge's version
 gets none, since nothing queries by it (L344).
 
-> ⚠️ Naming (v1.1, sharpened): there are **two similarly-shaped metrics** and the name
+> Naming (v1.1, sharpened): there are **two similarly-shaped metrics** and the name
 > now says which is which. `production_critical_passed` is a per-note boolean from the
 > reference-free production subset. The **CI corpus rate** is a different number from a
 > different check-set, and it lives in `evals/runs/corpus_runs.jsonl` (§8.7). Never
@@ -3484,7 +3456,7 @@ in the note):
 and in v1.2 it actually can, because `claim_ids` exists (v1.1 described the two
 channels and shipped a contract that could only express the first).
 
-### 9.8 Edge cases / production realities (flag, don't all build)
+### 9.8 Edge cases and production realities
 
 - **Connection pooling** — the real concurrency concern is the DB, not async itself. Async
   engine (`asyncpg` pool via SQLAlchemy). Cheap; do it right.
@@ -3541,7 +3513,7 @@ channels and shipped a contract that could only express the first).
   `alembic.ini`; a test hands it a connection of its own, and `alembic upgrade --sql` prints
   PostgreSQL and touches no database.
 - **Secrets** — API key in env, never in code (`.env` gitignored, `.env.example` committed —
-  the reflex carries over from the APIs arc; matters more here, clinical-adjacent).
+  it matters more in a clinical-adjacent repo).
 - **Oversized transcripts** → rejected honestly at the boundary via `max_length` (§9.1);
   chunking to *accept* them → v2.
 - **The wallet (v1.2; hardened v1.3).** A deployed `/summarize` with no auth and a paid API
@@ -3561,8 +3533,7 @@ channels and shipped a contract that could only express the first).
   usage — a conservative cap is a correct cap, and it needs no settlement path. **One
   counter:** the demo runs a single worker with an in-process counter under an
   `asyncio.Lock`, documented, because N workers × N counters is N× the cap and a restart is
-  a reset. A shared counter is v2. Neither defense is "auth" (v2). Both are what a reviewer
-  from a health-AI company will check for within thirty seconds of seeing a live link.
+  a reset. A shared counter is v2. Neither defense is "auth" (v2).
 - **The deploy's judge (L332).** The public deploy runs with `judge_enabled` false. On 2c's
   smoke run the judge was 88% of the request's tokens (21,802 of 24,802, L324), and the cap
   counts tokens; it fired on none of that run's 21 claims and on 1 of the 72 repeats of 2c's
@@ -3593,8 +3564,8 @@ channels and shipped a contract that could only express the first).
   binding takes it back to a private preview, whose callers need the role. It serves the
   platform's own URL: behind a second proxy, a CDN's, uvicorn's walk from the right (L352)
   would stop at the CDN's address, and every client routed through one of its edges would
-  share that edge's rate-limit key (reasoned, not measured). FastAPI serves `/docs` and
-  `/openapi.json` there too, and a call through them meets the same admission as the page's.
+  share that edge's rate-limit key (reasoned, not measured). FastAPI serves `/openapi.json`
+  there too, and no `/docs` or `/redoc` (below, L407).
   The key reaches it from Secret Manager, through a runtime identity that can read only that
   secret; one instance serves it (`min = max = 1`), so the process's rate limit and daily
   budget are the service's. Its budget, 5,000,000 tokens, holds 68 requests a UTC day, each
@@ -3608,11 +3579,17 @@ channels and shipped a contract that could only express the first).
   limit's key, the budget, and the public path. When measured, the switch back to private
   took 68 s to turn the page's answers to 403, and restoring the binding brought 200 back at
   once (L400).
-- **Security headers (L398).** No response sets a `Content-Security-Policy`,
-  `X-Frame-Options`, `X-Content-Type-Options`, or `Referrer-Policy`. The page holds no auth,
-  no cookie, and no stored note, and it renders the model's text through React alone, never
-  as HTML, so a page that frames it could at most spend the capped daily budget. The
-  deferred-amendments issue holds them for v1.12 (entry 62).
+- **Security headers (L398, L407).** Every response sets a `Content-Security-Policy` of
+  `default-src 'self'`, with `base-uri`, `form-action`, and `frame-ancestors` each `'none'`,
+  and three more headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and
+  `Referrer-Policy: no-referrer`. The page loads one script and one stylesheet from its own
+  origin and runs no inline code, so the policy costs it nothing, and no other origin can
+  frame it (measured in Chromium on the built page: a summarized note, four error bodies,
+  and a dropped connection). One middleware sets them, registered after the request-id
+  middleware, so it wraps the catch-all and the catch-all's 500 carries them; CORS stays
+  outermost (L359), and its preflight answer, in the dev loop alone, is the one response
+  without them. FastAPI serves no `/docs` or `/redoc`: both pages load a CDN's unpinned
+  scripts, which the policy refuses.
 - **The paste box is a PHI intake (v1.2).** The repo has zero real PHI. The *deployed
   demo* has a text box, and someone will paste a real note into it. Two consequences:
   (1) the UI carries a visible "synthetic / de-identified text only — this is a demo,
@@ -3620,28 +3597,20 @@ channels and shipped a contract that could only express the first).
   exists and the public demo runs with it **off** — the pipeline runs, the note is
   returned, nothing is written. Persistence is demonstrated in the integration tests
   and in a locally-run instance, not by accumulating strangers' clinical text on a
-  free-tier Postgres. Knowing to make that call is the clinical-adjacent judgment
-  the whole project is supposed to prove. (v1.3: persistence off is necessary, not
+  free-tier Postgres. (v1.3: persistence off is necessary, not
   sufficient — the logging rule above is the other half.)
 
-**Deliberate non-feature (architecturally interesting):** **streaming.** It fights the
-design — you cannot ground a claim until it's *complete*, nor safety-check a half-emitted
-note. The whole flow is a *whole-object* pipeline. *"I chose not to stream because it
-conflicts with grounding the output before display"* is a better interview answer than most
-features. (Auth, multi-tenancy, real EHR/FHIR write-back → same v2 bucket.)
+**Deliberate non-feature:** **streaming.** It fights the design — you cannot ground a claim
+until it's *complete*, nor safety-check a half-emitted note. The whole flow is a
+*whole-object* pipeline, and streaming would show text before grounding could check it.
+(Auth, multi-tenancy, real EHR/FHIR write-back → same v2 bucket.)
 
-### 9.9 Honest mirror
+### 9.9 What a response names
 
-This layer is where the instinct is to coast (the moat is elsewhere). Don't. Reviewers
-**judge competence by the plumbing precisely because it's unglamorous.** The moat gets the
-interview; the clean route, translated errors, health check, pooled connections, and real
-tests get me trusted.
-
-**What a response names (L334, L336).** A judged report names its judge: `judge_version`
-comes from the judge's own `version` (§8.2), stamped as its usage is, so the domain reads
-nothing from the edge (invariant 1). Without a judge it is None, as on every deployed
-response (§9.8). The report names its verdict knobs too (`checks_config`). Phase 3's
-milestone holds `NoteRecord.judge_version` (L57).
+A judged report names its judge (L334, L336): `judge_version` comes from the judge's own
+`version` (§8.2), stamped as its usage is, so the domain reads nothing from the edge
+(invariant 1). Without a judge it is None, as on every deployed response (§9.8). The report
+names its verdict knobs too (`checks_config`).
 
 ### 9.10 The frontend contract (v1.2 — previously a directory name)
 
@@ -3843,8 +3812,7 @@ unit-tested, and the injected corpus proves every check the model corpus relies 
 **The workflow file:** the free tiers run in **GitHub Actions** (`.github/workflows/ci.yml`:
 `uv sync` → `ruff check` + `ruff format --check` → `mypy` → `pytest`; v1.3.3, L96) on every
 push **from phase 1** (v1.3, L60 — v1.2 scheduled CI in phase 3 while CLAUDE.md said it ran
-on push; a green badge from the first commit is the cheapest credibility signal in the
-repo). The model corpus is deliberately not in the push workflow — it spends real money.
+on push). The model corpus is deliberately not in the push workflow — it spends real money.
 Beside the free tiers, from phase 3, the `image` job builds the deploy's image and boots it
 (L353): the build context must be `.dockerignore`'s allowlist, with a `.env`, a bytecode
 cache, and the frontend's `node_modules` and `dist` planted for it to keep out; the server
@@ -3974,7 +3942,7 @@ reads both files (below), and the first dispatches measured what no test can (L3
 
 ---
 
-## 12. The "one spine, many jobs" receipt
+## 12. One schema, many uses
 
 One data-modeling decision in the skeleton phase, propagating without re-definition:
 
@@ -4093,7 +4061,7 @@ from importing the spine, so they can't live in `schemas.py`. Anything else outs
 
 ---
 
-## 14. Build sequence (layered — the Volkswagen safeguard)
+## 14. Build sequence
 
 Strictly sequential. Every phase leaves something that runs end to end, and every phase has
 **exit criteria** (v1.3, L61) — v1.2 had only §17, which audits the finished project, so
@@ -4102,9 +4070,8 @@ line by line, CI green, CLAUDE.md's "Current phase" line updated, and a git tag.
 
 v1.3 (L59) splits phase 2. It held grounding, extraction, nine checks, the corpus, the
 loader, the runner, lineage, and the judge — before this revision added some twenty more
-items. A phase that large has no demoable midpoint: a Volkswagen inside the build sequence
-itself. `run_checks` is async from 2a even though nothing awaits until 2c — free now, a
-signature change across every caller later.
+items. A phase that large has no demoable midpoint. `run_checks` is async from 2a even
+though nothing awaits until 2c — free now, a signature change across every caller later.
 
 ### Phase 1 — MVP spine · `v0.1-spine`
 
@@ -4273,7 +4240,9 @@ its exit criteria begin with a design:
 
 ---
 
-## 15. v2 backlog (deliberate non-features — I know the prod version, I chose scope)
+## 15. v2 backlog
+
+**Deliberate non-features,** left out of v1's scope:
 
 - Streaming token output (conflicts with whole-object grounding — §9.8)
 - RxNorm / medspaCy / NegEx ontology-derived extraction (replaces hand lexicons — §7)
@@ -4302,31 +4271,54 @@ its exit criteria begin with a design:
 - **Live medication-omission detection beyond new prescriptions** — only if a derivation
   trustworthy enough for §8.1 appears (§8.4) (v1.3)
 
+**Deferred fixes,** gaps found by measurement and left for v2 by v1.12's triage of #14
+(L405). §8.8 states each one's cost and how it was measured, except entry 2's, a cost in
+tokens, and 47's, which §5.2 states:
+
+- The correction turn echoes each validation error's `input` (§5.4, #14 entry 2); its
+  trigger: a corpus run that records a validation retry
+- A Tier 3 span can run past its sentence into the next (§8.8, #14 entry 15); its trigger: a
+  corpus run with a Tier 3 span
+- A dropped "history of" passes, so a past diagnosis reads as current (§8.8, #14 entry 39)
+- A per-request deadline around summarize (§5.2, #14 entry 47); its trigger: a live request
+  past `llm_timeout_s`
+- An abbreviation's period ends its sentence (§8.8, #14 entry 51)
+- "Not likely" reads probable (§8.8, #14 entry 52)
+- "Rather than" is no comparative (§8.8, #14 entry 53)
+- A family history reads as the patient's (§8.8, #14 entry 54)
+- A head with a negative result excludes nothing (§8.8, #14 entry 55)
+- A side in parentheses names none (§8.8, #14 entry 56)
+- A hard-wrapped paste ends a window at every line break (§8.8, #14 entry 57)
+- A route form before another word reads as its route (§8.8, #14 entry 58)
+- A maximum after a comma ends a dose's reach (§8.8, #14 entry 59)
+- An unlisted drug's interval or prn reaches the listed drug's dose (§8.8, #14 entry 60)
+- A chart that lists none still contests a denial (§8.8, #14 entry 61)
+
 ---
 
-## 16. Curriculum mapping (nothing wasted)
+## 16. Glossary
 
-v1.3 (L63): the curriculum's units are **Arcs**; "Phase" means only a build phase (§14). One
-word, one meaning — so "Current phase: 1" in CLAUDE.md can't be misread.
+Terms the spec uses with a meaning of its own, each defined where it is cited.
 
-```
-APIs & HTTP arc            ✓ ──► the authenticated LLM call (orchestrator)
-Type Hints arc             ✓ ──► the Pydantic spine (schemas.py)
-Error Handling arc         ✓ ──► the OrchestratorError hierarchy, EAFP boundary, HTTP translation
-Iterators/Generators arc   ✓ ──► pipeline composition
-Testing arc                ✓ ──► the tier strategy; case_verdict IS the bridge
-                                  (eval = a test — fuzzy asserts over a corpus)
-Web foundations arc          ──► the shell: api.py, frontend/, db.py, Alembic  (build phases 1, 3)
-RAG / evals arc              ──► Layer 4, the moat (build phase 2) and its RAG deepening
-                                  (build phase 4). Not Layer 2 — v1.2 mapped RAG to
-                                  grounding, which retrieves nothing.
-```
-
-Every brick laid or about to be laid has a home in this thing.
+- **Spine** — the schema family in `schemas.py` (§4) that every layer reads: the draft the
+  model emits, the grounded note built from it, and the eval and run types.
+- **Domain and edge** — a domain module knows nothing about FastAPI, Postgres, or Anthropic
+  and reads no settings; an edge module is an adapter, the only place a vendor's wire format
+  may appear (§0, L17).
+- **Composition root** — the one place that wires the layers together and holds no logic of
+  its own: the `/summarize` route (§9.1).
+- **Matching ladder** — grounding's four tiers (§6.1): an exact substring, a normalized
+  match, a fuzzy match at or above the cutoff whose digits agree, and none, which flags the
+  claim UNSUPPORTED.
+- **Trap species** — the corpus's three kinds of case (§8.5): fidelity traps test the model,
+  detection traps test the safety layer, and clean controls test for false positives.
+- **CRITICAL, WARNING, INFO** — a finding's severity, §8.6's triage: which findings
+  interrupt the clinician and which annotate. No INFO check ships in v1.
+- **Phase** — a build phase of §14, and nothing else (L63).
 
 ---
 
-## 17. Definition of done (portfolio-grade)
+## 17. Definition of done
 
 The whole project. Per-phase exit criteria live in §14.
 
@@ -4372,14 +4364,5 @@ The whole project. Per-phase exit criteria live in §14.
       logs; secrets in env
 - [ ] `frontend/src/api.d.ts` generated from `/openapi.json`; every §9.10 state designed
 - [ ] README carries the product layer (who / what pain / v2) + the four-metric scorecard
-      sentence with n and k (§2) + the cost line (§5.5) + the honest mirror's limits (§8.8)
+      sentence with n and k (§2) + the cost line (§5.5) + the known limits (§8.8)
 - [ ] Clean conventional-commit git history, one tag per phase
-
----
-
-*The bricks have been laid. v1.1 exists because one of them got interrogated. v1.2 exists
-because the interrogation was pointed at what the checks could actually see — and found
-they'd been trusting a quote to vouch for a sentence. v1.3 exists because someone walked the
-whole building before moving in — and found the checks trusting the model's quote over the
-source, the model's silence over the danger, and a crash over a verdict. Now the source
-answers for the quote, and nothing is safe just because it's missing. 🧱⚔️◡̈*

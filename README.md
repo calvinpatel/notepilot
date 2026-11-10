@@ -94,7 +94,7 @@ Verdicts were stable in all eight runs: no case changed verdict across its three
 
 ## What it can't see
 
-The checks are deterministic and tested, and they are narrow. The spec states every known gap with how it was measured, the checks' gaps in its [honest mirror (§8.8)](PROJECT_01_NOTEPILOT.md#88-honest-mirror-state-this-dont-hide-it) and the deploy's in [§9.8](PROJECT_01_NOTEPILOT.md#98-edge-cases--production-realities-flag-dont-all-build). These are the ones to know before trusting a live note:
+The checks are deterministic and tested, and they are narrow. The spec states every known gap with how it was measured, the checks' gaps in its [known limits (§8.8)](PROJECT_01_NOTEPILOT.md#88-known-limits) and the deploy's in [§9.8](PROJECT_01_NOTEPILOT.md#98-edge-cases-and-production-realities). These are the ones to know before trusting a live note:
 
 - **Real clinical language.** The corpus is synthetic by design, so how often the hand-written vocabulary misses a real clinician's phrasing is unmeasured. A drug the vocabulary doesn't list is invisible to every drug check, and an allergen that isn't a drug, such as latex or a food, is never read.
 - **A hard-wrapped paste.** A line break ends a clause, so a paste wrapped mid-sentence cuts a negation or a hold off at the break: with "Denies fever, chills, or" wrapped before "nausea", a faithful "Denies nausea" fires a check and "Nausea" passes. The corpus keeps its cases unwrapped; a live paste arrives as its source wrapped it.
@@ -116,7 +116,7 @@ The checks are deterministic and tested, and they are narrow. The spec states ev
 
 Out of scope for v1: EHR integration, real patient data, multi-user auth. NotePilot is a portfolio project and is not a medical device.
 
-**What v2 would add.** Real auth and multi-tenancy, so each clinic's notes are its own; write-back to the chart through an EHR's FHIR interface; and a rate-limit and budget count shared across instances, so the deploy can run more than one. The spec's [§15](PROJECT_01_NOTEPILOT.md#15-v2-backlog-deliberate-non-features--i-know-the-prod-version-i-chose-scope) lists the full backlog, each item a deliberate non-feature.
+**What v2 would add.** Real auth and multi-tenancy, so each clinic's notes are its own; write-back to the chart through an EHR's FHIR interface; and a rate-limit and budget count shared across instances, so the deploy can run more than one. The spec's [§15](PROJECT_01_NOTEPILOT.md#15-v2-backlog) lists the full backlog: the deliberate non-features, and the measured gaps left for v2.
 
 ## Running it locally
 
